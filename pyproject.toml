@@ -1,0 +1,16 @@
+[project]
+name = "tavern"
+version = "0.1.0"
+description = "Fast, lightweight roleplay chat frontend compatible with SillyTavern formats"
+requires-python = ">=3.11"
+readme = "README.md"
+# Dependencies live in requirements.txt (pinned). The project runs from the
+# repository via `python -m tavern`; it is not meant to be pip-installed.
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "plugins"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100

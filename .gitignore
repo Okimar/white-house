@@ -1,0 +1,19 @@
+# User data: chats, cards, secrets, backups, logs
+/data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv*/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

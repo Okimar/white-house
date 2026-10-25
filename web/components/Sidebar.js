@@ -1,0 +1,52 @@
+// Left panel: characters (import a card from a JSON file) and the chats of the selected character.
+import { html, useRef } from "../vendor/preact-htm.mjs";
+
+export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onDeleteChat,
+  onDeleteCharacter, onSettings, open, onClose }) {
+  const fileInput = useRef(null);
+
+  const pickFile = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (file) await onImport(file);
+  };
+
+  return html`
+    <aside class=${"sidebar" + (open ? " open" : "")}>
+      <div class="side-head">
+        <strong>Tavern</strong>
+        <span class="spacer"></span>
+        <button title="Настройки" onClick=${onSettings}>⚙</button>
+        <button class="only-mobile" title="Закрыть" onClick=${onClose}>✕</button>
+      </div>
+
+      <h2>Персонажи</h2>
+      <ul class="list">
+        ${characters.map((c) => html`
+          <li key=${c.id}>
+            <button class="item" onClick=${() => onNewChat(c.id)} title="Начать новый чат">
+              ${c.name}
+            </button>
+            <button title="Удалить персонажа"
+              onClick=${() => confirm(`Удалить персонажа «${c.name}»? Чаты останутся.`) && onDeleteCharacter(c.id)}>🗑</button>
+          </li>`)}
+      </ul>
+      <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${pickFile} />
+      <div class="row">
+        <button onClick=${() => fileInput.current.click()}>Импорт карточки (JSON)</button>
+        <button onClick=${() => onNewChat(null)}>Чат без персонажа</button>
+      </div>
+
+      <h2>Чаты</h2>
+      <ul class="list">
+        ${chats.length === 0 && html`<li class="muted">Чатов пока нет</li>`}
+        ${chats.map((c) => html`
+          <li key=${c.id} class=${c.id === chatId ? "active" : ""}>
+            <button class="item" onClick=${() => onOpenChat(c.id)}>${c.title}</button>
+            <button title="Удалить чат"
+              onClick=${() => confirm(`Удалить чат «${c.title}»?`) && onDeleteChat(c.id)}>🗑</button>
+          </li>`)}
+      </ul>
+    </aside>
+  `;
+}
