@@ -16,6 +16,7 @@ from tavern import __version__
 from tavern.api import chats as chats_api
 from tavern.api import characters as characters_api
 from tavern.api import connections as connections_api
+from tavern.api import jsonl as jsonl_api
 from tavern.context import AppContext
 from tavern.errors import AppError, NotFound
 from tavern.paths import WEB_DIR
@@ -68,6 +69,7 @@ def api_routes() -> list[Route]:
         Route("/health", health, methods=["GET"]),
         *characters_api.routes,
         *connections_api.routes,
+        *jsonl_api.routes,
         *chats_api.routes,
         # Must stay last: unknown /api paths get JSON 404 instead of falling through to static files.
         Route("/{path:path}", api_not_found, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),

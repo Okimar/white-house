@@ -7,7 +7,8 @@ the `prompt.built` filter, so keep it stable: the filter receives and returns a 
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+import re
 from typing import Any
 
 from tavern.providers.base import ChatMessage
@@ -19,9 +20,30 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // CHARS_PER_TOKEN) if text else 0
 
 
-def substitute(text: str, *, char: str, user: str) -> str:
-    """Minimal macro support for stage 1: {{char}} and {{user}}. Stage 2 adds the full set."""
-    return text.replace("{{char}}", char).replace("{{user}}", user)
+def substitute(
+    text: str,
+    *,
+    char: str,
+    user: str,
+    rng: Callable[[int], int] | None = None,
+) -> str:
+    """Expand safe card macros; an injected RNG makes random macros testable."""
+    result = text.replace("{{char}}", char).replace("{{user}}", user)
+    choose = rng or __import__("random").randrange
+
+    def random_choice(match: re.Match[str]) -> str:
+        options = match.group(1).split("::")
+        return options[choose(len(options))] if options else ""
+
+    def roll(match: re.Match[str]) -> str:
+        count, sides = int(match.group(1)), int(match.group(2))
+        if count < 1 or sides < 1 or count > 100 or sides > 100000:
+            return match.group(0)
+        return str(sum(choose(sides) + 1 for _ in range(count)))
+
+    result = re.sub(r"\{\{random::([^{}]+)\}\}", random_choice, result)
+    return re.sub(r"\{\{roll:(\d+)d(\d+)\}\}", roll, result)
+
 
 
 def system_text(card: dict[str, Any], *, user: str) -> str:

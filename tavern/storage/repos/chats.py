@@ -113,6 +113,15 @@ class ChatRepo:
 
     # --- messages ----------------------------------------------------------------------------
 
+    def all_messages(self, chat_id: str) -> list[dict[str, Any]]:
+        """Return every message node in tree order for complete chat export."""
+        self.get_chat(chat_id)
+        rows = self.db.fetchall(
+            _MESSAGE_SELECT + " WHERE m.chat_id = ? ORDER BY m.depth, m.created_at, m.id",
+            (chat_id,),
+        )
+        return [_message(row) for row in rows]
+
     def get_message(self, message_id: str) -> dict[str, Any]:
         row = self.db.fetchone(_MESSAGE_SELECT + " WHERE m.id = ?", (message_id,))
         if row is None:
@@ -176,6 +185,14 @@ class ChatRepo:
         if cursor.rowcount == 0:
             raise NotFound(f"Swipe {idx} of message {message_id} not found")
         self._touch(message["chat_id"])
+
+    def get_swipes(self, message_id: str) -> list[str]:
+        """Return all swipe texts in index order for export."""
+        self.get_message(message_id)
+        rows = self.db.fetchall(
+            "SELECT content FROM swipes WHERE message_id = ? ORDER BY idx", (message_id,)
+        )
+        return [row["content"] for row in rows]
 
     def add_swipe(self, message_id: str, content: str = "", meta: dict[str, Any] | None = None) -> int:
         """Add an alternative text and make it the active one. Returns its index."""

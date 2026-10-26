@@ -1,9 +1,10 @@
 // Left panel: characters (import a card from a JSON file) and the chats of the selected character.
 import { html, useRef } from "../vendor/preact-htm.mjs";
 
-export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onDeleteChat,
-  onDeleteCharacter, onSettings, open, onClose }) {
+export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat,
+  onExportCharacter, onDeleteChat, onDeleteCharacter, onSettings, open, onClose }) {
   const fileInput = useRef(null);
+  const chatFileInput = useRef(null);
 
   const pickFile = async (e) => {
     const file = e.target.files[0];
@@ -27,13 +28,17 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
             <button class="item" onClick=${() => onNewChat(c.id)} title="Начать новый чат">
               ${c.name}
             </button>
+            <button title="Экспортировать PNG" onClick=${() => onExportCharacter(c.id)}>↓</button>
             <button title="Удалить персонажа"
               onClick=${() => confirm(`Удалить персонажа «${c.name}»? Чаты останутся.`) && onDeleteCharacter(c.id)}>🗑</button>
           </li>`)}
       </ul>
-      <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${pickFile} />
+      <input ref=${fileInput} type="file" accept=".json,.png,application/json,image/png" hidden onChange=${pickFile} />
+      <input ref=${chatFileInput} type="file" accept=".jsonl,application/x-ndjson" hidden
+        onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
       <div class="row">
-        <button onClick=${() => fileInput.current.click()}>Импорт карточки (JSON)</button>
+        <button onClick=${() => fileInput.current.click()}>Импорт карточки</button>
+        <button onClick=${() => chatFileInput.current.click()}>Импорт чата</button>
         <button onClick=${() => onNewChat(null)}>Чат без персонажа</button>
       </div>
 

@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0 and 1 done, 2 next**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0, 1 and 2 done, 3 next**.
 
 ## Commands
 
@@ -50,7 +50,8 @@ tavern/                 Python package (backend)
   core/                 events (EventBus), budget (RunBudget), prompt, llm (LLMClient), generation
                         (Generator strategies), runs (background Run + SSE replay)
   providers/            Provider interface, openai_compat, registry (kinds, API keys from secrets)
-  formats/cards.py      character card V1/V2/V3 parsing
+  formats/cards.py      character card V1/V2/V3 parsing and PNG metadata import/export
+  formats/jsonl.py      versioned JSONL chat tree and swipe import/export
   storage/repos/        SQL access per entity (characters, chats/messages/swipes, connections, settings)
 web/                    browser UI: Preact + htm vendored in web/vendor, plain ES modules, no bundler
   main.js               app shell; core/api.js (fetch + SSE), core/chat.js (chat state hook)

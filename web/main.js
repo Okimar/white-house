@@ -60,11 +60,40 @@ function App() {
 
   const importCard = async (file) => {
     try {
-      const card = JSON.parse(await file.text());
-      await api.post("/characters", card);
+      if (file.type === "image/png" || file.name.toLowerCase().endsWith(".png")) {
+        await api.postBinary("/characters/import/png", file, "image/png");
+      } else {
+        const card = JSON.parse(await file.text());
+        await api.post("/characters", card);
+      }
       await refresh();
     } catch (e) {
       onError(e instanceof SyntaxError ? "Файл не является корректным JSON" : e.message);
+    }
+  };
+
+  const exportCharacter = (id) => {
+    window.location.href = `/api/characters/${id}/export.png`;
+  };
+
+  const exportChat = () => {
+    if (chatId) window.location.href = `/api/chats/${chatId}/export.jsonl`;
+  };
+
+  const importChat = async (file) => {
+    try {
+      const created = await fetch("/api/chats/import.jsonl", {
+        method: "POST", headers: { "Content-Type": "application/x-ndjson" }, body: await file.text(),
+      });
+      if (!created.ok) {
+        const error = await created.json();
+        throw new Error(error.error?.message || "Не удалось импортировать чат");
+      }
+      const data = await created.json();
+      await refresh();
+      open(data.chat.id);
+    } catch (e) {
+      onError(e.message);
     }
   };
 
@@ -89,13 +118,15 @@ function App() {
   return html`
     <div class="app">
       <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} open=${menu}
-        onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onDeleteChat=${deleteChat}
+        onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
+        onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat}
         onDeleteCharacter=${deleteCharacter} onSettings=${() => setShowSettings(true)}
         onClose=${() => setMenu(false)} />
       <main class="main">
         <div class="topbar">
           <button class="only-mobile" title="Меню" onClick=${() => setMenu(true)}>☰</button>
           <strong>${shown ? chat.chat.title : "Tavern"}</strong>
+          ${shown && html`<button class="export-chat" title="Экспортировать чат JSONL" onClick=${exportChat}>↓ JSONL</button>`}
         </div>
         ${shown
           ? html`

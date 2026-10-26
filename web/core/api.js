@@ -39,6 +39,27 @@ async function request(method, path, body) {
 export const api = {
   get: (path) => request("GET", path),
   post: (path, body = {}) => request("POST", path, body),
+  postBinary: async (path, body, contentType) => {
+    let response;
+    try {
+      response = await fetch("/api" + path, {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body,
+      });
+    } catch (e) {
+      throw new ApiError(0, "network", "Нет связи с сервером");
+    }
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (e) { /* non-JSON error */ }
+    if (!response.ok) {
+      const err = (data && data.error) || {};
+      throw new ApiError(response.status, err.code || "http_" + response.status,
+        err.message || response.statusText || "Ошибка запроса", err.details);
+    }
+    return data;
+  },
   put: (path, body = {}) => request("PUT", path, body),
   del: (path) => request("DELETE", path),
 };
