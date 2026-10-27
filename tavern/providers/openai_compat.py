@@ -6,8 +6,10 @@ KoboldCpp /v1, text-generation-webui and anything else that speaks `/chat/comple
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
+import urllib.request
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -40,7 +42,8 @@ class OpenAICompatProvider(Provider):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self._client = client or httpx.AsyncClient(
-            timeout=httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
+            timeout=httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT),
+            trust_env=not direct_connection(self.base_url),
         )
         self._owns_client = client is None
 
@@ -142,9 +145,31 @@ def _usage(raw: dict[str, Any]) -> Usage:
     return Usage(int(raw.get("prompt_tokens") or 0), int(raw.get("completion_tokens") or 0))
 
 
+def direct_connection(base_url: str) -> bool:
+    """True when requests to this URL must bypass the system HTTP proxy.
+
+    httpx reads the proxy from the environment (on Windows from the registry) but not the
+    bypass list, so a local backend would be sent through the proxy, which answers 503.
+    Local and private addresses always go direct; other hosts follow the OS bypass list.
+    """
+    host = httpx.URL(base_url).host
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        return address.is_loopback or address.is_private or address.is_link_local
+    try:
+        return bool(urllib.request.proxy_bypass(host))
+    except OSError:
+        return False
+
+
 async def _error_from(response: httpx.Response) -> ProviderError:
     await response.aread()
-    message = response.text[:300]
+    message = response.text[:300].strip() or response.reason_phrase or "empty response"
     try:
         err = response.json().get("error")
         if isinstance(err, dict) and err.get("message"):

@@ -10,14 +10,39 @@ export function Settings({ settings, onClose, onChanged, onError }) {
   const [active, setActive] = useState(settings.active_connection || null);
   const [userName, setUserName] = useState(settings.user_name || "");
   const [form, setForm] = useState(BLANK);
-  const [models, setModels] = useState([]);
+  const [formModels, setFormModels] = useState([]); // models offered by the address typed in the form
+  const [models, setModels] = useState({}); // connection id -> model ids
   const [status, setStatus] = useState("");
+
+  // Model lists load by themselves; a failure only shows when the user presses "Проверить".
+  const loadModels = (id) => api.get(`/connections/${id}/models`)
+    .then(({ models: list }) => { setModels((m) => ({ ...m, [id]: list })); return list; });
 
   const reload = () => api.get("/connections").then((d) => {
     setConnections(d.connections);
     setActive(d.active);
-  }).catch((e) => onError(e.message));
-  useEffect(() => { reload(); }, []);
+    return d.connections;
+  }).catch((e) => { onError(e.message); return []; });
+  useEffect(() => {
+    reload().then((list) => list.forEach((c) => loadModels(c.id).catch(() => {})));
+  }, []);
+
+  // Ask the typed address for its models once the user pauses typing.
+  useEffect(() => {
+    const url = form.base_url.trim();
+    if (!/^https?:\/\/\S+/.test(url)) { setFormModels([]); return undefined; }
+    let dead = false;
+    const timer = setTimeout(() => {
+      api.post("/connections/models", { kind: "openai", base_url: url, api_key: form.api_key })
+        .then(({ models: list }) => {
+          if (dead) return;
+          setFormModels(list);
+          setForm((f) => (f.model || !list.length ? f : { ...f, model: list[0] }));
+        })
+        .catch(() => !dead && setFormModels([]));
+    }, 600);
+    return () => { dead = true; clearTimeout(timer); };
+  }, [form.base_url, form.api_key]);
 
   const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
 
@@ -29,10 +54,11 @@ export function Settings({ settings, onClose, onChanged, onError }) {
   const add = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/connections", { ...form, kind: "openai" });
+      const created = await api.post("/connections", { ...form, kind: "openai" });
       setForm(BLANK);
-      setModels([]);
+      setFormModels([]);
       await reload();
+      loadModels(created.id).catch(() => {});
       onChanged();
     } catch (err) {
       onError(err.message);
@@ -48,9 +74,8 @@ export function Settings({ settings, onClose, onChanged, onError }) {
   const test = async (id) => {
     setStatus("Проверка…");
     try {
-      const { models: list } = await api.get(`/connections/${id}/models`);
+      const list = await loadModels(id);
       setStatus(`Подключение работает, моделей: ${list.length}`);
-      setModels(list.map((m) => m.id || m));
     } catch (err) {
       setStatus("Ошибка: " + err.message);
     }
@@ -90,14 +115,16 @@ export function Settings({ settings, onClose, onChanged, onError }) {
                 <strong>${c.name}</strong> <span class="muted">${c.base_url}${c.has_key ? " · ключ задан" : ""}</span>
               </label>
               <div class="row">
-                <input value=${c.model} placeholder="модель" list="models"
+                <input value=${c.model} placeholder="модель" list=${"models-" + c.id}
                   onChange=${(e) => setModel(c, e.target.value)} />
+                <datalist id=${"models-" + c.id}>
+                  ${(models[c.id] || []).map((m) => html`<option value=${m}></option>`)}
+                </datalist>
                 <button onClick=${() => test(c.id)}>Проверить</button>
                 <button onClick=${() => remove(c)}>Удалить</button>
               </div>
             </li>`)}
         </ul>
-        <datalist id="models">${models.map((m) => html`<option value=${m}></option>`)}</datalist>
         <p class="muted" role="status">${status}</p>
 
         <h3>Новое подключение (OpenAI-совместимое)</h3>
@@ -105,7 +132,12 @@ export function Settings({ settings, onClose, onChanged, onError }) {
           <input required placeholder="Название" value=${form.name} onInput=${set("name")} />
           <input required placeholder="Адрес API, например https://api.openai.com/v1" value=${form.base_url}
             onInput=${set("base_url")} />
-          <input placeholder="Модель" value=${form.model} onInput=${set("model")} />
+          <input placeholder="Модель" value=${form.model} onInput=${set("model")} list="form-models"
+            aria-describedby="form-models-hint" />
+          <datalist id="form-models">${formModels.map((m) => html`<option value=${m}></option>`)}</datalist>
+          <span id="form-models-hint" class="muted">
+            ${formModels.length ? `Доступно моделей: ${formModels.length}` : "Список моделей подгрузится по адресу и ключу"}
+          </span>
           <input type="password" autocomplete="off" placeholder="API-ключ (необязательно для локальных)"
             value=${form.api_key} onInput=${set("api_key")} />
           <button class="primary" type="submit">Добавить</button>

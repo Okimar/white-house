@@ -79,19 +79,39 @@ async def delete_connection(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
-async def list_models(request: Request) -> JSONResponse:
-    """Ask the backend which models it offers (also serves as a connection test)."""
-    ctx = ctx_of(request)
-    provider = ctx.providers.create(ctx.connections.get(request.path_params["id"]))
+async def _models_of(provider: Any) -> JSONResponse:
     try:
         return JSONResponse({"models": await provider.list_models()})
     finally:
         await provider.aclose()
 
 
+async def list_models(request: Request) -> JSONResponse:
+    """Ask the backend which models it offers (also serves as a connection test)."""
+    ctx = ctx_of(request)
+    return await _models_of(ctx.providers.create(ctx.connections.get(request.path_params["id"])))
+
+
+async def probe_models(request: Request) -> JSONResponse:
+    """Model list for settings not saved yet, so the form can offer models while it is filled in."""
+    ctx = ctx_of(request)
+    body = await json_body(request)
+    kind = field(body, "kind", str, default="openai")
+    if kind not in ctx.providers.kinds:
+        raise BadRequest(f"Unknown provider kind {kind!r}. Available: {', '.join(ctx.providers.kinds)}")
+    draft = {
+        "id": "",
+        "kind": kind,
+        "base_url": field(body, "base_url", str, allow_empty=False).strip(),
+        "params": {},
+    }
+    return await _models_of(ctx.providers.create(draft, api_key=field(body, "api_key", str, default="")))
+
+
 routes = [
     Route("/connections", list_connections, methods=["GET"]),
     Route("/connections", create_connection, methods=["POST"]),
+    Route("/connections/models", probe_models, methods=["POST"]),
     Route("/connections/{id}", update_connection, methods=["PUT"]),
     Route("/connections/{id}", delete_connection, methods=["DELETE"]),
     Route("/connections/{id}/models", list_models, methods=["GET"]),

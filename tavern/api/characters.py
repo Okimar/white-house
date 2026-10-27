@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import re
+from urllib.parse import quote
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -54,11 +55,13 @@ async def export_character_png(request: Request) -> Response:
                 blob = original
         except (ValueError, binascii.Error):
             pass
-    return Response(
-        blob,
-        media_type="image/png",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'},
-    )
+    return Response(blob, media_type="image/png", headers={"Content-Disposition": _attachment(safe_name + ".png")})
+
+
+def _attachment(filename: str) -> str:
+    """Content-Disposition for any name: headers are latin-1, so non-ASCII goes in filename* (RFC 6266)."""
+    fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 async def update_character(request: Request) -> JSONResponse:

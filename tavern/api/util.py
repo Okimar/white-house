@@ -36,6 +36,9 @@ def field(body: dict[str, Any], key: str, kind: type, *, default: Any = ..., all
             raise BadRequest(f"Field {key!r} is required")
         return default
     value = body[key]
+    # JSON null for an optional field means "not given" (browsers send {"character_id": null}).
+    if value is None and default is None:
+        return None
     # bool is a subclass of int: reject it where a number is expected.
     if not isinstance(value, kind) or (kind in (int, float) and isinstance(value, bool)):
         raise BadRequest(f"Field {key!r} must be of type {kind.__name__}")

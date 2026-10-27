@@ -48,11 +48,13 @@ class ProviderRegistry:
     def kinds(self) -> list[str]:
         return sorted(self._factories)
 
-    def create(self, connection: dict[str, Any]) -> Provider:
+    def create(self, connection: dict[str, Any], *, api_key: str | None = None) -> Provider:
+        """Provider for a saved connection (key from secrets) or a draft with an explicit key."""
         factory = self._factories.get(connection["kind"])
         if factory is None:
             raise UnknownProviderKind(
                 f"Unknown provider kind {connection['kind']!r}. Available: {', '.join(self.kinds)}"
             )
-        api_key = self._secrets.get(key_name(connection["id"]), "") or ""
+        if api_key is None:
+            api_key = self._secrets.get(key_name(connection["id"]), "") or ""
         return factory(connection, api_key, self.http_client)
