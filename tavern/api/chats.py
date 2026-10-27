@@ -72,6 +72,12 @@ async def get_chat(request: Request) -> JSONResponse:
     )
 
 
+async def get_history(request: Request) -> JSONResponse:
+    ctx = ctx_of(request)
+    chat_id = request.path_params["id"]
+    return JSONResponse({"messages": ctx.chats.all_messages(chat_id)})
+
+
 async def get_messages(request: Request) -> JSONResponse:
     ctx_of(request).chats.get_chat(request.path_params["id"])
     return JSONResponse(_page(request, request.path_params["id"]))
@@ -112,11 +118,63 @@ async def delete_chat(request: Request) -> JSONResponse:
 # --- generation -----------------------------------------------------------------------------
 
 
+async def _optional_body(request: Request) -> dict[str, Any]:
+    """JSON object body, or {} when the request has no body at all."""
+    return await json_body(request) if await request.body() else {}
+
+
 async def send(request: Request) -> JSONResponse:
+    """Body: {text, reply_role?}. reply_role (default assistant) is who the reply is saved as."""
     body = await json_body(request)
     run = chat_service.start_send(
-        ctx_of(request), request.path_params["id"], field(body, "text", str, allow_empty=False)
+        ctx_of(request),
+        request.path_params["id"],
+        field(body, "text", str, allow_empty=False),
+        field(body, "reply_role", str, default="assistant"),
     )
+    return JSONResponse({"run_id": run.id}, status_code=202)
+
+
+async def add_message(request: Request) -> JSONResponse:
+    """Save a message as user, assistant or system without generating anything."""
+    body = await json_body(request)
+    message = chat_service.add_message(
+        ctx_of(request),
+        request.path_params["id"],
+        field(body, "text", str, allow_empty=False),
+        field(body, "role", str),
+    )
+    return JSONResponse(message, status_code=201)
+
+
+async def set_roles(request: Request) -> JSONResponse:
+    """Body: {role, ids?: [...], numbers?: "1-5, 8", all?: bool}."""
+    body = await json_body(request)
+    ids = field(body, "ids", list, default=[])
+    if not all(isinstance(i, str) for i in ids):
+        raise BadRequest("Field 'ids' must be a list of strings")
+    messages = chat_service.set_roles(
+        ctx_of(request),
+        request.path_params["id"],
+        field(body, "role", str),
+        ids=ids,
+        numbers=field(body, "numbers", str, default=""),
+        everything=field(body, "all", bool, default=False),
+    )
+    return JSONResponse({"messages": messages})
+
+
+async def continue_chat(request: Request) -> JSONResponse:
+    """Body (optional): {role?}. The generated message is saved with this role (default assistant)."""
+    body = await _optional_body(request)
+    run = chat_service.start_continue(
+        ctx_of(request), request.path_params["id"], field(body, "role", str, default="assistant")
+    )
+    return JSONResponse({"run_id": run.id}, status_code=202)
+
+
+async def impersonate(request: Request) -> JSONResponse:
+    run = chat_service.start_impersonate(ctx_of(request), request.path_params["id"])
     return JSONResponse({"run_id": run.id}, status_code=202)
 
 
@@ -174,6 +232,37 @@ async def edit_message(request: Request) -> JSONResponse:
     return JSONResponse(ctx.chats.get_message(message_id))
 
 
+async def list_branches(request: Request) -> JSONResponse:
+    branches = ctx_of(request).chats.child_messages(request.path_params["id"])
+    return JSONResponse({"branches": branches})
+
+
+async def select_branch(request: Request) -> JSONResponse:
+    ctx = ctx_of(request)
+    chat_id = request.path_params["id"]
+    ctx.chats.get_chat(chat_id)
+    if ctx.runs.active(chat_id) is not None:
+        raise BadRequest("Wait for the generation to finish before switching branches", code="busy")
+    body = await json_body(request)
+    leaf_id = field(body, "leaf_id", str)
+    message = ctx.chats.get_message(leaf_id)
+    if message["chat_id"] != chat_id:
+        raise BadRequest("Branch leaf belongs to another chat", code="wrong_chat")
+    # Selecting an alternative shows its whole continuation, not just the message itself.
+    ctx.chats.set_leaf(chat_id, ctx.chats.newest_leaf(leaf_id))
+    return JSONResponse({"chat": ctx.chats.get_chat(chat_id)})
+
+
+async def search_chat(request: Request) -> JSONResponse:
+    ctx = ctx_of(request)
+    chat_id = request.path_params["id"]
+    ctx.chats.get_chat(chat_id)
+    query = request.query_params.get("q", "").strip()
+    if not query:
+        raise BadRequest("Search query must not be empty", code="empty_query")
+    return JSONResponse({"messages": ctx.chats.search_messages(chat_id, query)})
+
+
 async def select_swipe(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     message_id = request.path_params["id"]
@@ -202,9 +291,17 @@ routes = [
     Route("/chats/{id}", delete_chat, methods=["DELETE"]),
     Route("/chats/{id}/meta", update_chat_meta, methods=["PUT"]),
     Route("/chats/{id}/messages", get_messages, methods=["GET"]),
+    Route("/chats/{id}/history", get_history, methods=["GET"]),
     Route("/chats/{id}/send", send, methods=["POST"]),
+    Route("/chats/{id}/messages", add_message, methods=["POST"]),
+    Route("/chats/{id}/roles", set_roles, methods=["PUT"]),
+    Route("/chats/{id}/continue", continue_chat, methods=["POST"]),
+    Route("/chats/{id}/impersonate", impersonate, methods=["POST"]),
     Route("/chats/{id}/regenerate", regenerate, methods=["POST"]),
     Route("/chats/{id}/stop", stop, methods=["POST"]),
+    Route("/chats/{id}/search", search_chat, methods=["GET"]),
+    Route("/chats/{id}/branch", select_branch, methods=["POST"]),
+    Route("/messages/{id}/branches", list_branches, methods=["GET"]),
     Route("/runs/{run_id}/events", run_events, methods=["GET"]),
     Route("/messages/{id}", edit_message, methods=["PUT"]),
     Route("/messages/{id}", delete_message, methods=["DELETE"]),

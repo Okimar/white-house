@@ -42,6 +42,7 @@ class GenerationJob:
     run: Run
     max_context_tokens: int = 0
     params: dict[str, Any] = field(default_factory=dict)  # per-call model options (temperature...)
+    instruction: str = ""  # extra final user turn, e.g. for impersonation
 
     async def build_messages(self) -> list[ChatMessage]:
         """Standard prompt for this job, after `prompt.built` filters."""
@@ -50,6 +51,7 @@ class GenerationJob:
             self.history,
             user_name=self.user_name,
             max_context_tokens=self.max_context_tokens,
+            instruction=self.instruction,
         )
         messages = await self.ctx.events.filter("prompt.built", messages, job=self)
         self.run.trace(

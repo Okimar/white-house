@@ -122,11 +122,31 @@ class ChatRepo:
         )
         return [_message(row) for row in rows]
 
+    def search_messages(self, chat_id: str, query: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Case-insensitive literal search across stored message text."""
+        self.get_chat(chat_id)
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        rows = self.db.fetchall(
+            _MESSAGE_SELECT + " WHERE m.chat_id = ? AND lower(content) LIKE lower(?) ESCAPE '\\' "
+            "ORDER BY m.depth, m.created_at LIMIT ?",
+            (chat_id, f"%{escaped}%", limit),
+        )
+        return [_message(row) for row in rows]
+
     def get_message(self, message_id: str) -> dict[str, Any]:
         row = self.db.fetchone(_MESSAGE_SELECT + " WHERE m.id = ?", (message_id,))
         if row is None:
             raise NotFound(f"Message {message_id} not found")
         return _message(row)
+
+    def child_messages(self, message_id: str) -> list[dict[str, Any]]:
+        """Return direct branch alternatives below one message."""
+        self.get_message(message_id)
+        rows = self.db.fetchall(
+            _MESSAGE_SELECT + " WHERE m.parent_id = ? ORDER BY m.created_at, m.id",
+            (message_id,),
+        )
+        return [_message(row) for row in rows]
 
     def add_message(
         self,
@@ -186,6 +206,22 @@ class ChatRepo:
             raise NotFound(f"Swipe {idx} of message {message_id} not found")
         self._touch(message["chat_id"])
 
+    def set_roles(self, chat_id: str, changes: dict[str, tuple[str, str]]) -> list[dict[str, Any]]:
+        """Set (role, name) of several messages of one chat at once: all or nothing."""
+        for role, _ in changes.values():
+            if role not in ROLES:
+                raise ValueError(f"Unknown role {role!r}")
+        with self.db.transaction() as conn:
+            for message_id, (role, name) in changes.items():
+                row = conn.execute("SELECT chat_id FROM messages WHERE id = ?", (message_id,)).fetchone()
+                if row is None or row["chat_id"] != chat_id:
+                    raise NotFound(f"Message {message_id} not found in chat {chat_id}")
+                conn.execute(
+                    "UPDATE messages SET role = ?, name = ? WHERE id = ?", (role, name, message_id)
+                )
+            conn.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now_iso(), chat_id))
+        return [self.get_message(message_id) for message_id in changes]
+
     def get_swipes(self, message_id: str) -> list[str]:
         """Return all swipe texts in index order for export."""
         self.get_message(message_id)
@@ -239,6 +275,18 @@ class ChatRepo:
             "UPDATE chats SET leaf_id = ?, updated_at = ? WHERE id = ?",
             (message_id, now_iso(), chat_id),
         )
+
+    def newest_leaf(self, message_id: str) -> str:
+        """Follow the newest child down from a message to the end of its branch."""
+        current = self.get_message(message_id)["id"]
+        while True:
+            row = self.db.fetchone(
+                "SELECT id FROM messages WHERE parent_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+                (current,),
+            )
+            if row is None:
+                return current
+            current = row["id"]
 
     # --- reading the active branch -----------------------------------------------------------
 

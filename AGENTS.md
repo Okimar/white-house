@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0, 1 and 2 done, 3 next**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0, 1, 2 and 3 done, 4 next**.
 
 ## Commands
 
@@ -46,7 +46,7 @@ tavern/                 Python package (backend)
   util/                 atomic file writes, data-dir lock
   devtools/fake_llm.py  scriptable OpenAI-compatible fake server for tests
   api/                  HTTP routes (chats + SSE, characters + settings, connections); thin, no logic
-  services/chat.py      use cases: create chat, send, regenerate, stop (order of operations)
+  services/chat.py      use cases: create chat, send, continue, impersonate, regenerate, stop
   core/                 events (EventBus), budget (RunBudget), prompt, llm (LLMClient), generation
                         (Generator strategies), runs (background Run + SSE replay)
   providers/            Provider interface, openai_compat, registry (kinds, API keys from secrets)
@@ -55,7 +55,7 @@ tavern/                 Python package (backend)
   storage/repos/        SQL access per entity (characters, chats/messages/swipes, connections, settings)
 web/                    browser UI: Preact + htm vendored in web/vendor, plain ES modules, no bundler
   main.js               app shell; core/api.js (fetch + SSE), core/chat.js (chat state hook)
-  components/           VirtualList, Message, Composer, Sidebar, Settings
+  components/           VirtualList, Message, Composer, Sidebar, Settings, roles (role icons/labels)
   styles.css            light/dark via prefers-color-scheme, mobile layout under 720px
 tests/unit/             pure logic, no I/O beyond tmp_path
 tests/integration/      HTTP API through httpx.ASGITransport, CLI commands

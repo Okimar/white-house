@@ -1,13 +1,18 @@
-// One chat message: text, swipe arrows, edit and delete. Text is rendered as plain text
-// (never as HTML), so a model or a card cannot inject markup.
+// One chat message: number, role, text, swipe arrows, edit, delete and the branch list. Text is
+// rendered as plain text (never as HTML), so a model or a card cannot inject markup.
+// The role icon shows who the model takes the message from; clicking it opens a role menu.
 import { html, useState } from "../vendor/preact-htm.mjs";
+import { ROLES, roleOf } from "./roles.js";
 
-export function Message({ message, streamText, busy, isLast, onEdit, onSwipe, onRemove, onRegenerate }) {
+export function Message({ message, streamText, busy, isLast, selecting, selected, onSelect,
+  onRole, onEdit, onSwipe, onRemove, onRegenerate, onBranches }) {
   const [editing, setEditing] = useState(null); // draft text while editing
+  const [picking, setPicking] = useState(false); // role menu open
   const streaming = streamText !== null && streamText !== undefined;
   const text = streaming ? streamText : message.content;
-  const mine = message.role === "user";
-  const canRegenerate = isLast && message.role === "assistant" && !busy;
+  const role = roleOf(message.role);
+  const canRegenerate = isLast && message.role !== "user" && !busy;
+  const fallbackName = { user: "Вы", assistant: "Ассистент", system: "Система" }[message.role];
 
   const save = async () => {
     const draft = editing;
@@ -15,10 +20,27 @@ export function Message({ message, streamText, busy, isLast, onEdit, onSwipe, on
     if (draft !== message.content) await onEdit(message.id, draft);
   };
 
+  const pick = async (id) => {
+    setPicking(false);
+    if (id !== message.role) await onRole(id, { ids: [message.id] });
+  };
+
   return html`
-    <article class=${"msg " + (mine ? "msg-user" : "msg-bot")}>
+    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "")}>
       <header>
-        <strong>${message.name || (mine ? "Вы" : "Ассистент")}</strong>
+        ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy}
+          aria-label=${"Выбрать сообщение " + (message.depth + 1)} onChange=${() => onSelect(message.id)} />`}
+        <span class="msg-num" title="Номер сообщения">#${message.depth + 1}</span>
+        <span class="role-wrap">
+          <button class="role-icon" disabled=${busy} aria-haspopup="menu" aria-expanded=${picking}
+            title=${"Модель видит это как сообщение от: " + role.label + ". Нажмите, чтобы сменить"}
+            onClick=${() => setPicking(!picking)}>${role.icon}</button>
+          ${picking && html`<span class="role-menu" role="menu">
+            ${ROLES.map((r) => html`<button key=${r.id} role="menuitemradio" aria-checked=${r.id === message.role}
+              onClick=${() => pick(r.id)}>${r.icon} ${r.label}</button>`)}
+          </span>`}
+        </span>
+        <strong>${message.name || fallbackName}</strong>
         ${message.swipe_count > 1 && html`
           <span class="swipes">
             <button title="Предыдущий вариант" disabled=${busy || message.active_swipe === 0}
@@ -30,7 +52,8 @@ export function Message({ message, streamText, busy, isLast, onEdit, onSwipe, on
         <span class="spacer"></span>
         ${!busy && !editing && html`
           <button title="Редактировать" onClick=${() => setEditing(message.content)}>✎</button>
-          <button title="Удалить" onClick=${() => confirm("Удалить это сообщение и всё после него?") && onRemove(message.id)}>🗑</button>`}
+          <button title="Удалить" onClick=${() => confirm("Удалить это сообщение и всё после него?") && onRemove(message.id)}>🗑</button>
+          <button title="Показать ветки" onClick=${() => onBranches(message.id)}>⑂</button>`}
         ${canRegenerate && html`<button title="Другой вариант" onClick=${onRegenerate}>↻</button>`}
       </header>
       ${editing !== null

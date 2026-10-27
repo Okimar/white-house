@@ -21,19 +21,28 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 |---|---|
 | `web/main.js` | app shell: lists, selected chat, dialogs, toast |
 | `web/core/api.js` | `api.get/post/put/del` (throws `ApiError`), `followRun(runId, onEvent)` |
-| `web/core/chat.js` | `useChat(chatId, onError)`: messages, paging, send/regenerate/stop/edit/swipe/remove |
+| `web/core/chat.js` | `useChat(chatId, onError)`: messages, paging, send(text, replyRole)/continue(role)/regenerate/stop, edit/swipe/remove, branches/selectBranch, search, setRoles (ids / numbers / all) |
+| `web/components/roles.js` | the three roles (user/assistant/system) with icon and label, shared by Composer and Message |
 | `web/components/VirtualList.js` | windowed list with variable heights, stick-to-bottom, scroll anchoring |
 | `web/components/Message.js`, `Composer.js`, `Sidebar.js`, `Settings.js` | views |
 
 ## Generation events (SSE)
 
-`POST /api/chats/{id}/send` returns `{run_id}`; `followRun` then receives
+`POST /api/chats/{id}/send` (and `/continue`, `/impersonate`, `/regenerate`) returns `{run_id}`.
+`send` takes `reply_role` and `continue` takes `role`: who the generated message is saved as
+(the composer's "Ответ от" menu, remembered per chat; `user` means the model writes for you).
+Regenerate works on the last assistant or system message. Then
+`followRun` then receives
 `start` (message, user_message) -> `delta` (text) -> `done | stopped | error`, plus `trace`
 (progress of plugin generators, ignored by the chat view) and `ping` (filtered in api.js).
 The run lives on the server, so reloading the page mid-reply reattaches: `GET /chats/{id}`
 returns `run`, and `useChat` follows it again. Deltas are batched into one render per frame.
 `useChat` must only react to `start`, `delta` and the three terminal events; reacting to any
 other type (e.g. `trace`) as if it ended the run breaks streaming.
+
+Actions that change the active branch on the server (`POST /chats/{id}/branch`, deleting a
+message) are followed by a reload of the newest page inside `useChat`; never reload the browser
+page for them. The server answers `busy` to edits, swipes, deletes and branch switches during a run.
 
 ## VirtualList pitfalls
 
@@ -53,7 +62,10 @@ python -m tavern --sandbox --port 8770 --no-browser
 
 Open `http://127.0.0.1:8770/`, add a connection with base URL `http://127.0.0.1:5001/v1`, import
 or create a character, then check at least: send, streaming with Stop, regenerate, swipes, edit,
-delete, reload during a reply, a long chat (scroll to the top loads older pages without jumping),
+delete, continue, branch list (⑂) and switching, search with jump to a result,
+the composer "Ответ от" menu (system: the reply arrives as ⚙; user: the model writes for you), the role icon
+menu on a message, bulk role change (checkboxes, numbers like `1-5, 8`, "Всем"),
+reload during a reply, a long chat (scroll to the top loads older pages without jumping),
 narrow window (<720px), dark theme, and an empty browser console.
 
 If a system HTTP proxy is configured, bypass it for 127.0.0.1 (it answers an empty 503).

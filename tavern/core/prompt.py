@@ -14,6 +14,8 @@ from typing import Any
 from tavern.providers.base import ChatMessage
 
 CHARS_PER_TOKEN = 4  # rough estimate; real counts come from providers where available
+# Some backends (Gemini) reject a conversation without any user turn ("contents is not specified").
+START_TURN = "[Start]"
 
 
 def estimate_tokens(text: str) -> int:
@@ -69,11 +71,14 @@ def build_prompt(
     *,
     user_name: str = "User",
     max_context_tokens: int = 0,
+    instruction: str = "",
 ) -> list[ChatMessage]:
     """System message from the card, then history (oldest first), trimmed to the budget.
 
     History items are message dicts from ChatRepo; ones with `exclude_from_prompt` are skipped.
     With a budget, the oldest messages are dropped first; the newest message is always kept.
+    `instruction` (e.g. "write the user's next message") is appended as the last user turn.
+    A history without any user turn gets START_TURN before it, so every backend accepts it.
     """
     char = (card or {}).get("name", "")
     messages: list[ChatMessage] = []
@@ -96,4 +101,8 @@ def build_prompt(
             kept.append(turn)
             budget -= cost
         turns = list(reversed(kept))
+    if instruction:
+        turns.append(ChatMessage("user", substitute(instruction, char=char, user=user_name)))
+    if turns and not any(t.role == "user" for t in turns):
+        turns.insert(0, ChatMessage("user", START_TURN))
     return [*messages, *turns]

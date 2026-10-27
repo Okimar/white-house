@@ -88,6 +88,9 @@ export function useChat(chatId, onError) {
   }, [chatId]);
 
   const guard = (promise) => promise.catch((e) => { onError(e.message); });
+  // After the active branch changed on the server: reload its newest page.
+  const reload = () => api.get(`/chats/${chatId}?limit=${PAGE}`).then((d) =>
+    setState((s) => ({ ...s, chat: d.chat, messages: d.messages, hasMore: d.has_more })));
 
   return {
     ...state,
@@ -106,15 +109,24 @@ export function useChat(chatId, onError) {
         loadingOlder.current = false;
       }
     }, [chatId, onError]),
-    send: (text) => guard(api.post(`/chats/${chatId}/send`, { text }).then((r) => follow(r.run_id))),
+    // replyRole: who the generated message is saved as (user / assistant / system).
+    send: (text, replyRole = "assistant") => guard(api.post(`/chats/${chatId}/send`,
+      { text, reply_role: replyRole }).then((r) => follow(r.run_id))),
+    continue: (role = "assistant") => guard(api.post(`/chats/${chatId}/continue`, { role })
+      .then((r) => follow(r.run_id))),
     regenerate: () => guard(api.post(`/chats/${chatId}/regenerate`).then((r) => follow(r.run_id))),
     stop: () => guard(api.post(`/chats/${chatId}/stop`)),
+    search: (query) => api.get(`/chats/${chatId}/search?q=${encodeURIComponent(query)}`),
+    branches: (messageId) => api.get(`/messages/${messageId}/branches`),
     edit: (id, content) => guard(api.put(`/messages/${id}`, { content }).then((m) =>
       setState((s) => ({ ...s, messages: upsert(s.messages, m) })))),
     swipe: (id, index) => guard(api.put(`/messages/${id}/swipe`, { index }).then((m) =>
       setState((s) => ({ ...s, messages: upsert(s.messages, m) })))),
-    remove: (id) => guard(api.del(`/messages/${id}`).then(() =>
-      api.get(`/chats/${chatId}?limit=${PAGE}`).then((d) =>
-        setState((s) => ({ ...s, chat: d.chat, messages: d.messages, hasMore: d.has_more }))))),
+    // target: { ids } | { numbers: "1-5, 8" } | { all: true }. Changed messages replace loaded ones.
+    setRoles: (role, target) => guard(api.put(`/chats/${chatId}/roles`, { role, ...target }).then((r) =>
+      setState((s) => ({ ...s, messages: r.messages.reduce(
+        (list, m) => (list.some((x) => x.id === m.id) ? upsert(list, m) : list), s.messages) })))),
+    selectBranch: (messageId) => guard(api.post(`/chats/${chatId}/branch`, { leaf_id: messageId }).then(reload)),
+    remove: (id) => guard(api.del(`/messages/${id}`).then(reload)),
   };
 }
