@@ -13,7 +13,12 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 - Message text is rendered as text (`${text}`), never as HTML. Do not use `dangerouslySetInnerHTML`.
 - The API key never reaches the browser. The UI only sees `has_key`.
 - Must work on a phone: layout breaks at 720px, tap targets >= 32px, no hover-only controls.
-- Light and dark themes come from CSS variables in `web/styles.css` (`prefers-color-scheme`).
+- The look comes from CSS variables in `web/styles.css`; themes override them and style
+  `data-slot` places. Give new visible elements a `data-slot` name and use variables, not
+  hard-coded colours. Never rename or remove an existing slot or variable without updating
+  `.claude/skills/make-theme/SKILL.md` (it is a contract with user themes). Restyling requests
+  from the user are theme work: see the `make-theme` skill, not this one.
+- The page runs under a strict CSP (`app.py`): no inline `<script>`, no remote URLs, no `eval`.
 
 ## Layout
 
@@ -22,9 +27,20 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/main.js` | app shell: lists, selected chat, dialogs, toast |
 | `web/core/api.js` | `api.get/post/put/del` (throws `ApiError`), `followRun(runId, onEvent)` |
 | `web/core/chat.js` | `useChat(chatId, onError)`: messages, paging, send(text, replyRole)/continue(role)/regenerate/stop, edit/swipe/remove, branches/selectBranch, search, setRoles (ids / numbers / all) |
+| `web/core/theme.js` | `applyTheme` (stylesheet, base, effects script with error containment), `emit` events for theme scripts, `SAFE_MODE` (`/?safe`) |
 | `web/components/roles.js` | the three roles (user/assistant/system) with icon and label, shared by Composer and Message |
 | `web/components/VirtualList.js` | windowed list with variable heights, stick-to-bottom, scroll anchoring |
-| `web/components/Message.js`, `Composer.js`, `Sidebar.js`, `Settings.js` | views |
+| `web/components/Message.js`, `Composer.js`, `Sidebar.js`, `Settings.js` | views; Settings has tabs |
+| `web/components/Themes.js`, `Gallery.js` | Settings tabs "Оформление" (themes, script approval, character themes, versions) and "Картинки" (image library, generation) |
+| `web/themes/<id>/` | built-in themes; `sakura` is the reference for effects |
+| `web/components/Members.js` | chat "👥" panel: members with depth / importance / "это я" / may the model write for me, chat preset |
+| `web/components/CharacterEditor.js` | create or edit a card; "мой персонаж по умолчанию" (setting `default_me`) |
+| `web/components/Presets.js` | Settings tab "Промпт": presets, block list editor, model params, ST import/export |
+| `web/components/CharacterTree.js` | "Дерево" tab of a character: bubble map (pan/pinch, drag to move or drop inside another, nested or line display, culling: only bubbles in view are rendered) and list; bubble panel (mode, keywords + "Подобрать", depth, role, sticky) |
+| `web/components/CharacterTree.js` (cont.) | ports to pull 🔗 link lines, order number at a bubble's corner (typed in the panel), free bubbles, 🔗 links, chance colours, "⤢" spaces (one blurred layer behind), drop-to-nest switch; restyle via the `style-bubble-map` skill |
+| `web/components/CharacterEditor.js` (cont.) | "↶ Отменить" (Ctrl+Z outside text fields) and "🕘 История" (versions, restore); closing ends a version |
+| `web/components/PromptView.js` | "👁" on a message: what the model saw, exact count, read-only versions with copy |
+| `web/components/Notes.js` | author's notes: `NoteList` (one level, also in the "Промпт" tab), the chat "📝" window (Чат / Персонажи / Общие / По номерам, show all hidden notes or delete them), `NotesByNumbers` (picked messages with their kept notes, folded when many). `Message.js` draws kept notes beside the message (`.msg-row` grid: hidden left, visible right; under it below 1200px), folds visible ones after 3 later messages, and has the per-message 📝 toggle |
 
 ## Generation events (SSE)
 
@@ -66,11 +82,17 @@ delete, continue, branch list (⑂) and switching, search with jump to a result,
 the composer "Ответ от" menu (system: the reply arrives as ⚙; user: the model writes for you), the role icon
 menu on a message, bulk role change (checkboxes, numbers like `1-5, 8`, "Всем"),
 reload during a reply, a long chat (scroll to the top loads older pages without jumping),
-narrow window (<720px), dark theme, and an empty browser console.
+narrow window (<720px), dark theme, members panel (add, depth, importance, "это я", the
+"may write" switch), the 👁 prompt view (versions after editing a card, exact count), presets
+(copy, edit blocks, import an ST file, choose per chat), the sakura theme (mascot talks while a reply streams, reacts
+to a tap), switching themes back and forth, `/?safe`, and an empty browser console.
+Use `--data-dir` with an empty temp folder (or switch the active connection to the fake server
+after `--sandbox`): manual checks must never call the owner's real model.
 
 If a system HTTP proxy is configured, bypass it for 127.0.0.1 (it answers an empty 503).
-Browser state: only `localStorage["tavern.chat"]` (last opened chat). Everything else is on the
-server. Hard-reload (ignore cache) after editing modules; the browser caches ES modules.
+Browser state: `localStorage["tavern.chat"]` (last opened chat), `tavern.replyRole.<chat>`, `tavern.showHiddenNotes` (show all hidden notes), `tavern.treeView`, `tavern.treeNest` (drop on a bubble nests it) and
+`tavern.theme` (last theme's look, to avoid a flash before settings load). Everything else is
+on the server. Hard-reload (ignore cache) after editing modules; the browser caches ES modules.
 
 ## Done
 

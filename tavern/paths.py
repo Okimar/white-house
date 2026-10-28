@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
+BUILTIN_THEMES_DIR = WEB_DIR / "themes"
 DEFAULT_DATA_DIR = REPO_ROOT / "data"
 
 
@@ -40,6 +41,16 @@ class DataPaths:
     def lock(self) -> Path:
         return self.root / ".lock"
 
+    @property
+    def themes(self) -> Path:
+        """User themes, one folder each; built-in themes live in BUILTIN_THEMES_DIR."""
+        return self.root / "themes"
+
+    @property
+    def assets(self) -> Path:
+        """Image library: uploaded and generated pictures."""
+        return self.root / "assets"
+
     def ensure(self) -> None:
-        for directory in (self.root, self.backups, self.logs):
+        for directory in (self.root, self.backups, self.logs, self.themes, self.assets):
             directory.mkdir(parents=True, exist_ok=True)

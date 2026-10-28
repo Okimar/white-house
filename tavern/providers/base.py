@@ -93,5 +93,13 @@ class Provider(ABC):
     async def list_models(self) -> list[str]:
         """Model ids offered by the backend."""
 
+    async def generate_image(self, prompt: str, *, model: str = "", size: str = "1024x1024") -> bytes:
+        """One picture for `prompt`, as image file bytes. Kinds without image support refuse."""
+        raise ProviderError(f"Connections of kind {self.kind!r} cannot generate pictures")
+
+    async def embed(self, texts: list[str], *, model: str = "") -> list[list[float]]:
+        """Meaning vectors (embeddings) for texts. Kinds without them refuse."""
+        raise ProviderError(f"Connections of kind {self.kind!r} cannot make embeddings")
+
     async def aclose(self) -> None:
         """Release network resources."""

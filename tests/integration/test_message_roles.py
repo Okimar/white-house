@@ -164,6 +164,16 @@ def test_prompt_without_user_turn_gets_a_start_turn():
     assert build_prompt(None, []) == []
 
 
+def test_instruction_without_character_names_the_assistant():
+    from tavern.services.chat import IMPERSONATE_INSTRUCTION
+
+    prompt = build_prompt(None, [{"role": "assistant", "content": "Hi"}], user_name="Bob",
+                          instruction=IMPERSONATE_INSTRUCTION)
+    last = prompt[-1].content
+    assert "no reply from Assistant" in last
+    assert "from ." not in last
+
+
 def test_parse_numbers():
     assert parse_numbers("1-3, 5", 9) == {1, 2, 3, 5}
     assert parse_numbers(" 4 - 2 ;7 ", 9) == {2, 3, 4, 7}

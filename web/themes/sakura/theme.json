@@ -1,0 +1,13 @@
+{
+  "format": "tavern-theme",
+  "format_version": 1,
+  "id": "sakura",
+  "name": "Сакура",
+  "author": "Tavern",
+  "version": "1",
+  "description": "Пример темы: ночное небо, падающие лепестки и маскот из частей, который дышит, моргает, говорит, пока модель пишет, и реагирует на касание.",
+  "license": "CC0",
+  "base": "dark",
+  "script": "script.js",
+  "preview": "preview.svg"
+}

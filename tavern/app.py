@@ -13,10 +13,16 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from tavern import __version__
+from tavern.api import assets as assets_api
 from tavern.api import chats as chats_api
 from tavern.api import characters as characters_api
 from tavern.api import connections as connections_api
 from tavern.api import jsonl as jsonl_api
+from tavern.api import blocks as blocks_api
+from tavern.api import notes as notes_api
+from tavern.api import prompts as prompts_api
+from tavern.api import static as static_api
+from tavern.api import themes as themes_api
 from tavern.context import AppContext
 from tavern.errors import AppError, NotFound
 from tavern.paths import WEB_DIR
@@ -24,6 +30,13 @@ from tavern.security import AccessControl
 
 log = logging.getLogger(__name__)
 
+# The page may load code, styles, pictures and fonts only from this server. A theme (possibly
+# downloaded from someone else) therefore cannot send chats anywhere or pull in remote scripts.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; "
+    "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
 SECURITY_HEADERS = [
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
@@ -69,7 +82,12 @@ def api_routes() -> list[Route]:
         Route("/health", health, methods=["GET"]),
         *characters_api.routes,
         *connections_api.routes,
+        *themes_api.routes,
+        *assets_api.routes,
         *jsonl_api.routes,
+        *prompts_api.routes,
+        *blocks_api.routes,
+        *notes_api.routes,
         *chats_api.routes,
         # Must stay last: unknown /api paths get JSON 404 instead of falling through to static files.
         Route("/{path:path}", api_not_found, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),
@@ -80,6 +98,7 @@ def create_app(ctx: AppContext) -> Callable[..., Any]:
     app = Starlette(
         routes=[
             Mount("/api", routes=api_routes()),
+            *static_api.routes,
             Mount("/", app=StaticFiles(directory=WEB_DIR, html=True), name="web"),
         ],
         exception_handlers={AppError: handle_app_error, Exception: handle_unexpected},
@@ -102,7 +121,11 @@ def with_headers(app: Callable[..., Any], extra: list[tuple[bytes, bytes]]) -> C
 
         async def send_with_headers(message: dict) -> None:
             if message["type"] == "http.response.start":
-                message = {**message, "headers": [*message.get("headers", []), *extra]}
+                headers = [*message.get("headers", []), *extra]
+                # A route may set a stricter policy of its own (sandboxed theme files); keep it.
+                if not any(name.lower() == b"content-security-policy" for name, _ in headers):
+                    headers.append((b"content-security-policy", CONTENT_SECURITY_POLICY.encode()))
+                message = {**message, "headers": headers}
             await send(message)
 
         await app(scope, receive, send_with_headers)

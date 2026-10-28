@@ -54,10 +54,30 @@ def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     return struct.pack(">I", len(payload)) + body + struct.pack(">I", binascii.crc32(body) & 0xFFFFFFFF)
 
 
-def card_to_png(data: dict[str, Any], *, spec: str = "chara_card_v2") -> bytes:
-    """Create a valid 1x1 RGBA PNG carrying a base64 ``chara`` tEXt chunk."""
+def card_to_png(data: dict[str, Any], *, spec: str = "chara_card_v2", image: bytes | None = None) -> bytes:
+    """A PNG carrying the card as a base64 ``chara`` tEXt chunk.
+
+    With `image` (an existing PNG, e.g. the avatar) the picture is kept and only its card chunks
+    are replaced; otherwise a 1x1 transparent PNG is made.
+    """
     raw = json.dumps(encode_card(data, spec=spec), ensure_ascii=False, separators=(",", ":")).encode()
     text = b"chara\x00" + base64.b64encode(raw)
+    if image is not None and image.startswith(PNG_SIGNATURE):
+        chunks: list[bytes] = []
+        pos = len(PNG_SIGNATURE)
+        while pos + 12 <= len(image):
+            length = struct.unpack(">I", image[pos : pos + 4])[0]
+            end = pos + 12 + length
+            if end > len(image):
+                break
+            kind = image[pos + 4 : pos + 8]
+            decoded = _decode_text_chunk(kind, image[pos + 8 : pos + 8 + length])
+            if kind == b"IEND":
+                return PNG_SIGNATURE + b"".join(chunks) + _png_chunk(b"tEXt", text) + image[pos:end]
+            if not (decoded and decoded[0].lower() in ("chara", "ccv3")):
+                chunks.append(image[pos:end])
+            pos = end
+        # a damaged picture: fall through to a fresh one
     ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
     scanline = b"\x00\x00\x00\x00\xff"
     return (

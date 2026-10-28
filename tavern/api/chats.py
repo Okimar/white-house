@@ -90,12 +90,12 @@ async def rename_chat(request: Request) -> JSONResponse:
 
 
 async def update_chat_meta(request: Request) -> JSONResponse:
-    """Per-chat options: connection_id, generator."""
+    """Per-chat options: connection_id, generator, preset_id."""
     ctx = ctx_of(request)
     chat = ctx.chats.get_chat(request.path_params["id"])
     body = await json_body(request)
     meta = dict(chat["meta"])
-    for key in ("connection_id", "generator"):
+    for key in ("connection_id", "generator", "preset_id"):
         if key in body:
             value = field(body, key, str)
             if value:
@@ -112,6 +112,7 @@ async def delete_chat(request: Request) -> JSONResponse:
     ctx.chats.get_chat(chat_id)
     ctx.runs.stop(chat_id)
     ctx.chats.delete_chat(chat_id)
+    ctx.prompt_log.collect_garbage()  # texts only this chat's prompts used
     return JSONResponse({"ok": True})
 
 

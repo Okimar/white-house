@@ -13,15 +13,23 @@ from tavern.config import Config, load_config, with_server_overrides
 from tavern.core.events import EventBus
 from tavern.core.generation import GeneratorRegistry
 from tavern.core.runs import RunManager
-from tavern.paths import DataPaths
+from tavern.paths import BUILTIN_THEMES_DIR, DataPaths
 from tavern.providers.registry import ProviderRegistry
 from tavern.secret_store import SecretStore
+from tavern.storage.assets import AssetStore
 from tavern.storage.backup import create_backup, prune_backups
 from tavern.storage.db import Database
 from tavern.storage.repos.characters import CharacterRepo
 from tavern.storage.repos.chats import ChatRepo
 from tavern.storage.repos.connections import ConnectionRepo
+from tavern.storage.prompt_log import PromptLog
+from tavern.storage.repos.blocks import BlockRepo
+from tavern.storage.repos.members import MemberRepo
+from tavern.storage.repos.notes import NoteRepo
+from tavern.storage.repos.history import HistoryRepo
+from tavern.storage.repos.presets import PresetRepo
 from tavern.storage.repos.settings import SettingsRepo
+from tavern.storage.themes import ThemeStore
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +48,14 @@ class AppContext:
     chats: ChatRepo
     connections: ConnectionRepo
     settings: SettingsRepo
+    themes: ThemeStore
+    assets: AssetStore
+    members: MemberRepo
+    blocks: BlockRepo
+    presets: PresetRepo
+    prompt_log: PromptLog
+    notes: NoteRepo
+    history: HistoryRepo
     sandbox: bool = False
 
     def close(self) -> None:
@@ -85,5 +101,13 @@ def open_context(
         chats=ChatRepo(db),
         connections=ConnectionRepo(db),
         settings=SettingsRepo(db),
+        themes=ThemeStore(BUILTIN_THEMES_DIR, paths.themes),
+        assets=AssetStore(paths.assets),
+        members=MemberRepo(db),
+        blocks=BlockRepo(db),
+        presets=PresetRepo(db),
+        prompt_log=PromptLog(db),
+        notes=NoteRepo(db),
+        history=HistoryRepo(db),
         sandbox=sandbox,
     )

@@ -1,0 +1,10 @@
+{
+  "format": "tavern-theme",
+  "format_version": 1,
+  "id": "dark",
+  "name": "Тёмная",
+  "author": "Tavern",
+  "version": "1",
+  "description": "Всегда тёмная, независимо от настройки системы.",
+  "base": "dark"
+}

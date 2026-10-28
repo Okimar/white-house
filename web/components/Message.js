@@ -1,11 +1,41 @@
 // One chat message: number, role, text, swipe arrows, edit, delete and the branch list. Text is
 // rendered as plain text (never as HTML), so a model or a card cannot inject markup.
 // The role icon shows who the model takes the message from; clicking it opens a role menu.
+// Author's notes kept after the message hang beside it: visible ones on the right (folded once
+// AUTO_FOLD messages came after it), hidden ones on the left only when asked for. With the setting
+// notes_display = "few" a column shows its last FEW notes and an "ещё N" chip; 📝 and the chip
+// open the drop-down with every note of the message.
 import { html, useState } from "../vendor/preact-htm.mjs";
 import { ROLES, roleOf } from "./roles.js";
 
-export function Message({ message, streamText, busy, isLast, selecting, selected, onSelect,
-  onRole, onEdit, onSwipe, onRemove, onRegenerate, onBranches }) {
+const AUTO_FOLD = 3;
+const FEW = 2;
+
+function NoteColumn({ notes, side, few, onHide, onMore }) {
+  const shown = few && notes.length > FEW ? notes.slice(-FEW) : notes;
+  return html`<aside class=${"msg-notes " + side}
+    data-slot=${side === "left" ? "message-notes-hidden" : "message-notes-visible"}>
+    ${shown.map((n) => html`<${NoteCard} key=${n.id} note=${n} onHide=${onHide} />`)}
+    ${shown.length < notes.length && html`<button class="notes-more" data-slot="notes-more" onClick=${onMore}
+      title="Все заметки этого сообщения">ещё ${notes.length - shown.length}</button>`}
+  </aside>`;
+}
+
+function NoteCard({ note, onHide }) {
+  return html`<div class=${"msg-note " + note.kind} data-slot="message-note" data-kind=${note.kind}
+    title=${note.kind === "hidden" ? "Невидимая заметка: модель видит её, в чате она скрыта"
+      : "Видимая заметка: модель видит её после этого сообщения"}>
+    <span class="msg-note-head">${note.kind === "hidden" ? "👻" : "📝"}
+      ${note.title && html`<strong>${note.title}</strong>`}
+      <span class="spacer"></span>
+      ${onHide && html`<button title="Скрыть заметки сообщения" onClick=${onHide}>✕</button>`}</span>
+    ${note.text}</div>`;
+}
+
+export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
+  streamText, busy, isLast, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
+  onBranches, onPrompt, onNotesOpen, onOpenNotes }) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
   const [picking, setPicking] = useState(false); // role menu open
   const streaming = streamText !== null && streamText !== undefined;
@@ -25,11 +55,26 @@ export function Message({ message, streamText, busy, isLast, selecting, selected
     if (id !== message.role) await onRole(id, { ids: [message.id] });
   };
 
-  return html`
-    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "")}>
-      <header>
+  // notesOpen: true / false once the user pressed 📝 or ✕ here; undefined = automatic.
+  const hidden = notes.filter((n) => n.kind === "hidden");
+  const visible = notes.filter((n) => n.kind === "visible");
+  const showVisible = notesOpen === true || (notesOpen === undefined && age < AUTO_FOLD);
+  const showHiddenHere = notesOpen === true || (notesOpen !== false && showHidden);
+  const anyShown = (showVisible && visible.length > 0) || (showHiddenHere && hidden.length > 0);
+  const hide = () => onNotesOpen(message.id, false);
+  const more = () => onOpenNotes(message, notesOpen === true);
+  const few = notesDisplay !== "all";
+
+  return html`<div class="msg-row" data-slot="message-row">
+    ${showHiddenHere && hidden.length > 0 && html`<${NoteColumn} notes=${hidden} side="left" few=${few}
+      onHide=${hide} onMore=${more} />`}
+    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "")}
+      data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}>
+      <header data-slot="message-header">
         ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy}
           aria-label=${"Выбрать сообщение " + (message.depth + 1)} onChange=${() => onSelect(message.id)} />`}
+        ${avatar && !avatarFailed && html`<img class="msg-avatar" data-slot="message-avatar" src=${avatar}
+          alt="" loading="lazy" onError=${() => setAvatarFailed(true)} />`}
         <span class="msg-num" title="Номер сообщения">#${message.depth + 1}</span>
         <span class="role-wrap">
           <button class="role-icon" disabled=${busy} aria-haspopup="menu" aria-expanded=${picking}
@@ -40,7 +85,7 @@ export function Message({ message, streamText, busy, isLast, selecting, selected
               onClick=${() => pick(r.id)}>${r.icon} ${r.label}</button>`)}
           </span>`}
         </span>
-        <strong>${message.name || fallbackName}</strong>
+        <strong data-slot="message-name">${message.name || fallbackName}</strong>
         ${message.swipe_count > 1 && html`
           <span class="swipes">
             <button title="Предыдущий вариант" disabled=${busy || message.active_swipe === 0}
@@ -53,7 +98,12 @@ export function Message({ message, streamText, busy, isLast, selecting, selected
         ${!busy && !editing && html`
           <button title="Редактировать" onClick=${() => setEditing(message.content)}>✎</button>
           <button title="Удалить" onClick=${() => confirm("Удалить это сообщение и всё после него?") && onRemove(message.id)}>🗑</button>
-          <button title="Показать ветки" onClick=${() => onBranches(message.id)}>⑂</button>`}
+          <button title="Показать ветки" onClick=${() => onBranches(message.id)}>⑂</button>
+          <button title="Что видела модель перед этим сообщением" onClick=${() => onPrompt(message)}>👁</button>
+          <button class=${"notes-toggle" + (notes.length ? " has" : "")} aria-pressed=${anyShown}
+            title=${notes.length ? `Заметки этого сообщения (${notes.length}): посмотреть, изменить, добавить`
+              : "Нет заметки. Нажмите, чтобы написать"}
+            onClick=${more}>📝${notes.length ? html`<small>${notes.length}</small>` : ""}</button>`}
         ${canRegenerate && html`<button title="Другой вариант" onClick=${onRegenerate}>↻</button>`}
       </header>
       ${editing !== null
@@ -63,7 +113,9 @@ export function Message({ message, streamText, busy, isLast, selecting, selected
             <button class="primary" onClick=${save}>Сохранить</button>
             <button onClick=${() => setEditing(null)}>Отмена</button>
           </div>`
-        : html`<div class="body">${text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>`}
+        : html`<div class="body" data-slot="message-body">${text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>`}
     </article>
-  `;
+    ${showVisible && visible.length > 0 && html`<${NoteColumn} notes=${visible} side="right" few=${few}
+      onHide=${hide} onMore=${more} />`}
+  </div>`;
 }

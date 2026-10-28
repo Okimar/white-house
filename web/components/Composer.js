@@ -25,20 +25,20 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop }) {
   };
 
   return html`
-    <form class="composer" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
+    <form class="composer" data-slot="composer" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
       <label class="role-pick" title="От кого придут следующие сообщения модели">
-        <span class="muted">Ответ от</span>
+        <span class="muted role-label">Ответ от</span>
         <select value=${role} aria-label="От кого придут следующие сообщения модели"
           onChange=${(e) => onRole(e.target.value)}>
           ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.icon} ${r.label}</option>`)}
         </select>
       </label>
-      <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…"
+      <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
         aria-label="Сообщение" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown}></textarea>
       ${running
-        ? html`<button type="button" class="danger" onClick=${onStop}>Стоп</button>`
-        : html`<button type="submit" class="primary" disabled=${disabled || !text.trim()}>Отправить</button>`}
+        ? html`<button type="button" class="danger" data-slot="stop-button" onClick=${onStop}>Стоп</button>`
+        : html`<button type="submit" class="primary" data-slot="send-button" disabled=${disabled || !text.trim()}>Отправить</button>`}
     </form>
   `;
 }

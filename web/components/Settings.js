@@ -1,11 +1,17 @@
-// Settings dialog: your name and API connections. API keys are write-only: the server only says
-// whether a key is stored, so the field stays empty and an empty value means "keep the key".
+// Settings dialog, in tabs: your name, API connections, themes, pictures. API keys are write-only:
+// the server only says whether a key is stored, so an empty key field means "keep the key".
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
+import { Themes } from "./Themes.js";
+import { Gallery } from "./Gallery.js";
+import { Presets } from "./Presets.js";
 
 const BLANK = { name: "", base_url: "http://127.0.0.1:5001/v1", model: "", api_key: "" };
+const TABS = [["main", "Основное"], ["connections", "Подключения"], ["prompt", "Промпт"],
+  ["look", "Оформление"], ["pictures", "Картинки"]];
 
-export function Settings({ settings, onClose, onChanged, onError }) {
+export function Settings({ settings, themes, deletedThemes, characters, initialTab, onClose, onChanged, onError }) {
+  const [tab, setTab] = useState(initialTab || "main");
   const [connections, setConnections] = useState([]);
   const [active, setActive] = useState(settings.active_connection || null);
   const [userName, setUserName] = useState(settings.user_name || "");
@@ -48,6 +54,16 @@ export function Settings({ settings, onClose, onChanged, onError }) {
 
   const saveName = async () => {
     await api.put("/settings", { user_name: userName.trim() }).catch((e) => onError(e.message));
+    onChanged();
+  };
+
+  const saveDefaultMe = async (id) => {
+    await api.put("/settings", { default_me: id }).catch((e) => onError(e.message));
+    onChanged();
+  };
+
+  const saveSetting = async (patch) => {
+    await api.put("/settings", patch).catch((e) => onError(e.message));
     onChanged();
   };
 
@@ -95,16 +111,50 @@ export function Settings({ settings, onClose, onChanged, onError }) {
 
   return html`
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
-      <div class="dialog" role="dialog" aria-modal="true" aria-label="Настройки">
+      <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Настройки">
         <div class="side-head"><strong>Настройки</strong><span class="spacer"></span>
           <button onClick=${onClose} title="Закрыть">✕</button></div>
+        <div class="tabs" role="tablist">
+          ${TABS.map(([id, label]) => html`<button key=${id} role="tab" aria-selected=${tab === id}
+            onClick=${() => setTab(id)}>${label}</button>`)}
+        </div>
 
-        <h2>Ваше имя</h2>
+        ${tab === "main" && html`
+        <h2>Мой персонаж по умолчанию</h2>
+        <p class="muted">Входит в каждый новый чат с пометкой «это я». Его имя подставляется вместо {{user}}.</p>
+        <select value=${settings.default_me || ""} onChange=${(e) => saveDefaultMe(e.target.value)}>
+          <option value="">— нет —</option>
+          ${characters.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+        </select>
+        <h2>Имя, если в чате нет «моего» персонажа</h2>
         <div class="row">
           <input value=${userName} placeholder="User" onInput=${(e) => setUserName(e.target.value)} />
           <button onClick=${saveName}>Сохранить</button>
         </div>
+        <h2>Заметки возле сообщения</h2>
+        <select value=${settings.notes_display || "few"} aria-label="Сколько заметок показывать возле сообщения"
+          onChange=${(e) => saveSetting({ notes_display: e.target.value })}>
+          <option value="few">Две последние и «ещё N»</option>
+          <option value="all">Все подряд</option>
+        </select>
+        <h2>Удаление</h2>
+        <label><input type="checkbox" checked=${Boolean(settings.skip_delete_confirm)}
+          onChange=${(e) => saveSetting({ skip_delete_confirm: e.target.checked })} />
+          не спрашивать подтверждение при удалении пузырей</label>
+        <h2>История персонажей</h2>
+        <label><input type="checkbox" checked=${settings.character_history !== false}
+          onChange=${(e) => saveSetting({ character_history: e.target.checked })} />
+          сохранять историю изменений (кнопка «↶ Отменить» и версии)</label>`}
 
+        ${tab === "prompt" && html`<${Presets} settings=${settings} onChanged=${onChanged} onError=${onError} />`}
+
+        ${tab === "look" && html`<${Themes} themes=${themes} deleted=${deletedThemes} settings=${settings}
+          characters=${characters} onChanged=${onChanged} onError=${onError} />`}
+
+        ${tab === "pictures" && html`<${Gallery} settings=${settings} connections=${connections}
+          onChanged=${onChanged} onError=${onError} />`}
+
+        ${tab === "connections" && html`
         <h2>Подключения к API</h2>
         <ul class="list">
           ${connections.length === 0 && html`<li class="muted">Подключений нет. Добавьте первое ниже.</li>`}
@@ -143,7 +193,7 @@ export function Settings({ settings, onClose, onChanged, onError }) {
           <button class="primary" type="submit">Добавить</button>
         </form>
         <p class="muted">Для проверки без настоящей модели: <code>python -m tavern.devtools.fake_llm</code>
-          и адрес <code>http://127.0.0.1:5001/v1</code>.</p>
+          и адрес <code>http://127.0.0.1:5001/v1</code>.</p>`}
       </div>
     </div>
   `;

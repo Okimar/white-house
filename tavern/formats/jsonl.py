@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 _FORMAT = "tavern_chat_v1"
+RECORD_TYPES = {"header", "chat", "message", "swipes", "chat_note", "message_note"}
 
 
 def _line(kind: str, value: Any) -> str:
@@ -14,13 +15,23 @@ def _line(kind: str, value: Any) -> str:
 
 
 def export_chat_jsonl(
-    chat: dict[str, Any], messages: Iterable[dict[str, Any]], swipes: Iterable[list[str]] = ()
+    chat: dict[str, Any],
+    messages: Iterable[dict[str, Any]],
+    swipes: Iterable[list[str]] = (),
+    *,
+    chat_notes: Iterable[dict[str, Any]] = (),
+    message_notes: Iterable[dict[str, Any]] = (),
 ) -> str:
-    """Serialize one chat as a self-contained, line-oriented document."""
+    """Serialize one chat as a self-contained, line-oriented document.
+
+    `chat_notes`: the chat's author's notes; `message_notes`: notes attached to its messages.
+    """
     rows = [_line("header", {"format": _FORMAT, "version": 1})]
     rows.append(_line("chat", chat))
     rows.extend(_line("message", message) for message in messages)
     rows.extend(_line("swipes", values) for values in swipes)
+    rows.extend(_line("chat_note", note) for note in chat_notes)
+    rows.extend(_line("message_note", note) for note in message_notes)
     return "\n".join(rows) + "\n"
 
 
@@ -30,6 +41,8 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
     chat = None
     messages: list[dict[str, Any]] = []
     swipes: list[list[str]] = []
+    chat_notes: list[dict[str, Any]] = []
+    message_notes: list[dict[str, Any]] = []
     header = None
     for number, line in enumerate(lines, 1):
         if not line.strip():
@@ -38,7 +51,7 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
             record = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid JSONL at line {number}") from exc
-        if not isinstance(record, dict) or record.get("type") not in {"header", "chat", "message", "swipes"}:
+        if not isinstance(record, dict) or record.get("type") not in RECORD_TYPES:
             raise ValueError(f"Unknown JSONL record at line {number}")
         kind, value = record["type"], record.get("value")
         if kind == "header":
@@ -61,6 +74,15 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
             if value.get("parent_id") is not None and not isinstance(value["parent_id"], str):
                 raise ValueError("Invalid JSONL message parent")
             messages.append(value)
+        elif kind == "chat_note":
+            if not isinstance(value, dict) or not isinstance(value.get("text", ""), str):
+                raise ValueError("Invalid JSONL chat note")
+            chat_notes.append(value)
+        elif kind == "message_note":
+            if (not isinstance(value, dict) or not isinstance(value.get("message_id"), str)
+                    or not isinstance(value.get("text"), str)):
+                raise ValueError("Invalid JSONL message note")
+            message_notes.append(value)
         else:
             if not isinstance(value, list) or not all(isinstance(text, str) for text in value):
                 raise ValueError("Invalid JSONL swipes record")
@@ -72,4 +94,5 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
         raise ValueError("JSONL messages need unique ids")
     if any(message.get("parent_id") not in {None, *ids} for message in messages):
         raise ValueError("JSONL message parent is missing")
-    return {"chat": chat, "messages": messages, "swipes": swipes}
+    return {"chat": chat, "messages": messages, "swipes": swipes, "chat_notes": chat_notes,
+            "message_notes": message_notes}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 from starlette.requests import Request
 
@@ -27,6 +28,27 @@ async def json_body(request: Request) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise BadRequest("Request body must be a JSON object")
     return body
+
+
+async def read_body(request: Request, limit: int) -> bytes:
+    """Raw request body, refusing more than `limit` bytes without reading it all into memory."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise BadRequest(f"Upload is too large (max {limit // (1024 * 1024)} MB)", code="too_large", status=413)
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise BadRequest(f"Upload is too large (max {limit // (1024 * 1024)} MB)", code="too_large", status=413)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def attachment(filename: str) -> str:
+    """Content-Disposition for any name: headers are latin-1, so non-ASCII goes in filename* (RFC 6266)."""
+    fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 def field(body: dict[str, Any], key: str, kind: type, *, default: Any = ..., allow_empty: bool = True) -> Any:

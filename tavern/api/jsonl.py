@@ -2,30 +2,37 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, ctx_of
-from tavern.errors import NotFound
+from tavern.api.util import BadRequest, attachment, ctx_of
+from tavern.errors import AppError, NotFound
 from tavern.formats.jsonl import export_chat_jsonl, import_chat_jsonl
+from tavern.services import notes as note_service
+from tavern.storage.repos.notes import NOTE_FIELDS
 
 
 def _export_rows(ctx: Any, chat_id: str) -> str:
     chat = ctx.chats.get_chat(chat_id)
     messages = ctx.chats.all_messages(chat_id)
     swipes = [ctx.chats.get_swipes(message["id"]) for message in messages]
-    return export_chat_jsonl(chat, messages, swipes)
+    return export_chat_jsonl(chat, messages, swipes, chat_notes=ctx.notes.list("chat", chat_id),
+                             message_notes=ctx.notes.attached(chat_id))
 
 
 async def export_chat(request: Request) -> PlainTextResponse:
+    ctx = ctx_of(request)
     chat_id = request.path_params["id"]
+    title = ctx.chats.get_chat(chat_id)["title"]
+    safe = re.sub(r'[\\/"\r\n\x00-\x1f\x7f:*?<>|]+', "_", title).strip(" ._") or "chat"
     return PlainTextResponse(
-        _export_rows(ctx_of(request), chat_id),
+        _export_rows(ctx, chat_id),
         media_type="application/x-ndjson",
-        headers={"Content-Disposition": f'attachment; filename="{chat_id}.jsonl"'},
+        headers={"Content-Disposition": attachment(safe[:120] + ".jsonl")},
     )
 
 
@@ -68,6 +75,20 @@ async def import_chat(request: Request) -> JSONResponse:
             active = item.get("active_swipe", 0)
             if isinstance(active, int) and 0 <= active < len(values):
                 ctx.chats.set_active_swipe(created["id"], active)
+    for note in imported["chat_notes"]:
+        try:
+            ctx.notes.create("chat", chat["id"], note_service.clean_note(
+                {k: note[k] for k in NOTE_FIELDS if k in note}))
+        except AppError:
+            continue  # a note this version cannot read is skipped, not the whole chat
+    for note in imported["message_notes"]:
+        message_id = id_map.get(note["message_id"])
+        kind = note.get("kind", "visible")
+        if message_id is None or kind not in note_service.KINDS:
+            continue
+        ctx.notes.attach(chat["id"], message_id, kind=kind, text=note["text"],
+                         role=note["role"] if note.get("role") in note_service.ROLES else "system",
+                         title=str(note.get("title") or ""), note_id=note.get("note_id"))
     leaf = id_map.get(source.get("leaf_id"))
     ctx.chats.set_leaf(chat["id"], leaf)
     return JSONResponse({"chat": ctx.chats.get_chat(chat["id"])}, status_code=201)

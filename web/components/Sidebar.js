@@ -2,7 +2,7 @@
 import { html, useRef } from "../vendor/preact-htm.mjs";
 
 export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat,
-  onExportCharacter, onDeleteChat, onDeleteCharacter, onSettings, open, onClose }) {
+  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, open, onClose }) {
   const fileInput = useRef(null);
   const chatFileInput = useRef(null);
 
@@ -13,7 +13,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
   };
 
   return html`
-    <aside class=${"sidebar" + (open ? " open" : "")}>
+    <aside class=${"sidebar" + (open ? " open" : "")} data-slot="sidebar">
       <div class="side-head">
         <strong>Tavern</strong>
         <span class="spacer"></span>
@@ -28,6 +28,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
             <button class="item" onClick=${() => onNewChat(c.id)} title="Начать новый чат">
               ${c.name}
             </button>
+            <button title="Карточка персонажа" onClick=${() => onEditCharacter(c.id)}>✎</button>
             <button title="Экспортировать PNG" onClick=${() => onExportCharacter(c.id)}>↓</button>
             <button title="Удалить персонажа"
               onClick=${() => confirm(`Удалить персонажа «${c.name}»? Чаты останутся.`) && onDeleteCharacter(c.id)}>🗑</button>
@@ -37,8 +38,11 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
       <input ref=${chatFileInput} type="file" accept=".jsonl,application/x-ndjson" hidden
         onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
       <div class="row">
+        <button onClick=${() => onEditCharacter(null)}>+ Персонаж</button>
         <button onClick=${() => fileInput.current.click()}>Импорт карточки</button>
         <button onClick=${() => chatFileInput.current.click()}>Импорт чата</button>
+        ${chatId && html`<a class="button" href=${`/api/chats/${chatId}/export.jsonl`}
+          title="Скачать открытый чат (JSONL)">Экспорт чата</a>`}
         <button onClick=${() => onNewChat(null)}>Чат без персонажа</button>
       </div>
 
@@ -48,6 +52,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
         ${chats.map((c) => html`
           <li key=${c.id} class=${c.id === chatId ? "active" : ""}>
             <button class="item" onClick=${() => onOpenChat(c.id)}>${c.title}</button>
+            <a class="button" href=${`/api/chats/${c.id}/export.jsonl`} title="Скачать чат (JSONL)">↓</a>
             <button title="Удалить чат"
               onClick=${() => confirm(`Удалить чат «${c.title}»?`) && onDeleteChat(c.id)}>🗑</button>
           </li>`)}

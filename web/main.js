@@ -1,12 +1,19 @@
-// App shell: wires the sidebar, the chat view and the settings dialog together.
-import { html, render, useState, useEffect, useCallback } from "./vendor/preact-htm.mjs";
+// App shell: wires the sidebar, the chat view, the settings dialog and the active theme together.
+// Elements carry data-slot names so themes can style them; keep those names stable.
+import { html, render, useState, useEffect, useCallback, useRef } from "./vendor/preact-htm.mjs";
 import { api } from "./core/api.js";
 import { useChat } from "./core/chat.js";
+import { SAFE_MODE, applyCachedLook, applyTheme, emit } from "./core/theme.js";
+import { scriptAllowed } from "./components/Themes.js";
 import { VirtualList } from "./components/VirtualList.js";
 import { Message } from "./components/Message.js";
 import { Composer } from "./components/Composer.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { Settings } from "./components/Settings.js";
+import { Members } from "./components/Members.js";
+import { CharacterEditor } from "./components/CharacterEditor.js";
+import { PromptView } from "./components/PromptView.js";
+import { MessageNotes, Notes, NotesByNumbers } from "./components/Notes.js";
 import { ROLES } from "./components/roles.js";
 
 function App() {
@@ -14,6 +21,7 @@ function App() {
   const [chats, setChats] = useState([]);
   const [chatId, setChatId] = useState(() => localStorage.getItem("tavern.chat") || null);
   const [settings, setSettings] = useState({});
+  const [themes, setThemes] = useState({ themes: [], deleted: [] });
   const [showSettings, setShowSettings] = useState(false);
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState("");
@@ -24,6 +32,15 @@ function App() {
   const [selected, setSelected] = useState(() => new Set());
   const [bulkRole, setBulkRole] = useState("user");
   const [numbers, setNumbers] = useState("");
+  const [showMembers, setShowMembers] = useState(false);
+  const [editingCharacter, setEditingCharacter] = useState(undefined); // id, null = new, undefined = closed
+  const [promptOf, setPromptOf] = useState(null); // message whose prompt is shown
+  const [showNotes, setShowNotes] = useState(false);
+  const [notesNumbers, setNotesNumbers] = useState(null); // "1-52 68-72" open in the window over the chat
+  const [attached, setAttached] = useState([]); // notes kept after messages: hidden and visible
+  const [showHidden, setShowHidden] = useState(() => localStorage.getItem("tavern.showHiddenNotes") === "1");
+  const [notesOpen, setNotesOpen] = useState({}); // message id -> true/false after 📝 or ✕ there
+  const [notesFor, setNotesFor] = useState(null); // {message, shown}: the drop-down with one message's notes
 
   const onError = useCallback((message) => {
     setToast(message);
@@ -34,10 +51,13 @@ function App() {
 
   const refresh = async () => {
     try {
-      const [c, l, s] = await Promise.all([api.get("/characters"), api.get("/chats"), api.get("/settings")]);
+      const [c, l, s, t] = await Promise.all([
+        api.get("/characters"), api.get("/chats"), api.get("/settings"), api.get("/themes"),
+      ]);
       setCharacters(c.characters);
       setChats(l.chats);
       setSettings(s);
+      setThemes(t);
     } catch (e) {
       onError(e.message);
     }
@@ -53,6 +73,43 @@ function App() {
   }, [chats]);
   // Refresh the chat list (titles, order) after each finished generation.
   useEffect(() => { if (!chat.running) refresh(); }, [chat.running]);
+  // Notes on messages: after opening a chat and after each reply (it may have placed notes).
+  const loadAttached = () => {
+    if (!chatId) { setAttached([]); return; }
+    api.get(`/chats/${chatId}/message-notes`).then((d) => setAttached(d.notes)).catch((e) => onError(e.message));
+  };
+  useEffect(() => { if (!chat.running) loadAttached(); }, [chatId, chat.running]);
+  useEffect(() => setNotesOpen({}), [chatId]);
+  const chooseShowHidden = (on) => {
+    setShowHidden(on);
+    // "Show all" wins over notes hidden one by one; notes opened one by one stay open.
+    setNotesOpen((o) => Object.fromEntries(Object.entries(o).filter(([, open]) => open)));
+    localStorage.setItem("tavern.showHiddenNotes", on ? "1" : "0");
+  };
+  const clearHidden = () => api.del(`/chats/${chatId}/message-notes?kind=hidden`).then(loadAttached)
+    .catch((e) => onError(e.message));
+
+  // Theme: the open character's own theme, else the general one. Effects run only if allowed.
+  const characterId = chatId && chat.chat ? chat.chat.character_id : null;
+  const character = characters.find((c) => c.id === characterId) || null;
+  const themeId = (characterId && (settings.character_themes || {})[characterId]) || settings.theme || "default";
+  const theme = themes.themes.find((t) => t.id === themeId) || themes.themes.find((t) => t.id === "default");
+  const runScript = scriptAllowed(theme, settings);
+  useEffect(() => {
+    if (theme) applyTheme(theme, { runScript, onScriptError: onError });
+  }, [theme && theme.id, theme && theme.script_sha256, theme && theme.base, runScript]);
+
+  // Events for theme effects. They are fired after the theme applied, so a fresh script sees them.
+  useEffect(() => {
+    emit("chat", { chatId, characterId, characterName: character ? character.name : null });
+  }, [chatId, characterId, theme && theme.id]);
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    emit("generation", { running: chat.running });
+    const last = chat.messages[chat.messages.length - 1];
+    if (wasRunning.current && !chat.running && last) emit("message", { role: last.role, text: last.content });
+    wasRunning.current = chat.running;
+  }, [chat.running]);
 
   const open = (id) => { setChatId(id); setMenu(false); };
 
@@ -180,35 +237,52 @@ function App() {
   };
 
   const lastId = chat.messages.length ? chat.messages[chat.messages.length - 1].id : null;
-  const renderItem = (m) => html`<${Message} message=${m}
+  const avatar = character && character.avatar ? `/api/characters/${character.id}/avatar` : null;
+  const notesOf = {};
+  for (const n of attached) (notesOf[n.message_id] ||= []).push(n);
+  const lastDepth = chat.messages.length ? chat.messages[chat.messages.length - 1].depth : 0;
+  const renderItem = (m) => html`<${Message} message=${m} notes=${notesOf[m.id]} showHidden=${showHidden}
+    notesOpen=${notesOpen[m.id]} age=${lastDepth - m.depth}
+    onNotesOpen=${(id, open) => setNotesOpen((o) => ({ ...o, [id]: open }))}
+    notesDisplay=${settings.notes_display || "few"}
+    onOpenNotes=${(message, shownNow) => setNotesFor({ message, shown: shownNow })}
+    avatar=${m.role === "assistant" ? avatar : null}
     streamText=${chat.stream && chat.stream.id === m.id ? chat.stream.text : null}
     busy=${chat.running} isLast=${m.id === lastId}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
     onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${chat.regenerate}
-    onBranches=${openBranches} />`;
+    onBranches=${openBranches} onPrompt=${setPromptOf} />`;
 
   const shown = chatId && chat.chat;
   return html`
-    <div class="app">
+    <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"}>
+      ${SAFE_MODE && html`<div class="safe-banner" role="status">Безопасный режим: темы выключены.
+        <a href="/">Выйти</a></div>`}
       <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} open=${menu}
         onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
         onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat}
+        onEditCharacter=${(id) => { setEditingCharacter(id); setMenu(false); }}
         onDeleteCharacter=${deleteCharacter} onSettings=${() => setShowSettings(true)}
         onClose=${() => setMenu(false)} />
-      <main class="main">
-        <div class="topbar">
+      <main class="main" data-slot="chat" data-running=${chat.running ? "true" : "false"}>
+        <div class="scene" data-slot="scene" aria-hidden="true"></div>
+        <div class="topbar" data-slot="topbar">
           <button class="only-mobile" title="Меню" onClick=${() => setMenu(true)}>☰</button>
-          <strong>${shown ? chat.chat.title : "Tavern"}</strong>
+          <strong class="title" data-slot="title">${shown ? chat.chat.title : "Tavern"}</strong>
           ${shown && html`<form class="search" onSubmit=${search}>
             <input name="query" placeholder="Поиск" aria-label="Поиск по чату" />
           </form>`}
+          ${shown && html`<button data-slot="members-button" title="Участники чата и пресет"
+            onClick=${() => setShowMembers(true)}>👥</button>`}
+          ${shown && html`<button data-slot="notes-button" title="Заметки автора"
+            onClick=${() => setShowNotes(true)}>📝</button>`}
           ${shown && html`<button class="export-chat" title="Экспортировать чат JSONL" onClick=${exportChat}>↓ JSONL</button>`}
         </div>
         ${shown
           ? html`
             <${VirtualList} items=${chat.messages} renderItem=${renderItem}
               onReachTop=${chat.loadOlder} resetKey=${chatId} />
-            <div class="chat-actions">
+            <div class="chat-actions" data-slot="chat-actions">
               <button disabled=${chat.running} onClick=${() => chat.continue(role)}
                 title="Модель напишет следующее сообщение от выбранной роли без вашей реплики">Продолжить</button>
               <button aria-pressed=${selecting} onClick=${() => { setSelecting(!selecting); setSelected(new Set()); }}>
@@ -238,18 +312,40 @@ function App() {
               </div>`}
             </div>
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
-              onSend=${(text) => chat.send(text, role)} onStop=${chat.stop} />`
-          : html`<div class="empty">
+              onSend=${(text) => { emit("send", { text }); return chat.send(text, role); }} onStop=${chat.stop} />`
+          : html`<div class="empty" data-slot="empty">
               <p>Выберите чат слева или начните новый с персонажем.</p>
               ${!settings.active_connection && html`<p>Сначала добавьте подключение к API:
                 <button onClick=${() => setShowSettings(true)}>Настройки</button></p>`}
             </div>`}
+        <div class="overlay-layer" data-slot="overlay"></div>
       </main>
-      ${showSettings && html`<${Settings} settings=${settings} onClose=${() => setShowSettings(false)}
+      ${showSettings && html`<${Settings} settings=${settings} themes=${themes.themes}
+        deletedThemes=${themes.deleted} characters=${characters} onClose=${() => setShowSettings(false)}
         onChanged=${refresh} onError=${onError} />`}
-      ${toast && html`<div class="toast" role="alert" onClick=${() => setToast("")}>${toast}</div>`}
+      ${showMembers && shown && html`<${Members} chat=${chat.chat} characters=${characters} settings=${settings}
+        onClose=${() => setShowMembers(false)} onError=${onError}
+        onChanged=${() => { refresh(); chat.refreshInfo(); }} onEditCharacter=${setEditingCharacter} />`}
+      ${editingCharacter !== undefined && html`<${CharacterEditor} characterId=${editingCharacter}
+        settings=${settings} onClose=${() => setEditingCharacter(undefined)} onError=${onError}
+        onSaved=${() => { setEditingCharacter(undefined); refresh(); }} />`}
+      ${showNotes && shown && html`<${Notes} chat=${chat.chat} showHidden=${showHidden}
+        onShowHidden=${chooseShowHidden} onClearHidden=${clearHidden} onChanged=${loadAttached}
+        onEditNumbers=${(numbers) => { setShowNotes(false); setNotesNumbers(numbers); }}
+        onClose=${() => setShowNotes(false)} onError=${onError} />`}
+      ${notesNumbers && shown && html`<${NotesByNumbers} chatId=${chatId} numbers=${notesNumbers}
+        onChanged=${loadAttached} onClose=${() => setNotesNumbers(null)} onError=${onError} />`}
+      ${notesFor && shown && html`<${MessageNotes} chatId=${chatId} message=${notesFor.message}
+        shown=${notesFor.shown} onChanged=${loadAttached} onClose=${() => setNotesFor(null)} onError=${onError}
+        onShown=${(on) => {
+          setNotesFor({ ...notesFor, shown: on });
+          setNotesOpen((o) => ({ ...o, [notesFor.message.id]: on }));
+        }} />`}
+      ${promptOf && html`<${PromptView} message=${promptOf} onClose=${() => setPromptOf(null)} onError=${onError} />`}
+      ${toast && html`<div class="toast" data-slot="toast" role="alert" onClick=${() => setToast("")}>${toast}</div>`}
     </div>
   `;
 }
 
+applyCachedLook();
 render(html`<${App} />`, document.getElementById("root"));

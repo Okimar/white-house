@@ -1,0 +1,100 @@
+/* Сакура: night sky, falling petals and a mascot built from picture layers (see script.js).
+   Performance rules this theme follows (and every theme should):
+   - animate only transform and opacity: the GPU moves those without repainting the page;
+   - no backdrop-filter / big blur on elements that scroll: it is what makes phones lag;
+   - few moving things on phones, none with "reduce motion". */
+:root {
+  --bg: #120d24; --panel: #1d1638; --fg: #f3e9ff; --muted: #b9abd8; --line: #3a2f63;
+  --accent: #ff8fb8; --accent-fg: #2a0f1f; --danger: #ff6b81;
+  --user: #6e2d5a; --bot: #2b1f54;
+  --app-bg: linear-gradient(180deg, #0b0820 0%, #1b1240 55%, #3a1f4f 100%);
+  --sidebar-bg: rgba(20, 14, 42, .94); --topbar-bg: rgba(20, 14, 42, .86); --composer-bg: rgba(20, 14, 42, .9);
+  --msg-bot-bg: rgba(43, 31, 84, .84); --msg-user-bg: rgba(110, 45, 90, .82);
+  --msg-border: 1px solid rgba(255, 170, 210, .16); --msg-shadow: 0 4px 16px rgba(0, 0, 0, .25);
+  --dialog-bg: #1d1638; --overlay-bg: rgba(5, 3, 15, .6);
+  --radius: 16px; --radius-sm: 10px;
+}
+
+[data-slot="message-name"] { color: var(--accent); }
+[data-slot="message"][data-role="user"] [data-slot="message-name"] { color: #ffd1e6; }
+[data-slot="message"][data-streaming="true"] { border-color: rgba(255, 143, 184, .55); }
+[data-slot="send-button"] { background: linear-gradient(135deg, #ff9cc4, #c77dff); border: 0; color: #2a0f1f; font-weight: 600; }
+[data-slot="topbar"] [data-slot="title"] { letter-spacing: .02em; }
+[data-slot="composer-input"] { background: rgba(255, 255, 255, .06); border-color: rgba(255, 170, 210, .25); }
+
+/* Scene: moon and hills are static pictures, stars only fade in and out. */
+[data-slot="scene"]::before {
+  content: ""; position: absolute; top: 7%; right: 9%; width: 64px; height: 64px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, #fffaf0, #f3dfb0); box-shadow: 0 0 40px 12px rgba(255, 236, 190, .18);
+}
+[data-slot="scene"]::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 22%;
+  background: url(assets/hills.svg) bottom / 100% 100% no-repeat;
+}
+.sakura-stars {
+  position: absolute; inset: 0 0 30% 0;
+  background-image:
+    radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 70% 20%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 40% 70%, #ffe, transparent), radial-gradient(1px 1px at 85% 55%, #fff, transparent),
+    radial-gradient(1px 1px at 10% 80%, #fff, transparent), radial-gradient(1.5px 1.5px at 55% 45%, #fff, transparent);
+  background-size: 260px 220px;
+  animation: sakura-twinkle 6s ease-in-out infinite alternate;
+}
+@keyframes sakura-twinkle { from { opacity: .45; } to { opacity: 1; } }
+
+.sakura-petals i {
+  position: absolute; top: -24px; left: var(--x); width: 18px; height: 14px;
+  background: url(assets/petal.svg) center / contain no-repeat; opacity: .85; will-change: transform;
+  animation: sakura-fall var(--d) linear var(--delay) infinite;
+}
+@keyframes sakura-fall {
+  from { transform: translate3d(0, 0, 0) rotate(0deg) scale(var(--s)); }
+  to { transform: translate3d(var(--sway), 105vh, 0) rotate(540deg) scale(var(--s)); }
+}
+
+/* Mascot: every part is a full-size transparent layer of the same 200x260 canvas, stacked.
+   Wrappers carry the motion, so each element runs at most one animation. */
+.sakura-mascot {
+  position: absolute; right: 2%; bottom: 110px; width: min(36vw, 200px); aspect-ratio: 200 / 260;
+  opacity: .5; contain: layout style;
+}
+.sakura-mascot.is-wide { right: 24px; bottom: 96px; width: 230px; opacity: 1; pointer-events: auto; cursor: pointer; }
+.sakura-mascot > *, .sakura-mascot .layer, .sakura-mascot img {
+  position: absolute; inset: 0; width: 100%; height: 100%; user-select: none; -webkit-user-drag: none;
+}
+.sakura-mascot .body { transform-origin: 50% 100%; animation: sakura-breathe 4s ease-in-out infinite; }
+.sakura-mascot .bob { animation: sakura-bob 4s ease-in-out infinite; }
+.sakura-mascot .tilt { transform-origin: 50% 62%; transition: transform .35s ease; }
+.sakura-mascot .eyes { transform-origin: 50% 45%; animation: sakura-blink 5s infinite; }
+.sakura-mascot .look { transform: translate(calc(var(--lx, 0) * 1.6%), calc(var(--ly, 0) * 1%)); transition: transform .15s ease-out; }
+.sakura-mascot .eyes-happy, .sakura-mascot .mouth-open { opacity: 0; }
+.sakura-mascot .blush { opacity: .6; transition: opacity .3s; }
+@keyframes sakura-breathe { 50% { transform: scaleY(1.012); } }
+@keyframes sakura-bob { 50% { transform: translateY(-.8%); } }
+@keyframes sakura-blink { 0%, 93%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.08); } }
+
+/* Talking while the model writes. */
+.sakura-mascot.is-talking .mouth-open { animation: sakura-talk .32s steps(1) infinite; }
+@keyframes sakura-talk { 50% { opacity: 1; } }
+/* Reactions, switched on for a moment by the script. */
+.sakura-mascot.react-happy .tilt { transform: rotate(7deg); }
+.sakura-mascot.react-happy .look { opacity: 0; }
+.sakura-mascot.react-happy .eyes-happy { opacity: 1; }
+.sakura-mascot.react-happy .blush { opacity: 1; }
+.sakura-mascot.react-nod .tilt { animation: sakura-nod .6s ease; }
+.sakura-mascot.react-listen .tilt { transform: rotate(-5deg); }
+@keyframes sakura-nod { 40% { transform: rotate(0) translateY(2%); } }
+
+.sakura-mascot .sakura-burst {
+  position: absolute; inset: 40% auto auto 50%; width: 16px; height: 13px;
+  background: url(assets/petal.svg) center / contain no-repeat; pointer-events: none;
+  animation: sakura-burst .9s ease-out forwards;
+}
+@keyframes sakura-burst {
+  from { transform: translate(-50%, -50%) scale(.4); opacity: 1; }
+  to { transform: translate(calc(-50% + var(--bx)), calc(-50% + var(--by))) rotate(200deg) scale(1); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sakura-stars, .sakura-petals i, .sakura-mascot *, .sakura-burst { animation: none !important; transition: none !important; }
+}

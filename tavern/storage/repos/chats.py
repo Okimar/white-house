@@ -100,6 +100,10 @@ class ChatRepo:
         self.db.execute("UPDATE chats SET title = ? WHERE id = ?", (title, chat_id))
         return self.get_chat(chat_id)
 
+    def set_character(self, chat_id: str, character_id: str | None) -> None:
+        """Change the chat's main character (the one replies are named after)."""
+        self.db.execute("UPDATE chats SET character_id = ? WHERE id = ?", (character_id, chat_id))
+
     def update_meta(self, chat_id: str, meta: dict[str, Any]) -> None:
         self.get_chat(chat_id)
         self.db.execute("UPDATE chats SET meta = ? WHERE id = ?", (json.dumps(meta), chat_id))

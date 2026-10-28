@@ -13,10 +13,14 @@ from typing import Any
 
 from tavern.context import AppContext
 from tavern.core.budget import BudgetExceeded, RunBudget
+from tavern.core.assembly import PromptInput
 from tavern.core.generation import GenerationJob
 from tavern.core.llm import LLMClient
 from tavern.core.prompt import substitute
 from tavern.core.runs import Run
+from tavern.services import cast, character_tree
+from tavern.services import notes as note_service
+from tavern.services import presets as preset_service
 from tavern.errors import AppError, Conflict, NotFound, TavernError
 from tavern.formats.cards import greetings
 from tavern.storage.repos.chats import ROLES
@@ -34,19 +38,32 @@ IMPERSONATE_INSTRUCTION = (
 )
 
 
-def user_name(ctx: AppContext) -> str:
-    return ctx.settings.get("user_name") or DEFAULT_USER_NAME
+def user_name(ctx: AppContext, chat_id: str | None = None) -> str:
+    """{{user}} of a chat: its "me" member, else the name from settings."""
+    return cast.user_name(ctx, chat_id)
 
 
 def create_chat(ctx: AppContext, character_id: str | None, title: str | None = None) -> dict[str, Any]:
-    """New chat. With a character, its greeting (and alternates as swipes) opens the chat."""
+    """New chat. With a character, its greeting (and alternates as swipes) opens the chat.
+
+    The character becomes the first member; the default "me" character (setting `default_me`)
+    joins as the user's own character.
+    """
     character = ctx.characters.get(character_id) if character_id else None
     chat = ctx.chats.create_chat(
         character_id=character_id,
         title=(title or "").strip() or (character["name"] if character else "New chat"),
     )
     if character:
-        me = user_name(ctx)
+        cast.add_member_now(ctx, chat["id"], character["id"])
+    default_me = ctx.settings.get("default_me")
+    if default_me and default_me != character_id:
+        try:
+            cast.add_member_now(ctx, chat["id"], default_me, is_me=True)
+        except NotFound:
+            ctx.settings.delete("default_me")  # that character was deleted
+    if character:
+        me = user_name(ctx, chat["id"])
         opening = [
             substitute(text, char=character["name"], user=me)
             for text in greetings(character["data"])
@@ -95,7 +112,7 @@ def start_send(ctx: AppContext, chat_id: str, text: str, reply_role: str = "assi
     character = ctx.characters.get(chat["character_id"]) if chat["character_id"] else None
 
     user_message = ctx.chats.add_message(
-        chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx)
+        chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id)
     )
     reply = ctx.chats.add_message(
         chat_id, role=reply_role, content="", parent_id=user_message["id"],
@@ -197,7 +214,7 @@ def _check_role(role: str) -> None:
 def _name_for(ctx: AppContext, chat: dict[str, Any], role: str) -> str:
     """Display name stored with a message of this role."""
     if role == "user":
-        return user_name(ctx)
+        return user_name(ctx, chat["id"])
     if role == "assistant" and chat["character_id"]:
         try:
             return ctx.characters.get(chat["character_id"])["name"]
@@ -256,10 +273,38 @@ def _launch(
 ) -> Run:
     chat_id = chat["id"]
     params = dict(connection["params"])
-    max_context = int(params.pop("max_context_tokens", 0) or 0)
+    preset = preset_service.resolve(ctx, chat)
+    max_context = preset["data"]["max_context_tokens"] or int(params.pop("max_context_tokens", 0) or 0)
+    # The preset's model settings win over the connection's.
     model_defaults = {k: params[k] for k in MODEL_PARAM_KEYS if k in params}
+    model_defaults.update(preset["data"]["params"])
     generator_id = chat["meta"].get("generator") or ctx.settings.get("generator")
-    me = user_name(ctx)
+    me = user_name(ctx, chat_id)
+
+    def archive(job: GenerationJob) -> None:
+        """Keep what the model saw for this reply version ("what the model saw" button)."""
+        if job.prompt is None or job.sent is None:
+            return  # a plugin generator built its own prompt
+        if job.sent == job.prompt.messages:
+            entries = [e.as_dict() for e in job.prompt.entries]
+        else:  # plugins changed the prompt: keep what was actually sent
+            entries = [{"role": m.role, "text": m.content, "source": "", "label": "после плагинов",
+                        "kind": "plugin", "msg": i} for i, m in enumerate(job.sent)]
+        meta = {
+            "preset_id": preset["id"], "preset_name": preset["name"],
+            "connection_id": connection["id"], "connection_name": connection["name"],
+            "model": connection["model"], "params": model_defaults,
+            "tokens": job.prompt.tokens, "dropped": job.prompt.dropped,
+            "max_context_tokens": max_context,
+        }
+        try:
+            ctx.prompt_log.record(chat_id, reply["id"], swipe_idx, entries, meta)
+        except Exception:  # noqa: BLE001 - the reply itself is saved; the archive is secondary
+            log.exception("Could not archive the prompt of message %s", reply["id"])
+        try:
+            note_service.record_placed(ctx, chat_id, job.prompt.placed)
+        except Exception:  # noqa: BLE001 - same: the reply is saved, a note mark is secondary
+            log.exception("Could not attach the notes of message %s", reply["id"])
 
     def discard() -> None:
         """Remove the empty placeholder so a failed or stopped generation leaves no blank reply."""
@@ -285,22 +330,43 @@ def _launch(
     async def body(run: Run) -> None:
         provider = ctx.providers.create(connection)
         parts: list[str] = []
+        job: GenerationJob | None = None
+
+        def finish(text: str) -> bool:
+            saved = settle(text)
+            if saved and job is not None:
+                archive(job)
+            return saved
+
         try:
             llm = LLMClient(provider, model=connection["model"], budget=run.budget,
                             trace=run.trace, defaults=model_defaults)
             history = [
                 m for m in ctx.chats.active_path(chat_id) if m["id"] != reply["id"]
             ]
+            members = cast.prompt_members(ctx, ctx.chats.get_chat(chat_id))
+            chosen = await character_tree.select_for_chat(ctx, chat, members, history)
+            for member in members:
+                member.blocks = chosen.get(member.character_id, [])
+            prompt_input = PromptInput(
+                preset=preset["data"], preset_id=preset["id"],
+                members=members,
+                history=note_service.with_attached(ctx, chat_id, history), user_name=me,
+                impersonate=reply["role"] == "user",
+                max_context_tokens=max_context,
+                notes=note_service.for_reply(ctx, chat_id, [m.character_id for m in members], history),
+            )
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,
-                                max_context_tokens=max_context, instruction=instruction)
+                                max_context_tokens=max_context, instruction=instruction,
+                                prompt_input=prompt_input)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
             await ctx.events.emit("chat.before_generate", job=job)
             async for delta in ctx.generators.get(generator_id).generate(job):
                 parts.append(delta)
                 run.emit("delta", text=delta)
             text = "".join(parts)
-            if not settle(text):
+            if not finish(text):
                 run.emit("error", error={"code": "empty_reply",
                                          "message": "The model returned an empty reply"},
                          message=snapshot())
@@ -309,13 +375,13 @@ def _launch(
             run.emit("done", message=message, budget=run.budget.snapshot())
             await ctx.events.emit("message.received", message=message, chat=chat)
         except asyncio.CancelledError:
-            settle("".join(parts))
+            finish("".join(parts))
             run.emit("stopped", message=snapshot())
             raise
         except Exception as exc:  # noqa: BLE001 - reported to the client below
             if not isinstance(exc, TavernError):
                 log.exception("Generation failed in chat %s", chat_id)
-            settle("".join(parts))
+            finish("".join(parts))
             run.emit("error", error=_error_dict(exc), message=snapshot())
             await ctx.events.emit("generation.failed", chat_id=chat_id, error=exc)
         finally:

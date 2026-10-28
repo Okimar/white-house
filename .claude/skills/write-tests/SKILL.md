@@ -62,6 +62,11 @@ http = httpx.AsyncClient(transport=httpx.ASGITransport(app=fake.app), base_url="
 assert fake.requests[-1]["messages"][-1]["content"] == "hi"   # inspect what was sent
 ```
 
+Pictures: `POST /v1/images/generations` on the fake returns a small PNG whose colours depend on
+the prompt; requests land in `fake.image_requests`, and `fail_next` applies to them too.
+Manual checks in the browser follow the same rule: point the active connection at
+`python -m tavern.devtools.fake_llm`, never at the owner's real model.
+
 ## Rules
 
 - Bug fix: write the failing test first, see it fail, then fix.

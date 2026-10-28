@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
+from tavern.core.assembly import Prompt, PromptInput, assemble
 from tavern.core.llm import LLMClient
 from tavern.core.prompt import build_prompt, estimate_tokens
 from tavern.core.runs import Run
@@ -43,17 +44,27 @@ class GenerationJob:
     max_context_tokens: int = 0
     params: dict[str, Any] = field(default_factory=dict)  # per-call model options (temperature...)
     instruction: str = ""  # extra final user turn, e.g. for impersonation
+    # Stage 4а: when set, the prompt comes from the preset and chat members (core/assembly.py).
+    prompt_input: PromptInput | None = None
+    # Filled by build_messages: how the prompt was made and what was finally sent.
+    prompt: Prompt | None = None
+    sent: list[ChatMessage] | None = None
 
     async def build_messages(self) -> list[ChatMessage]:
         """Standard prompt for this job, after `prompt.built` filters."""
-        messages = build_prompt(
-            self.card,
-            self.history,
-            user_name=self.user_name,
-            max_context_tokens=self.max_context_tokens,
-            instruction=self.instruction,
-        )
+        if self.prompt_input is not None:
+            self.prompt = assemble(self.prompt_input)
+            messages = list(self.prompt.messages)
+        else:
+            messages = build_prompt(
+                self.card,
+                self.history,
+                user_name=self.user_name,
+                max_context_tokens=self.max_context_tokens,
+                instruction=self.instruction,
+            )
         messages = await self.ctx.events.filter("prompt.built", messages, job=self)
+        self.sent = messages
         self.run.trace(
             "prompt",
             messages=len(messages),

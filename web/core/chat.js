@@ -126,6 +126,9 @@ export function useChat(chatId, onError) {
     setRoles: (role, target) => guard(api.put(`/chats/${chatId}/roles`, { role, ...target }).then((r) =>
       setState((s) => ({ ...s, messages: r.messages.reduce(
         (list, m) => (list.some((x) => x.id === m.id) ? upsert(list, m) : list), s.messages) })))),
+    // Chat fields (main character, preset) changed elsewhere: refresh them without touching messages.
+    refreshInfo: () => guard(api.get(`/chats/${chatId}?limit=1`).then((d) =>
+      setState((s) => ({ ...s, chat: d.chat })))),
     selectBranch: (messageId) => guard(api.post(`/chats/${chatId}/branch`, { leaf_id: messageId }).then(reload)),
     remove: (id) => guard(api.del(`/messages/${id}`).then(reload)),
   };

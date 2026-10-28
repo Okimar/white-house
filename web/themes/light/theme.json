@@ -1,0 +1,10 @@
+{
+  "format": "tavern-theme",
+  "format_version": 1,
+  "id": "light",
+  "name": "Светлая",
+  "author": "Tavern",
+  "version": "1",
+  "description": "Всегда светлая, независимо от настройки системы.",
+  "base": "light"
+}

@@ -6,6 +6,8 @@ KoboldCpp /v1, text-generation-webui and anything else that speaks `/chat/comple
 
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import json
 import logging
@@ -27,6 +29,8 @@ log = logging.getLogger(__name__)
 
 CONNECT_TIMEOUT = 10.0
 READ_TIMEOUT = 120.0  # max silence between chunks, not total time
+IMAGE_TIMEOUT = 300.0  # picture models can take minutes
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 class OpenAICompatProvider(Provider):
@@ -122,6 +126,63 @@ class OpenAICompatProvider(Provider):
         except ValueError as exc:
             raise ProviderError("The server returned a non-JSON model list") from exc
         return sorted(str(m["id"]) for m in data if isinstance(m, dict) and "id" in m)
+
+    async def generate_image(self, prompt: str, *, model: str = "", size: str = "1024x1024") -> bytes:
+        """POST /images/generations. The answer carries the picture inline (b64_json) or as a URL."""
+        body: dict[str, Any] = {"prompt": prompt, "n": 1, "size": size}
+        if model:
+            body["model"] = model
+        timeout = httpx.Timeout(IMAGE_TIMEOUT, connect=CONNECT_TIMEOUT)
+        try:
+            response = await self._client.post(
+                f"{self.base_url}/images/generations", json=body, headers=self._headers(), timeout=timeout
+            )
+            if response.status_code >= 400:
+                raise await _error_from(response)
+            try:
+                item = (response.json().get("data") or [{}])[0]
+            except (ValueError, AttributeError, IndexError):
+                raise ProviderError("The server returned an unexpected image response") from None
+            if not isinstance(item, dict):
+                raise ProviderError("The server returned an unexpected image response")
+            if item.get("b64_json"):
+                try:
+                    return base64.b64decode(item["b64_json"], validate=True)
+                except (ValueError, binascii.Error):
+                    raise ProviderError("The server returned a damaged picture") from None
+            url = item.get("url")
+            if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+                raise ProviderError("The server returned no picture")
+            picture = await self._client.get(url, timeout=timeout)
+            if picture.status_code >= 400:
+                raise ProviderError(f"Downloading the picture failed with {picture.status_code}")
+            if len(picture.content) > MAX_IMAGE_BYTES:
+                raise ProviderError("The generated picture is too large")
+            return picture.content
+        except httpx.TimeoutException as exc:
+            raise ProviderError(f"Timed out waiting for a picture from {self.base_url}") from exc
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"Cannot reach {self.base_url}: {exc!r}") from exc
+
+    async def embed(self, texts: list[str], *, model: str = "") -> list[list[float]]:
+        """POST /embeddings: one vector per text, in order."""
+        body: dict[str, Any] = {"input": texts}
+        if model:
+            body["model"] = model
+        try:
+            response = await self._client.post(f"{self.base_url}/embeddings", json=body, headers=self._headers())
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"Cannot reach {self.base_url}: {exc!r}") from exc
+        if response.status_code >= 400:
+            raise await _error_from(response)
+        try:
+            items = sorted(response.json()["data"], key=lambda d: d.get("index", 0))
+            vectors = [[float(x) for x in item["embedding"]] for item in items]
+        except (ValueError, KeyError, TypeError, AttributeError):
+            raise ProviderError("The server returned an unexpected embeddings response") from None
+        if len(vectors) != len(texts):
+            raise ProviderError("The server returned the wrong number of vectors")
+        return vectors
 
     async def aclose(self) -> None:
         if self._owns_client:

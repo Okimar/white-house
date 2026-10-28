@@ -5,14 +5,16 @@ from __future__ import annotations
 import base64
 import binascii
 import re
-from urllib.parse import quote
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, ctx_of, field, json_body
+from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body
+from tavern.errors import NotFound
 from tavern.formats.cards import card_to_png, decode_png_card, encode_card, parse_card
+from tavern.formats.media import media_type, sniff_image
+from tavern.services import character_tree, history
 
 
 async def list_characters(request: Request) -> JSONResponse:
@@ -25,8 +27,11 @@ async def get_character(request: Request) -> JSONResponse:
 
 async def create_character(request: Request) -> JSONResponse:
     """Body: a character card (V1 flat, V2 or V3 JSON) or {"name": ...}."""
+    ctx = ctx_of(request)
     spec, data = parse_card(await json_body(request))
-    return JSONResponse(ctx_of(request).characters.create(data, spec=spec), status_code=201)
+    character = ctx.characters.create(data, spec=spec)
+    character_tree.take_book(ctx, character["id"])  # embedded lorebook entries become blocks
+    return JSONResponse(ctx.characters.get(character["id"]), status_code=201)
 
 
 async def import_character_png(request: Request) -> JSONResponse:
@@ -35,38 +40,85 @@ async def import_character_png(request: Request) -> JSONResponse:
         raise BadRequest("PNG card is too large", code="card_too_large")
     spec, data = decode_png_card(blob)
     avatar = "data:image/png;base64," + base64.b64encode(blob).decode("ascii")
-    return JSONResponse(ctx_of(request).characters.create(data, spec=spec, avatar=avatar), status_code=201)
+    ctx = ctx_of(request)
+    character = ctx.characters.create(data, spec=spec, avatar=avatar)
+    character_tree.take_book(ctx, character["id"])
+    return JSONResponse(ctx.characters.get(character["id"]), status_code=201)
 
 
 async def export_character_json(request: Request) -> JSONResponse:
-    character = ctx_of(request).characters.get(request.path_params["id"])
-    return JSONResponse(encode_card(character["data"], spec=character["spec"]))
+    ctx = ctx_of(request)
+    character = ctx.characters.get(request.path_params["id"])
+    return JSONResponse(encode_card(character_tree.card_with_book(ctx, character), spec=character["spec"]))
 
 
 async def export_character_png(request: Request) -> Response:
-    character = ctx_of(request).characters.get(request.path_params["id"])
+    ctx = ctx_of(request)
+    character = ctx.characters.get(request.path_params["id"])
     safe_name = re.sub(r'[\\"\r\n\x00-\x1f\x7f]+', "_", character["name"]).strip(" .") or "character"
-    blob = card_to_png(character["data"], spec=character["spec"])
+    data = character_tree.card_with_book(ctx, character)
+    blob = card_to_png(data, spec=character["spec"])
     avatar = character.get("avatar") or ""
     if avatar.startswith("data:image/png;base64,"):
         try:
             original = base64.b64decode(avatar.split(",", 1)[1], validate=True)
             if original.startswith(b"\x89PNG\r\n\x1a\n"):
-                blob = original
+                # keep the original picture but write the current card (with its blocks) into it
+                blob = card_to_png(data, spec=character["spec"], image=original)
         except (ValueError, binascii.Error):
             pass
-    return Response(blob, media_type="image/png", headers={"Content-Disposition": _attachment(safe_name + ".png")})
+    return Response(blob, media_type="image/png", headers={"Content-Disposition": attachment(safe_name + ".png")})
 
 
-def _attachment(filename: str) -> str:
-    """Content-Disposition for any name: headers are latin-1, so non-ASCII goes in filename* (RFC 6266)."""
-    fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
-    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
+async def character_avatar(request: Request) -> Response:
+    """The avatar as an image file, so the chat can show it without loading the whole card."""
+    avatar = ctx_of(request).characters.get(request.path_params["id"]).get("avatar") or ""
+    blob = b""
+    if avatar.startswith("data:") and ";base64," in avatar:
+        try:
+            blob = base64.b64decode(avatar.split(",", 1)[1], validate=True)
+        except (ValueError, binascii.Error):
+            blob = b""
+    suffix = sniff_image(blob)
+    if suffix is None or suffix == ".svg":  # an SVG avatar could carry script; never serve it inline
+        raise NotFound("Character has no avatar")
+    return Response(blob, media_type=media_type(suffix), headers={"Cache-Control": "no-cache"})
 
 
 async def update_character(request: Request) -> JSONResponse:
     _, data = parse_card(await json_body(request))
-    return JSONResponse(ctx_of(request).characters.update(request.path_params["id"], data))
+    ctx = ctx_of(request)
+    character_id = request.path_params["id"]
+    old = ctx.characters.get(character_id)["data"]
+    updated = ctx.characters.update(character_id, data)
+    if updated["data"] != old:
+        history.record(ctx, character_id, "Карточка изменена", [{"t": "card", "data": old}])
+    return JSONResponse(updated)
+
+
+async def character_history(request: Request) -> JSONResponse:
+    return JSONResponse(history.versions(ctx_of(request), request.path_params["id"]))
+
+
+async def undo_character(request: Request) -> JSONResponse:
+    """Take back the newest change of the character ("Отменить")."""
+    return JSONResponse({"undone": await history.undo(ctx_of(request), request.path_params["id"])})
+
+
+async def close_history(request: Request) -> JSONResponse:
+    """The editor was closed: the changes so far become one version."""
+    ctx = ctx_of(request)
+    ctx.characters.get(request.path_params["id"])
+    history.close(ctx, request.path_params["id"])
+    return JSONResponse({"ok": True})
+
+
+async def restore_version(request: Request) -> JSONResponse:
+    try:
+        version_id = int(request.path_params["version"])
+    except ValueError:
+        raise BadRequest("Version must be a number") from None
+    return JSONResponse({"undone": await history.restore(ctx_of(request), request.path_params["id"], version_id)})
 
 
 async def delete_character(request: Request) -> JSONResponse:
@@ -81,7 +133,19 @@ SETTING_TYPES = {
     "generator": str,
     "run_budget": dict,
     "theme": str,
+    "character_themes": dict,  # character id -> theme id
+    "trusted_theme_scripts": dict,  # theme id -> sha256 of the effects script the user allowed
+    "image_connection": str,  # connection used to generate pictures
+    "active_preset": str,  # prompt preset for chats without their own
+    "default_me": str,  # character id that joins every new chat as the user's own character
+    "retrieval": dict,  # finding character blocks: scan_messages, budget_tokens, threshold
+    "embedding_connection": str,  # connection used for meaning vectors
+    "notes_display": str,  # notes beside a message: "few" (2 + "ещё N", default) or "all"
+    "skip_delete_confirm": bool,  # delete bubbles without asking "are you sure?"
+    "character_history": bool,  # keep the history of character changes ("Отменить", versions); default on
 }
+STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
+SETTING_CHOICES = {"notes_display": ("few", "all")}
 
 
 async def get_settings(request: Request) -> JSONResponse:
@@ -95,6 +159,13 @@ async def put_settings(request: Request) -> JSONResponse:
         if key not in SETTING_TYPES:
             raise BadRequest(f"Unknown setting {key!r}")
         field(body, key, SETTING_TYPES[key])
+        if key in STRING_MAPS and not all(
+            isinstance(k, str) and isinstance(v, str) and len(k) <= 100 and len(v) <= 100
+            for k, v in value.items()
+        ):
+            raise BadRequest(f"Setting {key!r} must map short strings to short strings")
+        if key in SETTING_CHOICES and value not in ("", None, *SETTING_CHOICES[key]):
+            raise BadRequest(f"Setting {key!r} must be one of: {', '.join(SETTING_CHOICES[key])}")
         if value in ("", None):
             ctx.settings.delete(key)
         else:
@@ -109,8 +180,13 @@ routes = [
     Route("/characters/{id}", get_character, methods=["GET"]),
     Route("/characters/{id}/export.json", export_character_json, methods=["GET"]),
     Route("/characters/{id}/export.png", export_character_png, methods=["GET"]),
+    Route("/characters/{id}/avatar", character_avatar, methods=["GET"]),
     Route("/characters/{id}", update_character, methods=["PUT"]),
     Route("/characters/{id}", delete_character, methods=["DELETE"]),
+    Route("/characters/{id}/history", character_history, methods=["GET"]),
+    Route("/characters/{id}/history/close", close_history, methods=["POST"]),
+    Route("/characters/{id}/history/{version}/restore", restore_version, methods=["POST"]),
+    Route("/characters/{id}/undo", undo_character, methods=["POST"]),
     Route("/settings", get_settings, methods=["GET"]),
     Route("/settings", put_settings, methods=["PUT"]),
 ]

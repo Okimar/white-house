@@ -16,10 +16,16 @@ from tavern.providers.base import ChatMessage
 CHARS_PER_TOKEN = 4  # rough estimate; real counts come from providers where available
 # Some backends (Gemini) reject a conversation without any user turn ("contents is not specified").
 START_TURN = "[Start]"
+DEFAULT_CHAR_NAME = "Assistant"  # {{char}} in a chat without a character
 
 
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // CHARS_PER_TOKEN) if text else 0
+
+
+VALUE_MACRO = re.compile(r"\{\{([A-Za-z]+)\}\}")
+# {{setvar::name::value}} (value may span lines) and {{getvar::name}}, read left to right.
+VAR_MACRO = re.compile(r"\{\{setvar::([^:{}]+)::(.*?)\}\}|\{\{getvar::([^{}]+?)\}\}", re.S)
 
 
 def substitute(
@@ -28,23 +34,45 @@ def substitute(
     char: str,
     user: str,
     rng: Callable[[int], int] | None = None,
+    values: dict[str, str] | None = None,
+    variables: dict[str, str] | None = None,
 ) -> str:
-    """Expand safe card macros; an injected RNG makes random macros testable."""
+    """Expand safe macros; an injected RNG makes random macros testable.
+
+    `values` fills simple macros such as {{description}} or {{persona}} (names compared without
+    case). `variables` is the store for {{setvar::name::value}} / {{getvar::name}}: pass the same
+    dict for every text of one prompt so a block can set what a later block reads. Unknown macros
+    are left as they are.
+    """
     result = text.replace("{{char}}", char).replace("{{user}}", user)
     choose = rng or __import__("random").randrange
 
+    if values:
+        lowered = {k.lower(): v for k, v in values.items()}
+        result = VALUE_MACRO.sub(lambda m: lowered.get(m.group(1).lower(), m.group(0)), result)
+
+    if variables is not None:
+        def var(match: re.Match[str]) -> str:
+            if match.group(1) is not None:
+                variables[match.group(1).strip()] = match.group(2)
+                return ""
+            return variables.get(match.group(3).strip(), "")
+        result = VAR_MACRO.sub(var, result)
+
     def random_choice(match: re.Match[str]) -> str:
-        options = match.group(1).split("::")
+        body = match.group(1)
+        # {{random::a::b}} and the older {{random:a,b,c}}
+        options = body[1:].split("::") if body.startswith(":") else body.split(",")
         return options[choose(len(options))] if options else ""
 
     def roll(match: re.Match[str]) -> str:
-        count, sides = int(match.group(1)), int(match.group(2))
+        count, sides = int(match.group(1) or 1), int(match.group(2))
         if count < 1 or sides < 1 or count > 100 or sides > 100000:
             return match.group(0)
         return str(sum(choose(sides) + 1 for _ in range(count)))
 
-    result = re.sub(r"\{\{random::([^{}]+)\}\}", random_choice, result)
-    return re.sub(r"\{\{roll:(\d+)d(\d+)\}\}", roll, result)
+    result = re.sub(r"\{\{random:([^{}]+)\}\}", random_choice, result)
+    return re.sub(r"\{\{roll::?(\d*)d(\d+)\}\}", roll, result)
 
 
 
@@ -80,7 +108,7 @@ def build_prompt(
     `instruction` (e.g. "write the user's next message") is appended as the last user turn.
     A history without any user turn gets START_TURN before it, so every backend accepts it.
     """
-    char = (card or {}).get("name", "")
+    char = (card or {}).get("name") or DEFAULT_CHAR_NAME
     messages: list[ChatMessage] = []
     system = system_text(card, user=user_name) if card else ""
     if system:
