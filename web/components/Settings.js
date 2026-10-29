@@ -5,10 +5,11 @@ import { api } from "../core/api.js";
 import { Themes } from "./Themes.js";
 import { Gallery } from "./Gallery.js";
 import { Presets } from "./Presets.js";
+import { LorebookSettings } from "./Lorebooks.js";
 
 const BLANK = { name: "", base_url: "http://127.0.0.1:5001/v1", model: "", api_key: "" };
 const TABS = [["main", "Основное"], ["connections", "Подключения"], ["prompt", "Промпт"],
-  ["look", "Оформление"], ["pictures", "Картинки"]];
+  ["lore", "Лорбуки"], ["look", "Оформление"], ["pictures", "Картинки"]];
 
 export function Settings({ settings, themes, deletedThemes, characters, initialTab, onClose, onChanged, onError }) {
   const [tab, setTab] = useState(initialTab || "main");
@@ -141,12 +142,17 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         <label><input type="checkbox" checked=${Boolean(settings.skip_delete_confirm)}
           onChange=${(e) => saveSetting({ skip_delete_confirm: e.target.checked })} />
           не спрашивать подтверждение при удалении пузырей</label>
+        <h2>Новые пузыри</h2>
+        <label><input type="checkbox" checked=${Boolean(settings.open_new_bubble)}
+          onChange=${(e) => saveSetting({ open_new_bubble: e.target.checked })} />
+          сразу открывать созданный пузырь (иначе остаётся открытым тот, где вы были)</label>
         <h2>История персонажей</h2>
         <label><input type="checkbox" checked=${settings.character_history !== false}
           onChange=${(e) => saveSetting({ character_history: e.target.checked })} />
           сохранять историю изменений (кнопка «↶ Отменить» и версии)</label>`}
 
         ${tab === "prompt" && html`<${Presets} settings=${settings} onChanged=${onChanged} onError=${onError} />`}
+        ${tab === "lore" && html`<${LorebookSettings} onChanged=${onChanged} onError=${onError} />`}
 
         ${tab === "look" && html`<${Themes} themes=${themes} deleted=${deletedThemes} settings=${settings}
           characters=${characters} onChanged=${onChanged} onError=${onError} />`}

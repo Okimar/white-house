@@ -1,9 +1,11 @@
-"""The tree of blocks under a character card: edit it, find blocks for a chat, ST lorebook mapping.
+"""The tree of blocks ("bubbles") of an owner: a character card or a lorebook (stage 5). Edit it,
+find blocks for a chat, ST lorebook mapping.
 
 The UI, agents and the on-top assistant (stage 8) all go through these functions. Every change
 fires the action event
 
-    character.blocks_changed   character_id
+    character.blocks_changed   character_id      (a character's tree)
+    lorebook.blocks_changed    lorebook_id       (a lorebook's bubbles)
 
 Settings used (global, Settings → "Промпт"):
     retrieval            {scan_messages: 3, budget_tokens: 2000, threshold: 0.55}
@@ -20,7 +22,7 @@ from typing import Any
 
 from tavern.context import AppContext
 from tavern.core.llm import LLMClient
-from tavern.core.retrieval import PATH_SEPARATOR, FoundBlock, cosine, select_blocks, stem
+from tavern.core.retrieval import LOGICS, PATH_SEPARATOR, FoundBlock, cosine, select_blocks, stem
 from tavern.errors import AppError, NotFound
 from tavern.services import history
 from tavern.providers.base import ChatMessage, ProviderError
@@ -109,10 +111,67 @@ def _clean(changes: dict[str, Any], *, creating: bool) -> dict[str, Any]:
             if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 1000:
                 raise AppError("every must be 0..1000 replies to skip", code="bad_block")
             clean[key] = value
+        elif key == "rules":
+            clean[key] = _rules(value)
         else:
             raise AppError(f"Unknown block field {key!r}", code="bad_block")
     if creating and "title" not in clean:
         raise AppError("A block needs a title", code="bad_block")
+    return clean
+
+
+PLACES = ("card_before", "card_after", "an_top", "an_bottom", "examples_top", "examples_bottom")
+RULE_FLAGS = ("title_key", "whole", "case", "main", "no_wake", "not_woken")
+RULE_NUMBERS = {"scan": (1, 1000), "cooldown": (0, 1000), "delay": (0, 100_000), "weight": (0, 1000)}
+
+
+def _words(value: Any, name: str, limit: int) -> list[str]:
+    if not isinstance(value, list) or len(value) > limit or not all(isinstance(w, str) for w in value):
+        raise AppError(f"{name} must be a list of at most {limit} words", code="bad_block")
+    seen: list[str] = []
+    for word in (w.strip()[:100] for w in value):
+        if word and word.lower() not in (s.lower() for s in seen):
+            seen.append(word)
+    return seen
+
+
+def _rules(value: Any) -> dict[str, Any]:
+    """The finer options of a bubble (core/retrieval.py lists them). None or empty = default."""
+    if not isinstance(value, dict):
+        raise AppError("rules must be an object", code="bad_block")
+    clean: dict[str, Any] = {}
+    for key, item in value.items():
+        if item is None or item == [] or item == "":
+            continue
+        if key in RULE_FLAGS:
+            if not isinstance(item, bool):
+                raise AppError(f"rules.{key} must be true or false", code="bad_block")
+            clean[key] = item
+        elif key in RULE_NUMBERS:
+            low, high = RULE_NUMBERS[key]
+            if isinstance(item, bool) or not isinstance(item, int) or not low <= item <= high:
+                raise AppError(f"rules.{key} must be {low}..{high}", code="bad_block")
+            clean[key] = item
+        elif key == "keys2":
+            clean[key] = _words(item, "rules.keys2", MAX_KEYWORDS)
+        elif key == "groups":
+            clean[key] = _words(item, "rules.groups", 20)
+        elif key == "logic":
+            if item not in LOGICS:
+                raise AppError(f"rules.logic must be one of {', '.join(LOGICS)}", code="bad_block")
+            clean[key] = item
+        elif key == "place":
+            if item not in PLACES:
+                raise AppError(f"rules.place must be one of {', '.join(PLACES)}", code="bad_block")
+            clean[key] = item
+        elif key == "filter":
+            if not isinstance(item, dict) or item.get("mode", "only") not in ("only", "except"):
+                raise AppError("rules.filter must be {mode: only|except, ids: [...]}", code="bad_block")
+            people = _words(item.get("ids") or [], "rules.filter.ids", 200)
+            if people:
+                clean[key] = {"mode": item.get("mode", "only"), "ids": people}
+        else:
+            raise AppError(f"Unknown rule {key!r}", code="bad_block")
     return clean
 
 
@@ -122,11 +181,11 @@ def _chance(value: Any) -> int:
     return value
 
 
-def _check_parent(ctx: AppContext, character_id: str, block_id: str | None, parent_id: str | None) -> None:
+def _check_parent(ctx: AppContext, owner_id: str, block_id: str | None, parent_id: str | None) -> None:
     if parent_id is None:
         return
     parent = ctx.blocks.get(parent_id)
-    if parent["character_id"] != character_id:
+    if parent["owner_id"] != owner_id:
         raise AppError("The parent block belongs to another character", code="bad_block")
     current: str | None = parent_id
     seen = set()
@@ -137,23 +196,33 @@ def _check_parent(ctx: AppContext, character_id: str, block_id: str | None, pare
         current = ctx.blocks.get(current)["parent_id"]
 
 
-async def _changed(ctx: AppContext, character_id: str) -> None:
-    await ctx.events.emit("character.blocks_changed", character_id=character_id)
+def owner_of(ctx: AppContext, owner_id: str) -> dict[str, Any]:
+    """{kind: 'character'|'lorebook', id, name} of whoever owns a tree; NotFound if neither."""
+    if ctx.lorebooks.exists(owner_id):
+        return {"kind": "lorebook", "id": owner_id, "name": ctx.lorebooks.get(owner_id)["name"]}
+    return {"kind": "character", "id": owner_id, "name": ctx.characters.get(owner_id)["name"]}
 
 
-def list_blocks(ctx: AppContext, character_id: str) -> list[dict[str, Any]]:
-    ctx.characters.get(character_id)
-    return ctx.blocks.list(character_id)
+async def _changed(ctx: AppContext, owner_id: str) -> None:
+    if ctx.lorebooks.exists(owner_id):
+        await ctx.events.emit("lorebook.blocks_changed", lorebook_id=owner_id)
+    else:
+        await ctx.events.emit("character.blocks_changed", character_id=owner_id)
 
 
-async def create_block(ctx: AppContext, character_id: str, fields: dict[str, Any]) -> dict[str, Any]:
-    ctx.characters.get(character_id)
+def list_blocks(ctx: AppContext, owner_id: str) -> list[dict[str, Any]]:
+    owner_of(ctx, owner_id)
+    return ctx.blocks.list(owner_id)
+
+
+async def create_block(ctx: AppContext, owner_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    owner_of(ctx, owner_id)
     clean = _clean(fields, creating=True)
-    _check_parent(ctx, character_id, None, clean.get("parent_id"))
-    block = ctx.blocks.create(character_id, clean)
-    history.record(ctx, character_id, f"Новый пузырь «{block['title']}»",
+    _check_parent(ctx, owner_id, None, clean.get("parent_id"))
+    block = ctx.blocks.create(owner_id, clean)
+    history.record(ctx, owner_id, f"Новый пузырь «{block['title']}»",
                    [{"t": "block", "id": block["id"], "row": None}])
-    await _changed(ctx, character_id)
+    await _changed(ctx, owner_id)
     return block
 
 
@@ -161,7 +230,7 @@ async def update_block(ctx: AppContext, block_id: str, changes: dict[str, Any]) 
     block = ctx.blocks.get(block_id)
     clean = _clean(changes, creating=False)
     if "parent_id" in clean:
-        _check_parent(ctx, block["character_id"], block_id, clean["parent_id"])
+        _check_parent(ctx, block["owner_id"], block_id, clean["parent_id"])
         if clean["parent_id"] is not None:
             clean["detached"] = False  # joined to a bubble: active again
     if "layout" in clean:
@@ -170,8 +239,8 @@ async def update_block(ctx: AppContext, block_id: str, changes: dict[str, Any]) 
     updated = ctx.blocks.update(block_id, clean)
     # Where a bubble sits (on the map, among its neighbours) is not worth a history step.
     if set(clean) - {"layout", "position"}:
-        history.record(ctx, block["character_id"], f"«{block['title']}»: изменён", [before])
-    await _changed(ctx, block["character_id"])
+        history.record(ctx, block["owner_id"], f"«{block['title']}»: изменён", [before])
+    await _changed(ctx, block["owner_id"])
     return updated
 
 
@@ -184,7 +253,7 @@ async def set_order(ctx: AppContext, block_id: str, place: Any) -> None:
     block = ctx.blocks.get(block_id)
     if block["detached"]:
         raise AppError("A free bubble has no order number: join it first", code="bad_block")
-    row = [b for b in ctx.blocks.list(block["character_id"]) if b["parent_id"] == block["parent_id"]]
+    row = [b for b in ctx.blocks.list(block["owner_id"]) if b["parent_id"] == block["parent_id"]]
     numbered = [b["id"] for b in row if not b["detached"] and b["id"] != block_id]
     numbered.insert(min(place, len(numbered) + 1) - 1, block_id)
     order = numbered + [b["id"] for b in row if b["detached"]]
@@ -192,15 +261,15 @@ async def set_order(ctx: AppContext, block_id: str, place: Any) -> None:
         for index, item in enumerate(order):
             conn.execute("UPDATE character_blocks SET position = ? WHERE id = ? AND position != ?",
                          (index, item, index))
-    await _changed(ctx, block["character_id"])
+    await _changed(ctx, block["owner_id"])
 
 
-async def save_layout(ctx: AppContext, character_id: str, items: Any) -> int:
+async def save_layout(ctx: AppContext, owner_id: str, items: Any) -> int:
     """Bubble positions after a drag on the map: [{id, x, y}], all of one character, one event."""
-    ctx.characters.get(character_id)
+    owner_of(ctx, owner_id)
     if not isinstance(items, list) or len(items) > 10_000:
         raise AppError("items must be a list of {id, x, y}", code="bad_block")
-    owned = {b["id"]: b for b in ctx.blocks.list(character_id)}
+    owned = {b["id"]: b for b in ctx.blocks.list(owner_id)}
     changes = []
     for item in items:
         if not isinstance(item, dict) or item.get("id") not in owned:
@@ -215,7 +284,7 @@ async def save_layout(ctx: AppContext, character_id: str, items: Any) -> int:
         for block_id, layout in changes:
             conn.execute("UPDATE character_blocks SET layout = ? WHERE id = ?", (json.dumps(layout), block_id))
     if changes:
-        await _changed(ctx, character_id)
+        await _changed(ctx, owner_id)
     return len(changes)
 
 
@@ -223,7 +292,7 @@ async def delete_block(ctx: AppContext, block_id: str) -> None:
     block = ctx.blocks.get(block_id)
     # Parent first, so undo can put the rows back in order; then the links that go with them.
     children: dict[str | None, list[str]] = {}
-    for item in ctx.blocks.list(block["character_id"]):
+    for item in ctx.blocks.list(block["owner_id"]):
         children.setdefault(item["parent_id"], []).append(item["id"])
     order, queue = [], [block_id]
     while queue:
@@ -231,46 +300,46 @@ async def delete_block(ctx: AppContext, block_id: str) -> None:
         order.append(current)
         queue.extend(children.get(current, []))
     gone = set(order)
-    links = [pair for pair in ctx.blocks.links([block["character_id"]]) if gone & set(pair)]
+    links = [pair for pair in ctx.blocks.links([block["owner_id"]]) if gone & set(pair)]
     before = [history.block_before(ctx, i) for i in order] + [history.link_before(ctx, a, b) for a, b in links]
     ctx.blocks.delete(block_id)  # its sub-blocks go with it
-    history.record(ctx, block["character_id"], f"Удалён «{block['title']}»", before)
-    await _changed(ctx, block["character_id"])
+    history.record(ctx, block["owner_id"], f"Удалён «{block['title']}»", before)
+    await _changed(ctx, block["owner_id"])
 
 
-async def link_blocks(ctx: AppContext, character_id: str, a: str, b: str) -> list[tuple[str, str]]:
+async def link_blocks(ctx: AppContext, owner_id: str, a: str, b: str) -> list[tuple[str, str]]:
     """Link two bubbles of one character: when one goes to the model, so does the other."""
-    ctx.characters.get(character_id)
+    owner_of(ctx, owner_id)
     if a == b:
         raise AppError("A bubble cannot link to itself", code="bad_block")
     for block_id in (a, b):
-        if ctx.blocks.get(block_id)["character_id"] != character_id:
+        if ctx.blocks.get(block_id)["owner_id"] != owner_id:
             raise AppError("Both bubbles must belong to this character", code="bad_block")
     before = history.link_before(ctx, a, b)
-    ctx.blocks.link(character_id, a, b)
-    history.record(ctx, character_id, "Ссылка между пузырями", [before])
-    await _changed(ctx, character_id)
-    return ctx.blocks.links([character_id])
+    ctx.blocks.link(owner_id, a, b)
+    history.record(ctx, owner_id, "Ссылка между пузырями", [before])
+    await _changed(ctx, owner_id)
+    return ctx.blocks.links([owner_id])
 
 
-async def unlink_blocks(ctx: AppContext, character_id: str, a: str, b: str) -> list[tuple[str, str]]:
-    ctx.characters.get(character_id)
+async def unlink_blocks(ctx: AppContext, owner_id: str, a: str, b: str) -> list[tuple[str, str]]:
+    owner_of(ctx, owner_id)
     before = history.link_before(ctx, a, b)
     ctx.blocks.unlink(a, b)
-    history.record(ctx, character_id, "Ссылка убрана", [before])
-    await _changed(ctx, character_id)
-    return ctx.blocks.links([character_id])
+    history.record(ctx, owner_id, "Ссылка убрана", [before])
+    await _changed(ctx, owner_id)
+    return ctx.blocks.links([owner_id])
 
 
-async def set_chance(ctx: AppContext, character_id: str, chance: Any, under: str | None = None) -> int:
+async def set_chance(ctx: AppContext, owner_id: str, chance: Any, under: str | None = None) -> int:
     """One chance for every bubble of the character, or for every sub-bubble of `under` only."""
-    ctx.characters.get(character_id)
+    owner_of(ctx, owner_id)
     chance = _chance(chance)
-    blocks = ctx.blocks.list(character_id)
+    blocks = ctx.blocks.list(owner_id)
     if under is None:
         ids = [b["id"] for b in blocks]
     else:
-        if ctx.blocks.get(under)["character_id"] != character_id:
+        if ctx.blocks.get(under)["owner_id"] != owner_id:
             raise AppError("That bubble belongs to another character", code="bad_block")
         children: dict[str, list[str]] = {}
         for block in blocks:
@@ -282,8 +351,8 @@ async def set_chance(ctx: AppContext, character_id: str, chance: Any, under: str
             stack.extend(children.get(current, []))
     before = [history.block_before(ctx, i) for i in ids]
     changed = ctx.blocks.set_chance(ids, chance)
-    history.record(ctx, character_id, f"Шанс {chance}% у {len(ids)} пузырей", before)
-    await _changed(ctx, character_id)
+    history.record(ctx, owner_id, f"Шанс {chance}% у {len(ids)} пузырей", before)
+    await _changed(ctx, owner_id)
     return changed
 
 
@@ -327,7 +396,7 @@ async def suggest_keywords(ctx: AppContext, block_id: str, avoid: list[str] | No
 # --- meaning vectors --------------------------------------------------------------------------
 
 
-def _paths(blocks: list[dict[str, Any]], owner: str) -> dict[str, str]:
+def block_paths(blocks: list[dict[str, Any]], owner: str) -> dict[str, str]:
     by_id = {b["id"]: b for b in blocks}
     result: dict[str, str] = {}
 
@@ -361,17 +430,17 @@ def embedding_connection(ctx: AppContext) -> dict[str, Any] | None:
         return None
 
 
-async def vectorize(ctx: AppContext, character_ids: list[str]) -> int:
+async def vectorize(ctx: AppContext, owner_ids: list[str]) -> int:
     """Make vectors for green blocks that have none or changed since. Returns how many were made."""
     connection = embedding_connection(ctx)
     if connection is None:
         raise AppError("Choose a connection for meaning search in Settings → Промпт", code="no_embedding_connection")
     model = connection["model"]
     todo: list[tuple[str, str, str]] = []  # block id, text, hash
-    for character_id in character_ids:
-        character = ctx.characters.get(character_id)
-        blocks = [b for b in ctx.blocks.list(character_id) if b["mode"] == "search" and b["content"].strip()]
-        paths = _paths(ctx.blocks.list(character_id), character["name"])
+    for owner_id in owner_ids:
+        owner = owner_of(ctx, owner_id)
+        blocks = [b for b in ctx.blocks.list(owner_id) if b["mode"] == "search" and b["content"].strip()]
+        paths = block_paths(ctx.blocks.list(owner_id), owner["name"])
         stored = ctx.blocks.vectors([b["id"] for b in blocks], model)
         for block in blocks:
             text = _embed_text(paths[block["id"]], block["content"])
@@ -427,7 +496,7 @@ async def select_for_chat(
     ctx.chats.update_meta(chat["id"], meta)
 
     hits, missed = ctx.blocks.hits(chat["id"])
-    all_blocks = ctx.blocks.for_characters([m.character_id for m in members])
+    all_blocks = ctx.blocks.for_owners([m.character_id for m in members])
     links = ctx.blocks.links([m.character_id for m in members])
     result: dict[str, list[FoundBlock]] = {}
     fresh: list[str] = []
@@ -440,7 +509,8 @@ async def select_for_chat(
         selection = select_blocks(
             blocks, owner_name=member.name, scan_text=scan_text, hits=hits, generation=generation,
             budget_tokens=int(settings["budget_tokens"]), meaning=scores, threshold=float(settings["threshold"]),
-            missed=missed, links=links,
+            missed=missed, links=links, scan_messages=[m["content"] for m in visible],
+            present={m.character_id for m in members},
         )
         result[member.character_id] = selection.found
         fresh.extend(selection.fresh_hits)
@@ -489,7 +559,7 @@ def blocks_from_book(book: Any) -> list[dict[str, Any]]:
     return result
 
 
-def _free(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> bool:
+def is_free(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> bool:
     """A free bubble, or one under a free bubble: not sent, so exported switched off."""
     seen: set[str] = set()
     current: dict[str, Any] | None = block
@@ -505,7 +575,7 @@ def book_from_blocks(blocks: list[dict[str, Any]], owner: str, book_meta: dict[s
     """A character_book for ST export. Nested blocks are flattened; the path goes in the comment."""
     if not blocks:
         return book_meta or None
-    paths = _paths(blocks, owner)
+    paths = block_paths(blocks, owner)
     by_id = {b["id"]: b for b in blocks}
     ordered = sorted(blocks, key=lambda b: paths[b["id"]])
     entries = []
@@ -526,7 +596,7 @@ def book_from_blocks(blocks: list[dict[str, Any]], owner: str, book_meta: dict[s
             "content": block["content"],
             "constant": block["mode"] == "always",
             "selective": False,
-            "enabled": block["mode"] != "off" and not _free(block, by_id),
+            "enabled": block["mode"] != "off" and not is_free(block, by_id),
             "insertion_order": original.get("insertion_order", 100),
             "extensions": ext,
         })
@@ -538,21 +608,21 @@ def book_from_blocks(blocks: list[dict[str, Any]], owner: str, book_meta: dict[s
 # lorebook it reads: nesting, links, chance, free bubbles and map places survive a round trip.
 TREE_KEY = "tavern_tree"
 TREE_FIELDS = ("title", "content", "mode", "keywords", "depth", "role", "sticky", "chance", "every",
-               "detached", "position", "layout")
+               "detached", "position", "layout", "rules")
 
 
-def tree_of(ctx: AppContext, character_id: str) -> dict[str, Any] | None:
-    blocks = ctx.blocks.list(character_id)
+def tree_of(ctx: AppContext, owner_id: str) -> dict[str, Any] | None:
+    blocks = ctx.blocks.list(owner_id)
     if not blocks:
         return None
     return {
         "version": 1,
         "blocks": [{"id": b["id"], "parent_id": b["parent_id"], **{k: b[k] for k in TREE_FIELDS}} for b in blocks],
-        "links": [list(pair) for pair in ctx.blocks.links([character_id])],
+        "links": [list(pair) for pair in ctx.blocks.links([owner_id])],
     }
 
 
-def _take_tree(ctx: AppContext, character_id: str, tree: Any) -> int:
+def import_tree(ctx: AppContext, owner_id: str, tree: Any) -> int:
     """Blocks and links from a card's tavern_tree; new ids, parents first. Bad entries are skipped."""
     if not isinstance(tree, dict) or not isinstance(tree.get("blocks"), list):
         return 0
@@ -571,34 +641,34 @@ def _take_tree(ctx: AppContext, character_id: str, tree: Any) -> int:
             except AppError:
                 continue
             fields["parent_id"] = new_ids.get(item.get("parent_id"))
-            new_ids[item["id"]] = ctx.blocks.create(character_id, fields)["id"]
+            new_ids[item["id"]] = ctx.blocks.create(owner_id, fields)["id"]
     for pair in tree.get("links") or []:
         if isinstance(pair, list) and len(pair) == 2 and all(p in new_ids for p in pair) and pair[0] != pair[1]:
-            ctx.blocks.link(character_id, new_ids[pair[0]], new_ids[pair[1]])
+            ctx.blocks.link(owner_id, new_ids[pair[0]], new_ids[pair[1]])
     return len(new_ids)
 
 
-def take_book(ctx: AppContext, character_id: str) -> int:
+def take_book(ctx: AppContext, owner_id: str) -> int:
     """After an import: move the card's tree (ours, or else its embedded lorebook entries) into
     blocks. Returns how many."""
-    character = ctx.characters.get(character_id)
+    character = ctx.characters.get(owner_id)
     data = dict(character["data"])
     extensions = data.get("extensions") if isinstance(data.get("extensions"), dict) else {}
     if TREE_KEY in extensions:
-        made = _take_tree(ctx, character_id, extensions[TREE_KEY])
+        made = import_tree(ctx, owner_id, extensions[TREE_KEY])
         data["extensions"] = {k: v for k, v in extensions.items() if k != TREE_KEY}
         if isinstance(data.get("character_book"), dict):
             data["character_book"] = {k: v for k, v in data["character_book"].items() if k != "entries"}
-        ctx.characters.update(character_id, data)
+        ctx.characters.update(owner_id, data)
         return made
     fields = blocks_from_book(data.get("character_book"))
     if not fields:
         return 0
     for item in fields:
-        ctx.blocks.create(character_id, item)
+        ctx.blocks.create(owner_id, item)
     book = data["character_book"]
     data["character_book"] = {k: v for k, v in book.items() if k != "entries"}  # meta stays for export
-    ctx.characters.update(character_id, data)
+    ctx.characters.update(owner_id, data)
     return len(fields)
 
 

@@ -263,7 +263,7 @@ function App() {
         onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat}
         onEditCharacter=${(id) => { setEditingCharacter(id); setMenu(false); }}
         onDeleteCharacter=${deleteCharacter} onSettings=${() => setShowSettings(true)}
-        onClose=${() => setMenu(false)} />
+        onClose=${() => setMenu(false)} settings=${settings} onError=${onError} />
       <main class="main" data-slot="chat" data-running=${chat.running ? "true" : "false"}>
         <div class="scene" data-slot="scene" aria-hidden="true"></div>
         <div class="topbar" data-slot="topbar">

@@ -3,6 +3,7 @@
 // Every change goes to the server at once; agents change the same things through the same API.
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
+import { BookPicker } from "./Lorebooks.js";
 
 const DEPTHS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20];
 const IMPORTANCE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -88,6 +89,9 @@ export function Members({ chat, characters, settings, onClose, onChanged, onEdit
           <option value="">Общий${globalPreset ? ` (${globalPreset.name})` : ""}</option>
           ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
         </select>
+
+        <${BookPicker} scope="chat" target=${chat.id} title="Лорбуки этого чата" onError=${onError}
+          hint="Вместе с ними работают общие лорбуки (⚙ → Лорбуки) и лорбуки участников (в их карточках)." />
       </div>
     </div>
   `;

@@ -1,9 +1,13 @@
-"""Character blocks (the tree under a card), their meaning vectors and per-chat hit times.
+"""Blocks ("bubbles") of a character's tree or of a lorebook, their vectors and per-chat hit times.
+
+A block has one owner: a character (`character_id`) or a lorebook (`lorebook_id`); `owner_id` is
+whichever is set, and every method here works by owner.
 
 Block dict shape:
-    id, character_id, parent_id, position, title, content, mode ('always'|'search'|'off'),
-    keywords [str], depth (None = next to the card), role, sticky, layout {}, extra {},
-    created_at, updated_at
+    id, owner_id, character_id, lorebook_id, parent_id, position, title, content,
+    mode ('always'|'search'|'off'), keywords [str], depth (None = next to the card), role, sticky,
+    layout {}, extra {}, rules {} (finer options, see services/character_tree.py), detached,
+    chance, every, created_at, updated_at
 """
 
 from __future__ import annotations
@@ -17,8 +21,8 @@ from tavern.storage.db import Database
 from tavern.util.ids import new_id, now_iso
 
 BLOCK_FIELDS = ("parent_id", "position", "title", "content", "mode", "keywords", "depth", "role",
-                "sticky", "layout", "extra", "detached", "chance", "every")
-JSON_FIELDS = ("keywords", "layout", "extra")
+                "sticky", "layout", "extra", "detached", "chance", "every", "rules")
+JSON_FIELDS = ("keywords", "layout", "extra", "rules")
 
 
 def _block(row: Any) -> dict[str, Any]:
@@ -33,24 +37,24 @@ class BlockRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def list(self, character_id: str) -> list[dict[str, Any]]:
+    def list(self, owner_id: str) -> list[dict[str, Any]]:
         rows = self.db.fetchall(
-            "SELECT * FROM character_blocks WHERE character_id = ? ORDER BY position, created_at",
-            (character_id,),
+            "SELECT * FROM character_blocks WHERE owner_id = ? ORDER BY position, created_at",
+            (owner_id,),
         )
         return [_block(r) for r in rows]
 
-    def for_characters(self, character_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        result: dict[str, list[dict[str, Any]]] = {cid: [] for cid in character_ids}
-        if not character_ids:
+    def for_owners(self, owner_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        result: dict[str, list[dict[str, Any]]] = {oid: [] for oid in owner_ids}
+        if not owner_ids:
             return result
-        marks = ",".join("?" * len(character_ids))
+        marks = ",".join("?" * len(owner_ids))
         rows = self.db.fetchall(
-            f"SELECT * FROM character_blocks WHERE character_id IN ({marks}) ORDER BY position, created_at",
-            character_ids,
+            f"SELECT * FROM character_blocks WHERE owner_id IN ({marks}) ORDER BY position, created_at",
+            owner_ids,
         )
         for row in rows:
-            result[row["character_id"]].append(_block(row))
+            result[row["owner_id"]].append(_block(row))
         return result
 
     def get(self, block_id: str) -> dict[str, Any]:
@@ -59,23 +63,24 @@ class BlockRepo:
             raise NotFound(f"Block {block_id} not found")
         return _block(row)
 
-    def create(self, character_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    def create(self, owner_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         block_id, now = new_id(), now_iso()
         values = {k: fields[k] for k in BLOCK_FIELDS if k in fields}
         if "position" not in values:
             row = self.db.fetchone(
                 "SELECT COALESCE(MAX(position), -1) + 1 FROM character_blocks "
-                "WHERE character_id = ? AND parent_id IS ?",
-                (character_id, values.get("parent_id")),
+                "WHERE owner_id = ? AND parent_id IS ?",
+                (owner_id, values.get("parent_id")),
             )
             values["position"] = row[0]
         for key in JSON_FIELDS:
             if key in values:
                 values[key] = json.dumps(values[key], ensure_ascii=False)
-        columns = ["id", "character_id", *values, "created_at", "updated_at"]
+        book = self.db.fetchone("SELECT 1 FROM lorebooks WHERE id = ?", (owner_id,)) is not None
+        columns = ["id", "lorebook_id" if book else "character_id", *values, "created_at", "updated_at"]
         self.db.execute(
             f"INSERT INTO character_blocks ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
-            (block_id, character_id, *values.values(), now, now),
+            (block_id, owner_id, *values.values(), now, now),
         )
         return self.get(block_id)
 
@@ -97,8 +102,8 @@ class BlockRepo:
         self.get(block_id)
         self.db.execute("DELETE FROM character_blocks WHERE id = ?", (block_id,))
 
-    def delete_all(self, character_id: str) -> None:
-        self.db.execute("DELETE FROM character_blocks WHERE character_id = ?", (character_id,))
+    def delete_all(self, owner_id: str) -> None:
+        self.db.execute("DELETE FROM character_blocks WHERE owner_id = ?", (owner_id,))
 
     # --- meaning vectors ---------------------------------------------------------------------
 
@@ -147,19 +152,19 @@ class BlockRepo:
 
     # --- links between bubbles ---------------------------------------------------------------
 
-    def links(self, character_ids: list[str]) -> list[tuple[str, str]]:
-        if not character_ids:
+    def links(self, owner_ids: list[str]) -> list[tuple[str, str]]:
+        if not owner_ids:
             return []
-        marks = ",".join("?" * len(character_ids))
+        marks = ",".join("?" * len(owner_ids))
         rows = self.db.fetchall(
-            f"SELECT a, b FROM block_links WHERE character_id IN ({marks}) ORDER BY a, b", character_ids
+            f"SELECT a, b FROM block_links WHERE owner_id IN ({marks}) ORDER BY a, b", owner_ids
         )
         return [(r["a"], r["b"]) for r in rows]
 
-    def link(self, character_id: str, a: str, b: str) -> None:
+    def link(self, owner_id: str, a: str, b: str) -> None:
         a, b = sorted((a, b))
         self.db.execute(
-            "INSERT OR IGNORE INTO block_links (character_id, a, b) VALUES (?, ?, ?)", (character_id, a, b)
+            "INSERT OR IGNORE INTO block_links (owner_id, a, b) VALUES (?, ?, ?)", (owner_id, a, b)
         )
 
     def unlink(self, a: str, b: str) -> int:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from tavern.core.prompt import estimate_tokens
 from tavern.core.retrieval import keyword_pattern, select_blocks, stem
 
 
@@ -126,3 +127,114 @@ def test_a_link_pulls_only_the_linked_bubble_or_its_branch():
     found = {f.block["id"]: f.reason for f in selection.found}
     assert found == {"fingers1": "keyword", "fingers2": "link", "nail": "group"}  # not all the legs
     assert next(f.path for f in selection.found if f.block["id"] == "fingers2") == "Аня › Ноги › Пальцы"
+
+
+# --- stage 5: finer rules, chains, lorebook pools ---------------------------------------------
+
+
+def test_fast_word_count_agrees_with_the_patterns():
+    from tavern.core.retrieval import _occurrences
+
+    text = "Кот и котята. КОТ спит; Rats and rat, a Rat-king. Рыжую косу заплели, рыжая коса! Кошка_1"
+    words = ["кот", "Кот", "котята", "rat", "Rat", "rats", "коса", "рыжая коса", "Рыжую косу", "кошка_1", "пёс",
+             "/ко[тш]/"]
+    for word in words:
+        for whole in (False, True):
+            for case in (False, True):
+                expected = len(keyword_pattern(word, whole=whole, case=case).findall(text))
+                assert _occurrences(word, text, whole=whole, case=case) == expected, (word, whole, case)
+
+
+def ruled(id, title, content="", rules=None, **kw):
+    b = block(id, title, content, **kw)
+    b["rules"] = rules or {}
+    return b
+
+
+def ids(selection):
+    return {f.block["id"]: f.reason for f in selection.found}
+
+
+def test_second_keywords_with_and_or_not():
+    tree = [ruled("a", "Замок", "Старый.", rules={"keys2": ["ночь", "луна"], "logic": "and_any"}),
+            ruled("b", "Башня", "Высокая.", rules={"keys2": ["ночь", "луна"], "logic": "and_all"}),
+            ruled("c", "Ров", "Глубокий.", rules={"keys2": ["зима"], "logic": "not_any"}),
+            ruled("d", "Мост", "Узкий.", rules={"keys2": ["ночь", "луна"], "logic": "not_all"})]
+    found = ids(select_blocks(tree, owner_name="Мир", scan_text="замок башня ров мост ночью"))
+    assert found == {"a": "keyword", "c": "keyword", "d": "keyword"}  # башня needs the moon too
+    found = ids(select_blocks(tree, owner_name="Мир", scan_text="замок башня ров мост ночь луна зима"))
+    assert found == {"a": "keyword", "b": "keyword"}
+
+
+def test_whole_words_case_and_title_switch():
+    tree = [ruled("a", "Кот", "Рыжий.", rules={"whole": True}),
+            ruled("b", "Rat", "A gang.", rules={"case": True}),
+            ruled("c", "Записка про гильдию", "Текст.", keywords=["гильдия"], rules={"title_key": False})]
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text="котята rat записка")) == {}
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text="кот Rats гильдии")) == \
+        {"a": "keyword", "b": "keyword", "c": "keyword"}
+
+
+def test_own_scan_depth_delay_and_cooldown():
+    old, new = "Говорили о драконе.", "А теперь о погоде."
+    tree = [ruled("d", "Дракон", "Красный.", rules={"scan": 2}), ruled("e", "Эльф", "Лучник.")]
+    selection = select_blocks(tree, owner_name="Мир", scan_text=new, scan_messages=[old, new])
+    assert ids(selection) == {"d": "keyword"}  # it looks two messages back, the rest only one
+    late = [ruled("x", "Пещера", "Тёмная.", rules={"delay": 3}, mode="always")]
+    assert ids(select_blocks(late, owner_name="Мир", scan_text="", generation=2)) == {}
+    assert ids(select_blocks(late, owner_name="Мир", scan_text="", generation=3)) == {"x": "always"}
+    cool = [ruled("c", "Ворон", "Чёрный.", rules={"cooldown": 2}, sticky=1)]
+    # found at 1, held at 2, resting at 3 and 4, found again at 5
+    assert ids(select_blocks(cool, owner_name="Мир", scan_text="ворон", generation=3, hits={"c": 1})) == {}
+    assert ids(select_blocks(cool, owner_name="Мир", scan_text="ворон", generation=5, hits={"c": 1})) == {"c": "keyword"}
+
+
+def test_one_per_group_held_main_or_weighted():
+    tree = [ruled("a", "Погода", "Дождь.", rules={"groups": ["weather"], "weight": 1}),
+            ruled("b", "Небо", "Солнце.", rules={"groups": ["weather"], "weight": 3})]
+    text = "погода небо"
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text=text, rng=Dice(0.1))) == {"a": "keyword"}
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text=text, rng=Dice(0.5))) == {"b": "keyword"}
+    tree[1]["rules"]["main"] = True
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text=text, rng=Dice(0.1))) == {"b": "keyword"}
+    held = select_blocks(tree, owner_name="Мир", scan_text=text, generation=2, hits={"a": 1}, rng=Dice(0.9))
+    assert ids(held) == {"a": "keyword"}  # still held: it keeps its place
+
+
+def test_filter_by_who_takes_part():
+    tree = [ruled("a", "Тайна Ани", "Ведьма.", rules={"filter": {"mode": "only", "ids": ["ann"]}}, mode="always"),
+            ruled("b", "Для чужих", "Слухи.", rules={"filter": {"mode": "except", "ids": ["ann"]}}, mode="always")]
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text="", present={"ann", "bob"})) == {"a": "always"}
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text="", present={"bob"})) == {"b": "always"}
+
+
+def test_chains_wake_other_entries_step_by_step():
+    tree = [ruled("guild", "Гильдия воров", "Главарь по прозвищу Крыса.", keywords=["гильдия"]),
+            ruled("rat", "Крыса", "Хромой старик, прячется в порту."),
+            ruled("port", "Порт", "Туманный."),
+            ruled("shy", "Туман", "Густой.", rules={"not_woken": True})]
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text="гильдия", recursion=0)) == {"guild": "keyword"}
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text="гильдия", recursion=1)) == \
+        {"guild": "keyword", "rat": "chain"}
+    deep = ids(select_blocks(tree, owner_name="Мир", scan_text="гильдия", recursion=5))
+    assert deep == {"guild": "keyword", "rat": "chain", "port": "chain"}  # "Туман" is never woken
+    tree[0]["rules"] = {"no_wake": True}
+    assert ids(select_blocks(tree, owner_name="Мир", scan_text="гильдия", recursion=5)) == {"guild": "keyword"}
+    seeded = select_blocks(tree, owner_name="Мир", scan_text="", recursion=1, seed_text="видели Крысу")
+    assert ids(seeded) == {"rat": "chain"}  # text from outside the pool (the characters' bubbles)
+
+
+def test_a_pool_of_books_goes_by_order_and_blue_ones_share_the_budget():
+    def entry(id, owner, title, size, position, mode="search"):
+        b = block(id, title, "слово " * size, mode=mode, position=position)
+        b["owner_id"] = owner
+        return b
+
+    pool = [entry("w2", "world", "Река", 40, 1), entry("w1", "world", "Город", 40, 0, mode="always"),
+            entry("t1", "town", "Рынок", 40, 0), entry("t2", "town", "Мост", 40, 1)]
+    one = estimate_tokens("слово " * 40)
+    selection = select_blocks(pool, owner_name="", scan_text="река рынок мост", by_order=True,
+                              budget_tokens=3 * one + 1, owner_names={"world": "Мир", "town": "Город N"})
+    assert list(ids(selection)) == ["w1", "w2", "t1"]  # the last one by number is left out
+    assert selection.dropped == ["Мост"]
+    assert next(f.path for f in selection.found if f.block["id"] == "t1") == "Город N › Рынок"

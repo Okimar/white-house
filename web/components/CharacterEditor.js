@@ -8,16 +8,18 @@
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { CharacterTree } from "./CharacterTree.js";
+import { BookPicker } from "./Lorebooks.js";
 
-function HistoryPanel({ characterId, revision, onRestored, onError }) {
+// Versions of a character or a lorebook; `base` is its API path ("/characters/ID", "/lorebooks/ID").
+export function HistoryPanel({ base, revision, onRestored, onError }) {
   const [data, setData] = useState(null);
   useEffect(() => {
-    api.get(`/characters/${characterId}/history`).then(setData).catch((e) => onError(e.message));
-  }, [characterId, revision]);
+    api.get(`${base}/history`).then(setData).catch((e) => onError(e.message));
+  }, [base, revision]);
   const restore = async (version) => {
-    if (!confirm("Вернуть персонажа к этой версии? Всё сделанное после неё можно будет вернуть только заново.")) return;
+    if (!confirm("Вернуть к этой версии? Всё сделанное после неё можно будет вернуть только заново.")) return;
     try {
-      const { undone } = await api.post(`/characters/${characterId}/history/${version.id}/restore`);
+      const { undone } = await api.post(`${base}/history/${version.id}/restore`);
       onRestored(`Возвращено к версии: отменено шагов — ${undone}`);
     } catch (e) { onError(e.message); }
   };
@@ -125,7 +127,7 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
             <button type="button" aria-pressed=${showHistory} onClick=${() => setShowHistory(!showHistory)}
               title="Версии персонажа">🕘 История</button>`}
           <button type="button" onClick=${close} title="Закрыть">✕</button></div>
-        ${showHistory && characterId && html`<${HistoryPanel} characterId=${characterId} revision=${revision}
+        ${showHistory && characterId && html`<${HistoryPanel} base=${`/characters/${characterId}`} revision=${revision}
           onRestored=${(text) => { say(text); setRevision((r) => r + 1); }} onError=${onError} />`}
         ${characterId && html`<div class="tabs" role="tablist">
           <button role="tab" aria-selected=${tab === "card"} onClick=${() => setTab("card")}>Карточка</button>
@@ -142,6 +144,9 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
             <textarea rows=${rows} value=${card[key] || ""} onInput=${set(key)}></textarea></label>`)}
           <label><input type="checkbox" checked=${isDefaultMe} onChange=${(e) => setDefaultMe(e.target.checked)} />
             Мой персонаж по умолчанию (входит в каждый новый чат как «это я»)</label>
+          ${characterId && html`<${BookPicker} scope="character" target=${characterId} onError=${onError}
+            title="Лорбуки персонажа"
+            hint="Работают в любом чате, где он участвует — и как персонаж, и как «это я». Сохраняются сразу." />`}
           <div class="row">
             <button class="primary" type="submit" disabled=${saving}>Сохранить</button>
             <button type="button" onClick=${close}>Отмена</button>

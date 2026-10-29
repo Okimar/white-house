@@ -1,7 +1,8 @@
-"""Which character blocks go into a prompt: blue always, green when their topic comes up.
+"""Which blocks ("bubbles") go into a prompt: blue always, green when their topic comes up.
 
-Pure logic: the caller passes the blocks of one character, the text to look in (the last few
-messages), earlier hits for "stays N replies", and optional meaning scores from vectors.
+Pure logic: the caller passes the blocks of one owner (a character) or a pool of lorebooks, the
+text to look in (the last few messages), earlier hits for "stays N replies", and optional meaning
+scores from vectors.
 
 Rules (owner's decisions, see docs/ROADMAP.md, stage 4б):
 - a block that is off, or under an off block, never goes;
@@ -19,13 +20,39 @@ After the owner's review (migration 0007):
   "stays N replies" too (so regenerating cannot force it in), sticky 0 = a new roll every time;
 - a link between two bubbles pulls the other end along (with its sub-bubbles, not its parents),
   one step only; the pulled bubble rolls its own chance.
+
+Finer rules (stage 5, `block["rules"]`, all optional; shown under «Ещё»):
+    title_key   bool   the title counts as a keyword (default true)
+    keys2       [str]  second keywords, checked with `logic`:
+    logic       and_any (default) | and_all | not_any | not_all
+    whole       bool   whole words only: no other endings
+    case        bool   letter case matters
+    scan        int    how many last messages this block looks in (default: the caller's)
+    cooldown    int    after it was found and its "stays" ran out, it cannot be found for N replies
+    delay       int    it cannot go before reply N of the chat
+    groups      [str]  of the found blocks of one group only one goes: one still held wins, else
+    main        bool   a main one (first in order), else a weighted draw by
+    weight      int    (default 100)
+    filter      {mode: only|except, ids: [character ids]} who must (not) take part in the chat
+    no_wake     bool   its text does not wake other blocks (chains)
+    not_woken   bool   it is not woken by the text of other blocks
+    place       where a lorebook entry goes (core/assembly.py); not used here
+
+Chains (`recursion` > 0): the text of blocks that are going (plus `seed_text`) is looked through
+for more green blocks, up to `recursion` steps.
+
+Lorebooks (`by_order`): the pool's blocks are ranked by their order (book, then place among
+neighbours) instead of by how many keywords matched, and blue blocks share the budget too (they
+go first, so green ones with the largest numbers are dropped first).
 """
 
 from __future__ import annotations
 
 import random
 import re
+from bisect import bisect_left
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from tavern.core.prompt import estimate_tokens
@@ -39,13 +66,15 @@ RU_ENDINGS = sorted({
 }, key=len, reverse=True)
 EN_ENDINGS = ("ing", "es", "ed", "s")
 CYRILLIC = re.compile(r"[а-яё]", re.I)
+LOGICS = ("and_any", "and_all", "not_any", "not_all")
 
 
 @dataclass
 class FoundBlock:
     block: dict[str, Any]
     path: str
-    reason: str  # always | keyword | meaning | sticky (for the group's root) | group (pulled along)
+    # always | keyword | meaning | sticky (for the group's root) | group (pulled along) | link | chain
+    reason: str
 
 
 @dataclass
@@ -56,6 +85,7 @@ class Selection:
     dropped: list[str] = field(default_factory=list)  # titles that did not fit the budget
 
 
+@lru_cache(maxsize=50_000)
 def stem(word: str) -> str:
     word = word.lower()
     endings = RU_ENDINGS if CYRILLIC.search(word) else EN_ENDINGS
@@ -65,32 +95,100 @@ def stem(word: str) -> str:
     return word
 
 
-def keyword_pattern(keyword: str) -> re.Pattern[str] | None:
-    """A keyword as a pattern: words by stem (any ending), /regex/ as written (ST style)."""
+@lru_cache(maxsize=50_000)
+def keyword_pattern(keyword: str, *, whole: bool = False, case: bool = False) -> re.Pattern[str] | None:
+    """A keyword as a pattern: words by stem (any ending), /regex/ as written (ST style).
+    `whole`: the words exactly, no other endings; `case`: letter case matters."""
     keyword = keyword.strip()
     if not keyword:
         return None
+    flags = 0 if case else re.I
     if len(keyword) > 2 and keyword.startswith("/") and keyword.rstrip("gimsuy").endswith("/"):
         body = keyword[1:keyword.rstrip("gimsuy").rfind("/")]
         try:
-            return re.compile(body, re.I)
+            return re.compile(body, flags)
         except re.error:
             return None
     words = re.findall(r"\w+", keyword)
     if not words:
         return None
-    parts = [re.escape(stem(w)) + r"\w*" for w in words]
-    return re.compile(r"(?<!\w)" + r"\W+".join(parts), re.I)
+    if whole:
+        return re.compile(r"(?<!\w)" + r"\W+".join(re.escape(w) for w in words) + r"(?!\w)", flags)
+    # The stem keeps the word's own letters (and their case) up to where the ending starts.
+    parts = [re.escape(w[: len(stem(w))]) + r"\w*" for w in words]
+    return re.compile(r"(?<!\w)" + r"\W+".join(parts), flags)
 
 
-def _tree(blocks: list[dict[str, Any]]) -> tuple[dict[str, dict], dict[str | None, list[dict]]]:
+class _Words:
+    """The words of a text, sorted, so a one-word keyword is counted by binary search instead of a
+    regex pass over the whole text (thousands of lorebook entries x several keywords each)."""
+
+    def __init__(self, text: str) -> None:
+        tokens = re.findall(r"\w+", text)
+        self.exact = sorted(tokens)
+        self.lower = sorted(t.lower() for t in tokens)
+
+    @staticmethod
+    def _between(words: list[str], low: str, high: str) -> int:
+        return bisect_left(words, high) - bisect_left(words, low)
+
+    def count(self, word: str, *, whole: bool, case: bool) -> int:
+        words = self.exact if case else self.lower
+        word = word if case else word.lower()
+        if whole:
+            return self._between(words, word, word + "\0")
+        start = word[: len(stem(word))]  # any ending, as keyword_pattern does
+        return self._between(words, start, start + "\U0010ffff")
+
+
+@lru_cache(maxsize=64)
+def _words(text: str) -> _Words:
+    return _Words(text)
+
+
+SIMPLE_WORD = re.compile(r"\w+")
+
+
+def _occurrences(word: str, text: str, *, whole: bool, case: bool) -> int:
+    word = word.strip()
+    if SIMPLE_WORD.fullmatch(word):
+        return _words(text).count(word, whole=whole, case=case)
+    is_regex = len(word) > 2 and word.startswith("/") and word.rstrip("gimsuy").endswith("/")
+    if not is_regex and any(not _words(text).count(part, whole=whole, case=case)
+                            for part in SIMPLE_WORD.findall(word)):
+        return 0  # a phrase with a word the text does not have: no need to run the pattern
+    pattern = keyword_pattern(word, whole=whole, case=case)  # phrases and /regex/
+    return len(pattern.findall(text)) if pattern is not None else 0
+
+
+def keyword_hits(block: dict[str, Any], text: str) -> int:
+    """How many times the block's keywords occur in `text`, after its second-keyword logic."""
+    rules = block.get("rules") or {}
+    whole, case = bool(rules.get("whole")), bool(rules.get("case"))
+    words = ([block["title"]] if rules.get("title_key", True) else []) + list(block.get("keywords") or [])
+    count = 0
+    for word in words:
+        count += _occurrences(word, text, whole=whole, case=case)
+    second = [w for w in rules.get("keys2") or [] if w.strip()]
+    if not count or not second:
+        return count
+    seen = [_occurrences(word, text, whole=whole, case=case) > 0 for word in second]
+    logic = rules.get("logic", "and_any")
+    ok = {"and_any": any(seen), "and_all": all(seen), "not_any": not any(seen),
+          "not_all": not all(seen)}.get(logic, any(seen))
+    return count if ok else 0
+
+
+def _tree(blocks: list[dict[str, Any]], owner_rank: dict[str, int] | None = None
+          ) -> tuple[dict[str, dict], dict[str | None, list[dict]]]:
     by_id = {b["id"]: b for b in blocks}
+    rank = owner_rank or {}
     children: dict[str | None, list[dict]] = {}
     for block in blocks:
         parent = block["parent_id"] if block["parent_id"] in by_id else None
         children.setdefault(parent, []).append(block)
     for items in children.values():
-        items.sort(key=lambda b: (b["position"], b.get("created_at", "")))
+        items.sort(key=lambda b: (rank.get(b.get("owner_id"), 0), b["position"], b.get("created_at", "")))
     return by_id, children
 
 
@@ -107,28 +205,43 @@ def select_blocks(
     missed: set[str] | None = None,
     links: list[tuple[str, str]] | None = None,
     rng: Any = None,
+    scan_messages: list[str] | None = None,
+    recursion: int = 0,
+    seed_text: str = "",
+    present: set[str] | None = None,
+    owner_names: dict[str, str] | None = None,
+    by_order: bool = False,
 ) -> Selection:
     """`hits`: block id -> generation it was last found at; `missed`: those of them whose chance
-    failed then. `links`: pairs of linked block ids. `rng`: random.Random-like, for tests."""
+    failed then. `links`: pairs of linked block ids. `rng`: random.Random-like, for tests.
+    `scan_messages`: the visible messages, newest last (for a block's own `scan`); `present`:
+    character ids taking part (for `filter`; None = no filter); `owner_names`: owner id -> name for
+    a pool of several owners (in their order); `recursion`, `seed_text`, `by_order`: see above."""
     hits = hits or {}
     meaning = meaning or {}
     missed = missed or set()
     rng = rng or random
-    by_id, children = _tree(blocks)
+    owner_names = owner_names or {}
+    by_id, children = _tree(blocks, {owner: i for i, owner in enumerate(owner_names)})
 
     order: list[str] = []  # tree order of usable blocks (not off, not under off)
     paths: dict[str, str] = {}
 
-    def walk(parent: str | None, prefix: str) -> None:
+    def walk(parent: str | None, prefix: str | None) -> None:
         for block in children.get(parent, []):
             if block["mode"] == "off" or block.get("detached"):
                 continue
-            path = f"{prefix}{PATH_SEPARATOR}{block['title']}"
+            start = prefix if prefix is not None else owner_names.get(block.get("owner_id"), owner_name)
+            path = f"{start}{PATH_SEPARATOR}{block['title']}"
             paths[block["id"]] = path
             order.append(block["id"])
             walk(block["id"], path)
 
-    walk(None, owner_name)
+    walk(None, None)
+    rank = {block_id: i for i, block_id in enumerate(order)}
+
+    def rules(block_id: str) -> dict[str, Any]:
+        return by_id[block_id].get("rules") or {}
 
     def subtree(block_id: str) -> list[str]:
         result = [block_id]
@@ -139,6 +252,38 @@ def select_blocks(
 
     def held(block_id: str) -> bool:
         return block_id in hits and generation - hits[block_id] <= by_id[block_id].get("sticky", 3)
+
+    def allowed(block_id: str) -> bool:
+        """Delay and the character filter: may this block go at all right now?"""
+        rule = rules(block_id)
+        if generation < int(rule.get("delay") or 0):
+            return False
+        wanted = rule.get("filter") or {}
+        ids = set(wanted.get("ids") or [])
+        if present is not None and ids:
+            if wanted.get("mode") == "except" and ids & present:
+                return False
+            if wanted.get("mode", "only") == "only" and not ids & present:
+                return False
+        return True
+
+    def cooling(block_id: str) -> bool:
+        cooldown = int(rules(block_id).get("cooldown") or 0)
+        if not cooldown or block_id not in hits:
+            return False
+        since = generation - hits[block_id]
+        sticky = by_id[block_id].get("sticky", 3)
+        return sticky < since <= sticky + cooldown
+
+    texts: dict[int, str] = {}
+
+    def text_for(block_id: str) -> str:
+        own = rules(block_id).get("scan")
+        if scan_messages is None or not isinstance(own, int) or own <= 0:
+            return scan_text or ""
+        if own not in texts:
+            texts[own] = "\n".join(scan_messages[-own:])
+        return texts[own]
 
     misses: list[str] = []
 
@@ -153,57 +298,107 @@ def select_blocks(
         return False
 
     chosen: dict[str, str] = {}  # block id -> reason
-    for block_id in order:
-        block = by_id[block_id]
-        if block["mode"] == "always" and (generation - 1) % (block.get("every", 0) + 1) == 0:
-            chosen[block_id] = "always"
-
-    # Candidate green groups with their reason and rank (lower = first).
-    candidates: list[tuple[float, str, str]] = []
-    fresh: list[str] = []
-    text = scan_text or ""
-    for block_id in order:
-        block = by_id[block_id]
-        if block["mode"] != "search":
-            continue
-        count = 0
-        for keyword in [block["title"], *block.get("keywords", [])]:
-            pattern = keyword_pattern(keyword)
-            if pattern is not None:
-                count += len(pattern.findall(text))
-        score = meaning.get(block_id, 0.0)
-        if held(block_id) and block_id in missed:
-            continue  # its chance failed a moment ago: out until the hold is over
-        if count:
-            candidates.append((0 - count, block_id, "keyword"))
-        elif score >= threshold:
-            candidates.append((1 - score, block_id, "meaning"))
-        elif held(block_id):
-            candidates.append((2.0, block_id, "sticky"))
-    candidates.sort()
-
     used = 0
     dropped: list[str] = []
+    fresh: list[str] = []
+    groups_taken: set[str] = set()
 
-    def take(block_id: str, reason: str) -> None:
+    def take(block_id: str, reason: str) -> bool:
         nonlocal used
         group = [b for b in subtree(block_id) if b not in chosen]
         cost = sum(estimate_tokens(by_id[b]["content"]) for b in group)
         if budget_tokens and used + cost > budget_tokens:
             dropped.append(by_id[block_id]["title"])
-            return
-        if reason != "sticky" and by_id[block_id]["mode"] == "search":
+            return False
+        if reason not in ("sticky", "always") and by_id[block_id]["mode"] == "search":
             if not lucky(block_id):
-                return
+                return False
             fresh.append(block_id)
         used += cost
         chosen[block_id] = reason
         for member in group[1:]:
             chosen.setdefault(member, "group")
+        groups_taken.update(rules(block_id).get("groups") or [])
+        return True
 
-    for _, block_id, reason in candidates:
+    for block_id in order:
+        block = by_id[block_id]
+        if block["mode"] == "always" and (generation - 1) % (block.get("every", 0) + 1) == 0 \
+                and allowed(block_id):
+            if by_order:
+                if block_id not in chosen:
+                    take(block_id, "always")
+            else:
+                chosen[block_id] = "always"
+
+    def one_per_group(found: list[tuple[float, str, str]]) -> list[tuple[float, str, str]]:
+        """Of found blocks sharing a group only one stays (see `groups` above)."""
+        result = list(found)
+        names = sorted({g for _, b, _ in found for g in rules(b).get("groups") or []})
+        for name in names:
+            members = [item for item in result if name in (rules(item[1]).get("groups") or [])]
+            if not members:
+                continue
+            if name in groups_taken:
+                winner = None
+            else:
+                winner = next((m for m in members if held(m[1])), None) \
+                    or next((m for m in members if rules(m[1]).get("main")), None)
+                if winner is None:
+                    weights = [max(0, int(rules(m[1]).get("weight", 100) or 0)) for m in members]
+                    if sum(weights) <= 0:
+                        weights = [1] * len(members)
+                    point, winner = rng.random() * sum(weights), members[-1]
+                    for member, weight in zip(members, weights):
+                        if point < weight:
+                            winner = member
+                            break
+                        point -= weight
+            result = [item for item in result if item not in members or item is winner]
+        return result
+
+    def candidates_in(text_of: Any, first: bool, exclude: set[str]) -> list[tuple[float, str, str]]:
+        """Green blocks found in the text: (rank, id, reason), best first. `first`: the chat scan
+        (meaning and "stays" count too); otherwise a chain step."""
+        found: list[tuple[float, str, str]] = []
+        for block_id in order:
+            block = by_id[block_id]
+            if block["mode"] != "search" or block_id in chosen or block_id in exclude:
+                continue
+            if not allowed(block_id) or (held(block_id) and block_id in missed):
+                continue  # a chance failed a moment ago: out until the hold is over
+            count = keyword_hits(block, text_of(block_id))
+            score = meaning.get(block_id, 0.0) if first else 0.0
+            if count and not cooling(block_id):
+                found.append((0 - count, block_id, "keyword" if first else "chain"))
+            elif first and score >= threshold and not cooling(block_id):
+                found.append((1 - score, block_id, "meaning"))
+            elif first and held(block_id):
+                found.append((2.0, block_id, "sticky"))
+        if by_order:
+            found = [(rank[b], b, reason) for _, b, reason in found]
+        return one_per_group(sorted(found))
+
+    for _, block_id, reason in candidates_in(text_for, True, set()):
         if block_id not in chosen:
             take(block_id, reason)
+
+    # Chains: what is going now is read for more topics, step by step.
+    woken = {b for b in order if rules(b).get("not_woken")}
+    source = [b for b in chosen if not rules(b).get("no_wake")]
+    extra = seed_text
+    for _ in range(max(0, recursion)):
+        text = "\n".join([extra, *(by_id[b]["content"] for b in source)]).strip()
+        extra = ""
+        if not text:
+            break
+        before = set(chosen)
+        for _, block_id, reason in candidates_in(lambda _b: text, False, woken):
+            if block_id not in chosen:
+                take(block_id, reason)
+        source = [b for b in chosen if b not in before and not rules(b).get("no_wake")]
+        if not source:
+            break
 
     # Links: one step from what is going, to the linked bubble and its sub-bubbles only.
     partners: dict[str, list[str]] = {}
@@ -212,7 +407,8 @@ def select_blocks(
         partners.setdefault(b, []).append(a)
     for block_id in list(chosen):
         for other in partners.get(block_id, []):
-            if other in paths and other not in chosen and not (held(other) and other in missed):
+            if other in paths and other not in chosen and not (held(other) and other in missed) \
+                    and allowed(other):
                 take(other, "link")
 
     found = [FoundBlock(by_id[b], paths[b], chosen[b]) for b in order

@@ -141,6 +141,8 @@ async def test_notes_display_setting(client):
 
 async def test_delete_confirmation_can_be_switched_off(client):
     assert (await client.put("/api/settings", json={"skip_delete_confirm": True})).json()["skip_delete_confirm"] is True
+    assert (await client.put("/api/settings", json={"open_new_bubble": True})).json()["open_new_bubble"] is True
+    assert (await client.put("/api/settings", json={"open_new_bubble": "yes"})).status_code == 400
     bad = await client.put("/api/settings", json={"skip_delete_confirm": "yes"})
     assert bad.json()["error"]["code"] == "bad_request"
 

@@ -19,6 +19,7 @@ from tavern.api import characters as characters_api
 from tavern.api import connections as connections_api
 from tavern.api import jsonl as jsonl_api
 from tavern.api import blocks as blocks_api
+from tavern.api import lorebooks as lorebooks_api
 from tavern.api import notes as notes_api
 from tavern.api import prompts as prompts_api
 from tavern.api import static as static_api
@@ -87,6 +88,7 @@ def api_routes() -> list[Route]:
         *jsonl_api.routes,
         *prompts_api.routes,
         *blocks_api.routes,
+        *lorebooks_api.routes,
         *notes_api.routes,
         *chats_api.routes,
         # Must stay last: unknown /api paths get JSON 404 instead of falling through to static files.

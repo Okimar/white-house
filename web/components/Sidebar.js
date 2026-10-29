@@ -1,8 +1,10 @@
-// Left panel: characters (import a card from a JSON file) and the chats of the selected character.
+// Left panel: characters (import a card from a JSON file), lorebooks and the chats.
 import { html, useRef } from "../vendor/preact-htm.mjs";
+import { LorebookShelf } from "./Lorebooks.js";
 
 export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat,
-  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, open, onClose }) {
+  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, open, onClose,
+  settings, onError }) {
   const fileInput = useRef(null);
   const chatFileInput = useRef(null);
 
@@ -45,6 +47,8 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
           title="Скачать открытый чат (JSONL)">Экспорт чата</a>`}
         <button onClick=${() => onNewChat(null)}>Чат без персонажа</button>
       </div>
+
+      <${LorebookShelf} settings=${settings} onError=${onError} />
 
       <h2>Чаты</h2>
       <ul class="list">

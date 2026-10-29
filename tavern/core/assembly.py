@@ -9,6 +9,11 @@ attached to history messages (`message["notes"]`, saved ones) follow their messa
 with it. `Prompt.placed` says after which message each fired note landed, so the caller can attach
 it there.
 
+Lorebooks (stage 5): `lore` entries go into the preset's "Лор (до карточек)" block, or "после
+карточек", next to the author's note (top/bottom), around the example dialogues, or at their own
+depth, as their `rules.place` / `depth` say. A character's bubble with a `place` goes there too.
+Whatever finds no block of its place in the preset goes just before the chat.
+
 Budget (when `max_context_tokens` > 0), in this order until the prompt fits:
   1. drop the oldest chat messages, keeping at least MIN_HISTORY;
   2. drop member cards from the least important (highest importance number) up; the main
@@ -53,6 +58,10 @@ class PromptInput:
     impersonate: bool = False  # the model writes the user's message
     max_context_tokens: int = 0
     notes: list[NoteInput] = field(default_factory=list)
+    # Lorebook entries chosen for this reply (core/retrieval.py FoundBlock), and the titles of those
+    # that did not fit the lorebook budget (shown in "what the model saw").
+    lore: list[Any] = field(default_factory=list)
+    lore_dropped: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -187,11 +196,40 @@ def assemble(data: PromptInput) -> Prompt:
 
     blocks_placed: set[str] = set()
 
+    def found_entry(found: Any, kind: str, owner: str = "") -> Entry:
+        item = found.block
+        return Entry(item["role"], sub(f"[{found.path}]\n{item['content']}"), f"block:{item['id']}",
+                     found.path, kind, owner=owner)
+
+    def own_place(found: Any) -> str | None:
+        return (found.block.get("rules") or {}).get("place") if found.block["depth"] is None else None
+
+    # Entries with a place of their own (lorebook entries, and bubbles given a place), by place.
+    # "card_before" is the preset's lore_before block, "card_after" its lore_after block.
+    placed_at: dict[str, list[Entry]] = {}
+    for member in data.members:
+        for found in member.blocks:
+            if own_place(found):
+                placed_at.setdefault(own_place(found), []).append(found_entry(found, "block", member.character_id))
+    for found in data.lore:
+        entry = found_entry(found, "lore")
+        if found.block["depth"] is not None:
+            if entry.text.strip():
+                injections.append(_Injection(found.block["depth"], entry))
+        else:
+            placed_at.setdefault(own_place(found) or "card_before", []).append(entry)
+
+    def place_lore(where: str, block: dict[str, Any]) -> None:
+        for entry in placed_at.pop(where, []):
+            place(entry, block)
+
     def place_blocks(member: Member, block: dict[str, Any]) -> None:
         """The member's chosen tree blocks: next to its card, or at their own depth."""
         blocks_placed.add(member.character_id)
         for found in member.blocks:
             item = found.block
+            if own_place(found):
+                continue  # it went to its own place above
             entry = Entry(item["role"], sub(f"[{found.path}]\n{item['content']}"), f"block:{item['id']}",
                           found.path, "block", owner=member.character_id)
             if item["depth"] is not None:
@@ -236,13 +274,18 @@ def assemble(data: PromptInput) -> Prompt:
                             member.name, kind, owner=member.character_id), block, member.depth)
                 place_blocks(member, block)
         elif kind == "examples":
+            place_lore("examples_top", block)
             for member in others:
                 text = _examples(member.card)
                 if text:
                     text = f"Example dialogue of {member.name}:\n{text}"
                 place(Entry(role, sub(text), f"character:{member.character_id}:examples",
                             f"{block['name']}: {member.name}", kind, owner=member.character_id), block)
-        # lore_before / lore_after are filled by lorebooks (stage 5)
+            place_lore("examples_bottom", block)
+        elif kind == "lore_before":
+            place_lore("card_before", block)
+        elif kind == "lore_after":
+            place_lore("card_after", block)
 
     # Presets that switch the card blocks off still get the character's tree blocks, just before
     # the chat (blocks with their own depth go inside it as usual).
@@ -251,6 +294,13 @@ def assemble(data: PromptInput) -> Prompt:
             history_seen_before, history_seen = history_seen, False
             place_blocks(member, {"position": "top", "depth": 0})
             history_seen = history_seen_before
+    note_depth = data.notes[0].depth if data.notes else 4  # where the author's note goes (ST's default)
+    for entry in placed_at.pop("an_top", []):
+        injections.append(_Injection(note_depth, entry))
+    an_bottom = placed_at.pop("an_bottom", [])
+    for left in placed_at.values():  # their block is not in the preset, or it is switched off
+        before.extend(e for e in left if e.text.strip())
+    placed_at.clear()
 
     history_block = next(b for b in preset["blocks"] if b["kind"] == "history")
     history = [m for m in data.history if not m.get("exclude_from_prompt")] if history_block["enabled"] else []
@@ -290,6 +340,8 @@ def assemble(data: PromptInput) -> Prompt:
                       "Заметка" + (f": {note.title}" if note.title else ""), "note")
         if entry.text.strip():
             injections.append(_Injection(note.depth, entry, note))
+    for entry in an_bottom:
+        injections.append(_Injection(note_depth, entry))
 
     tail: list[Entry] = []
     if me is not None and not me.model_may_write and not data.impersonate:
@@ -302,7 +354,7 @@ def assemble(data: PromptInput) -> Prompt:
         tail.append(Entry("assistant", sub(preset["prompts"]["prefill"]), "prompt:prefill",
                           "Начало ответа (prefill)", "prompt"))
 
-    dropped: dict[str, Any] = {"messages": 0, "members": []}
+    dropped: dict[str, Any] = {"messages": 0, "members": [], "lore": list(data.lore_dropped)}
     if data.max_context_tokens:
         def total() -> int:
             return (_tokens(before) + _tokens(after) + _tokens(messages) + _tokens(tail)

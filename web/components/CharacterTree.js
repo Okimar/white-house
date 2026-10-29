@@ -140,8 +140,76 @@ function Ring({ mode }) {
 }
 
 const blockFields = (d) => ({ title: d.title, content: d.content, mode: d.mode, keywords: d.keywords,
-  depth: d.depth, role: d.role, sticky: d.sticky, chance: d.chance, every: d.every,
+  depth: d.depth, role: d.role, sticky: d.sticky, chance: d.chance, every: d.every, rules: d.rules || {},
   layout: { display: d.layout.display || "line", collapsed: Boolean(d.layout.collapsed) } });
+
+const LOGICS = [["and_any", "и хотя бы одно из"], ["and_all", "и все"], ["not_any", "но ни одного из"],
+  ["not_all", "но не все"]];
+const PLACES = [["", "по полю «Куда»"], ["card_before", "до карточек"], ["card_after", "после карточек"],
+  ["an_top", "у заметки автора, сверху"], ["an_bottom", "у заметки автора, снизу"],
+  ["examples_top", "перед примерами диалога"], ["examples_bottom", "после примеров диалога"]];
+const listOf = (text) => text.split(",").map((w) => w.trim()).filter(Boolean);
+
+// «Ещё»: the finer options of a bubble (core/retrieval.py lists them). Folded: most bubbles need none.
+function MoreRules({ rules, onRules }) {
+  const [people, setPeople] = useState(null); // characters, loaded when the filter is first opened
+  const [open, setOpen] = useState(() => Object.keys(rules).some((k) => k !== "title_key"));
+  const flag = (key, label, title, fallback = false) => html`<label title=${title}>
+    <input type="checkbox" checked=${rules[key] ?? fallback}
+      onChange=${(e) => onRules({ [key]: e.target.checked === fallback ? null : e.target.checked })} /> ${label}</label>`;
+  const number = (key, label, title, max, placeholder = "") => html`<label title=${title}>${label}
+    <input class="num" inputmode="numeric" pattern="[0-9]*" placeholder=${placeholder}
+      value=${rules[key] === undefined ? "" : String(rules[key])} onInput=${(e) => onRules({ [key]: digitsOf(e, max) }, false)} /></label>`;
+  const words = (key, label, title) => html`<label class="grow" title=${title}>${label}
+    <input value=${(rules[key] || []).join(", ")} placeholder="слово, ещё слово"
+      onChange=${(e) => onRules({ [key]: listOf(e.target.value) })} /></label>`;
+  const filter = rules.filter || { mode: "only", ids: [] };
+  useEffect(() => {
+    if (open && people === null) api.get("/characters").then((d) => setPeople(d.characters)).catch(() => setPeople([]));
+  }, [open]);
+  const toggleWho = (id, on) => {
+    const ids = on ? [...filter.ids, id] : filter.ids.filter((x) => x !== id);
+    onRules({ filter: ids.length ? { mode: filter.mode, ids } : null });
+  };
+  return html`<details class="tree-more" data-slot="tree-more" open=${open} onToggle=${(e) => setOpen(e.target.open)}>
+    <summary>Ещё</summary>
+    <div class="stack">
+      ${flag("title_key", "название — тоже ключевое слово", "Снимите, если название — просто подпись", true)}
+      <div class="row">${words("keys2", "Вторые слова", "Проверяются, когда нашлось хоть одно ключевое слово")}
+        <select value=${rules.logic || "and_any"} aria-label="Как проверять вторые слова"
+          onChange=${(e) => onRules({ logic: e.target.value === "and_any" ? null : e.target.value })}>
+          ${LOGICS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+        </select></div>
+      <div class="row">
+        ${flag("whole", "только целые слова", "Без других окончаний: «кот» не найдёт «котята»")}
+        ${flag("case", "учитывать регистр", "«Rat» не найдёт «rat»")}</div>
+      <div class="row">
+        ${number("scan", "Смотреть сообщений", "Сколько последних сообщений чата просматривать для этого пузыря", 1000, "как везде")}
+        ${number("cooldown", "Пауза", "После того как пузырь отдержался, столько ответов он не приходит", 1000, "0")}
+        ${number("delay", "Не раньше ответа №", "Пузырь не приходит, пока в чате меньше ответов", 9999, "0")}</div>
+      <div class="row">${words("groups", "Группа", "Из найденных пузырей одной группы приходит только один")}
+        ${number("weight", "Вес", "Шанс победить в группе относительно других (обычно 100)", 1000, "100")}
+        ${flag("main", "главный в группе", "Главный побеждает в своей группе (если никто не держится)")}</div>
+      <label>Куда в промпте
+        <select value=${rules.place || ""} onChange=${(e) => onRules({ place: e.target.value || null })}>
+          ${PLACES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+        </select></label>
+      <div class="row">
+        ${flag("no_wake", "не будит других", "Текст этого пузыря не подтягивает другие записи лорбуков по цепочке")}
+        ${flag("not_woken", "не будится другими", "Приходит только по словам из чата, не по цепочке")}</div>
+      <div class="stack">
+        <label>Персонажи
+          <select value=${filter.mode} onChange=${(e) => filter.ids.length && onRules({ filter: { ...filter, mode: e.target.value } })}>
+            <option value="only">только когда в чате</option><option value="except">кроме чатов, где есть</option>
+          </select></label>
+        <div class="chips">${(people || []).map((c) => html`<label key=${c.id} class="chip">
+          <input type="checkbox" checked=${filter.ids.includes(c.id)} onChange=${(e) => toggleWho(c.id, e.target.checked)} /> ${c.name}</label>`)}
+          ${people && !people.length ? html`<span class="muted">Персонажей нет</span>` : ""}</div>
+        ${!filter.ids.length && html`<span class="muted">Никто не отмечен — пузырь работает с любыми персонажами.</span>`}
+      </div>
+    </div>
+  </details>`;
+}
 
 // Every change saves itself: typing after a short pause (and when the panel closes or another
 // bubble is picked), buttons and switches at once. There is no "Сохранить" button.
@@ -259,6 +327,12 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
           <input type="checkbox" checked=${Boolean(draft.layout.collapsed)}
             onChange=${(e) => set({ layout: { ...draft.layout, collapsed: e.target.checked } }, true)} /> свернуть</label>
       </div>
+      <${MoreRules} key=${block.id} rules=${draft.rules || {}}
+        onRules=${(patch, now = true) => {
+          const next = { ...(draft.rules || {}), ...patch };
+          for (const k of Object.keys(next)) if (next[k] === null) delete next[k];
+          set({ rules: next }, now);
+        }} />
       ${links.length > 0 && html`<div class="stack tree-links">
         <span class="muted">Ссылки: придут вместе с этим пузырём</span>
         ${links.map((l) => html`<span key=${l.id} class="chip">🔗 ${l.path}
@@ -291,24 +365,66 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
     </aside>`;
 }
 
-function TreeList({ kids, selected, vectorized, onSelect }) {
-  const rows = [];
-  const walk = (parent, level) => {
-    for (const b of kids.get(parent) || []) {
-      const count = (kids.get(b.id) || []).length;
-      rows.push(html`<li key=${b.id} style=${`padding-left:${level * 18}px`} class=${selected === b.id ? "active" : ""}>
+const ROW_H = 38; // list view: every row is one line of this height, so only rows in view are drawn
+
+// List view: the tree as rows; a branch opens and closes with ▸/▾ (only the top level is open at
+// first). Thousands of rows stay smooth: only the rows in view (plus a margin) are in the page.
+function TreeList({ kids, selected, vectorized, open, onToggle, onSelect }) {
+  const box = useRef(null);
+  const [view, setView] = useState({ top: 0, height: 800 });
+  const rows = useMemo(() => {
+    const out = [];
+    const walk = (parent, level) => {
+      for (const b of kids.get(parent) || []) {
+        const count = (kids.get(b.id) || []).length;
+        out.push({ b, level, count });
+        if (count && open.has(b.id)) walk(b.id, level + 1);
+      }
+    };
+    walk(null, 0);
+    return out;
+  }, [kids, open]);
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return undefined;
+    setView({ top: el.scrollTop, height: el.clientHeight });
+    const observer = new ResizeObserver(() => setView({ top: el.scrollTop, height: el.clientHeight }));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  // The picked bubble (e.g. picked on the map) is scrolled into view.
+  useEffect(() => {
+    const el = box.current;
+    const index = rows.findIndex((r) => r.b.id === selected);
+    if (!el || index < 0) return;
+    const y = index * ROW_H;
+    if (y < el.scrollTop || y + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, y - el.clientHeight / 3);
+  }, [selected]);
+  if (!rows.length) return html`<ul class="list tree-list"><li class="muted">Пузырей пока нет.</li></ul>`;
+  const first = Math.max(0, Math.floor(view.top / ROW_H) - 10);
+  const last = Math.min(rows.length, Math.ceil((view.top + view.height) / ROW_H) + 10);
+  return html`<div class="tree-list" data-slot="tree-list" ref=${box}
+      onScroll=${(e) => setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}>
+    <ul class="list" style=${`height:${rows.length * ROW_H}px`}>
+      ${rows.slice(first, last).map(({ b, level, count }, i) => html`<li key=${b.id}
+        class=${"tree-row" + (selected === b.id ? " active" : "")}
+        style=${`top:${(first + i) * ROW_H}px;padding-left:${level * 18}px`}>
+        ${count
+          ? html`<button class="fold" aria-expanded=${open.has(b.id)} onClick=${() => onToggle(b.id)}
+              title=${open.has(b.id) ? "Свернуть" : "Развернуть"}>${open.has(b.id) ? "▾" : "▸"}</button>`
+          : html`<span class="fold-gap"></span>`}
         <button class="item" onClick=${() => onSelect(b.id)}><${Ring} mode=${b.mode} /> ${b.title}
           ${vectorized.has(b.id) ? html`<span class="muted"> ≈</span>` : ""}
           ${count ? html`<span class="muted"> (${count})</span>` : ""}</button>
-      </li>`);
-      walk(b.id, level + 1);
-    }
-  };
-  walk(null, 0);
-  return html`<ul class="list tree-list">${rows.length ? rows : html`<li class="muted">Пузырей пока нет.</li>`}</ul>`;
+      </li>`)}
+    </ul>
+  </div>`;
 }
 
+// `character` is the owner of the tree: a character, or a lorebook given as {id, name, book: true}
+// (its bubbles live under /lorebooks/{id}; the root is the book itself).
 export function CharacterTree({ character, settings, revision = 0, onError }) {
+  const base = character.book ? `/lorebooks/${character.id}` : `/characters/${character.id}`;
   // Good news ("done, 3 bubbles") is a calm line inside the tree, not the red error toast.
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef(0);
@@ -340,7 +456,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const frame = useRef(0);
   const dragRef = useRef(null);
 
-  const reload = useCallback(() => api.get(`/characters/${character.id}/blocks`).then((d) => {
+  const reload = useCallback(() => api.get(`${base}/blocks`).then((d) => {
     setBlocks(d.blocks);
     setVectorized(new Set(d.vectorized));
     setLinks(d.links || []);
@@ -352,6 +468,32 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   useEffect(() => setSpaces([]), [character.id]);
 
   const { pos, kids, byId } = useMemo(() => layoutTree(blocks), [blocks]);
+  // List view: which branches are open, remembered per character / book in this browser.
+  const openKey = `tavern.treeOpen.${character.id}`;
+  const [openIds, setOpenIds] = useState(new Set());
+  useEffect(() => {
+    try { setOpenIds(new Set(JSON.parse(localStorage.getItem(openKey) || "[]"))); } catch (e) { setOpenIds(new Set()); }
+  }, [openKey]);
+  const keepOpen = (next) => {
+    setOpenIds(next);
+    try { localStorage.setItem(openKey, JSON.stringify([...next])); } catch (e) { /* storage off */ }
+  };
+  const openRows = (ids) => {
+    const missing = ids.filter((id) => !openIds.has(id));
+    if (missing.length) keepOpen(new Set([...openIds, ...missing]));
+  };
+  const toggleRow = (id) => {
+    const next = new Set(openIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    keepOpen(next);
+  };
+  // The path to the picked bubble is always open, so the list can show it.
+  useEffect(() => {
+    if (!selected || selected === "root" || !byId.has(selected)) return;
+    const up = [];
+    for (let b = byId.get(byId.get(selected).parent_id); b; b = byId.get(b.parent_id)) up.push(b.id);
+    openRows(up);
+  }, [selected, byId]);
   const depthOf = (id) => 1 + Math.max(0, ...(kids.get(id) || []).map((c) => depthOf(c.id)));
   // Free bubbles (joined to nothing) and everything under them: pale, not sent.
   const inactive = useMemo(() => {
@@ -519,7 +661,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     }));
     try {
       if (current.target) await api.put(`/blocks/${g.bid}`, { parent_id: parent, position });
-      await api.put(`/characters/${character.id}/blocks/layout`, { items: moved });
+      await api.put(`${base}/blocks/layout`, { items: moved });
     } catch (err) { onError(err.message); reload(); }
   };
 
@@ -561,10 +703,10 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     }));
     try {
       await api.put(`/blocks/${childId}`, free ? { parent_id: null, detached: true } : { parent_id: parentId, position, detached: false });
-      if (!free) await api.put(`/characters/${character.id}/blocks/layout`, { items: subtree.map((id) => ({ id, auto: true })) });
+      if (!free) await api.put(`${base}/blocks/layout`, { items: subtree.map((id) => ({ id, auto: true })) });
       else {
         const p = pos.get(childId);
-        await api.put(`/characters/${character.id}/blocks/layout`, { items: [{ id: childId, x: p.x, y: p.y }] });
+        await api.put(`${base}/blocks/layout`, { items: [{ id: childId, x: p.x, y: p.y }] });
       }
     } catch (err) { onError(err.message); reload(); }
   };
@@ -575,17 +717,17 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   };
   const addLink = async (a, b) => {
     setLinking(null);
-    try { setLinks((await api.post(`/characters/${character.id}/links`, { a, b })).links); } catch (err) { onError(err.message); }
+    try { setLinks((await api.post(`${base}/links`, { a, b })).links); } catch (err) { onError(err.message); }
   };
   const unlink = async (a, b) => {
     try {
-      const done = await api.del(`/characters/${character.id}/links?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
+      const done = await api.del(`${base}/links?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`);
       setLinks(done.links);
     } catch (err) { onError(err.message); }
   };
   const setChance = async (chance, under = null) => {
     try {
-      const { changed } = await api.put(`/characters/${character.id}/blocks/chance`, { chance, under });
+      const { changed } = await api.put(`${base}/blocks/chance`, { chance, under });
       onNotice(`Шанс ${chance}% у пузырей: ${changed}`);
       await reload();
     } catch (err) { onError(err.message); }
@@ -597,12 +739,18 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     return () => window.removeEventListener("keydown", key);
   }, [linking]);
 
+  // A new bubble opens in the panel only when the setting asks for it (Settings → "Основное");
+  // otherwise the current one stays open and a calm line says where the new one went.
   const create = async (parentId) => {
+    const parent = parentId && parentId !== "root" ? parentId : null;
     try {
-      const block = await api.post(`/characters/${character.id}/blocks`, {
-        title: "Новый пузырь", mode: "search", parent_id: parentId && parentId !== "root" ? parentId : null });
+      const block = await api.post(`${base}/blocks`, { title: "Новый пузырь", mode: "search", parent_id: parent });
       await reload();
-      setSelected(block.id);
+      if (settings.open_new_bubble) setSelected(block.id);
+      else {
+        if (parent) openRows([parent]);
+        onNotice(parent ? `Новый подпузырь в «${byId.get(parent)?.title}»` : "Новый пузырь добавлен");
+      }
     } catch (e) { onError(e.message); }
   };
   const save = async (id, changes) => {
@@ -620,7 +768,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     try {
       const parent = byId.get(block.parent_id);
       await api.put(`/blocks/${block.id}`, { parent_id: parent ? parent.parent_id : null });
-      await api.put(`/characters/${character.id}/blocks/layout`, {
+      await api.put(`${base}/blocks/layout`, {
         items: [block.id, ...descendants(kids, block.id)].map((id) => ({ id, auto: true })) });
       await reload();
     } catch (e) { onError(e.message); }
@@ -630,7 +778,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   };
   const vectorize = async () => {
     try {
-      const { made } = await api.post(`/characters/${character.id}/vectorize`);
+      const { made } = await api.post(`${base}/vectorize`);
       onNotice(made ? `Векторизовано пузырей: ${made}` : "Все зелёные пузыри уже векторизованы");
       reload();
     } catch (e) { onError(e.message); }
@@ -716,6 +864,9 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
           <button role="tab" aria-selected=${view === "list"} onClick=${() => setView("list")}>Список</button>
         </div>
         <button onClick=${() => create(selected)}>+ Пузырь</button>
+        ${view === "list" && html`<button title="Открыть все ветки списка"
+            onClick=${() => keepOpen(new Set(blocks.filter((b) => (kids.get(b.id) || []).length).map((b) => b.id)))}>Развернуть всё</button>
+          <button title="Оставить только верхний уровень" onClick=${() => keepOpen(new Set())}>Свернуть всё</button>`}
         ${settings.embedding_connection && html`<button onClick=${vectorize}
           title="Сделать векторы для поиска по смыслу (только текст пузырей)">≈ Векторизовать</button>`}
         <span class="legend muted"><${Ring} mode="always" /> всегда <${Ring} mode="search" /> по теме
@@ -802,7 +953,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
               ${blocks.length === 0 && html`<p class="tree-empty muted">Нажмите «+ Пузырь», чтобы добавить первый блок:
                 например «Внешность», а в него «Волосы».</p>`}
             </div>`
-          : html`<${TreeList} kids=${kids} selected=${selected} vectorized=${vectorized} onSelect=${setSelected} />`}
+          : html`<${TreeList} kids=${kids} selected=${selected} vectorized=${vectorized} open=${openIds}
+              onToggle=${toggleRow} onSelect=${setSelected} />`}
         ${selectedBlock && html`<${BlockPanel} block=${selectedBlock} path=${pathOf(selectedBlock)}
           vectorized=${vectorized.has(selectedBlock.id)} askDelete=${!settings.skip_delete_confirm}
           hasKids=${(kids.get(selectedBlock.id) || []).length > 0}
@@ -816,7 +968,9 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         ${selected === "root" && html`<aside class="tree-panel" data-slot="tree-panel">
           <div class="row"><strong>${character.name}</strong><span class="spacer"></span>
             <button onClick=${() => setSelected(null)} title="Закрыть">✕</button></div>
-          <p class="muted">Это сама карточка — она уходит модели как обычно. Её текст меняется на вкладке «Карточка».</p>
+          <p class="muted">${character.book
+            ? "Это сама книга. Название и описание меняются наверху окна; модели уходят только её пузыри."
+            : "Это сама карточка — она уходит модели как обычно. Её текст меняется на вкладке «Карточка»."}</p>
           <button onClick=${() => create(null)}>+ Пузырь в корень</button>
         </aside>`}
       </div>

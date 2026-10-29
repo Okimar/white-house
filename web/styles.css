@@ -296,7 +296,25 @@ input.num { width: 4.5em; }
 .tree-panel > * { flex: none; }
 .tree-panel input.num { width: 70px; }
 .tree-list { flex: 1; overflow-y: auto; padding: 6px; }
+/* rows are placed by hand (only those in view exist), so each is one line of a fixed height */
+.tree-list > .list { position: relative; margin: 0; }
+.tree-list .tree-row { position: absolute; left: 0; right: 0; height: 38px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 2px; }
+.tree-list .tree-row .item { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: start; }
+.tree-list .fold, .tree-list .fold-gap { flex: none; width: 32px; height: 32px; }
+.tree-list .fold { padding: 0; font-size: 1.1rem; }
 .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+/* «Ещё» in the bubble panel: rare options, folded */
+.tree-more { border: 1px dashed var(--line); border-radius: var(--radius-sm); padding: 6px 8px; }
+.tree-more > summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.tree-more .grow { flex: 1 1 160px; display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: start; }
+.tree-more .grow input { width: 100%; box-sizing: border-box; }
+/* lorebooks: which books are on for a place; the book window's head */
+.book-picker { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 6px 10px; margin: 8px 0 0; }
+.book-picker label { min-height: 32px; display: flex; align-items: center; gap: 6px; }
+.book-head .grow { flex: 1 1 220px; display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: start; }
+.book-head .grow input { width: 100%; box-sizing: border-box; }
 .chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 0 0 8px; border-radius: 999px; border: 1px solid var(--mode-search); font-size: .85rem; }
 .chip button { border: 0; background: transparent; min-height: 24px; padding: 0 6px; }
 @media (max-width: 720px) {

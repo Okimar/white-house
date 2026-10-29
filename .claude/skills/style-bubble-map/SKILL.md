@@ -30,6 +30,7 @@ listed here without updating this file and `make-theme`.
         .bubble            one bubble (see Bubble)
     .tree-list             the list view
     .tree-panel [data-slot=tree-panel]   the editor of the picked bubble
+      .tree-more [data-slot=tree-more]   «Ещё»: finer options (a <details>, folded)
 ```
 
 ## Bubble

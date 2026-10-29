@@ -27,6 +27,7 @@ from tavern.storage.repos.blocks import BlockRepo
 from tavern.storage.repos.members import MemberRepo
 from tavern.storage.repos.notes import NoteRepo
 from tavern.storage.repos.history import HistoryRepo
+from tavern.storage.repos.lorebooks import LorebookRepo
 from tavern.storage.repos.presets import PresetRepo
 from tavern.storage.repos.settings import SettingsRepo
 from tavern.storage.themes import ThemeStore
@@ -56,6 +57,7 @@ class AppContext:
     prompt_log: PromptLog
     notes: NoteRepo
     history: HistoryRepo
+    lorebooks: LorebookRepo
     sandbox: bool = False
 
     def close(self) -> None:
@@ -109,5 +111,6 @@ def open_context(
         prompt_log=PromptLog(db),
         notes=NoteRepo(db),
         history=HistoryRepo(db),
+        lorebooks=LorebookRepo(db),
         sandbox=sandbox,
     )

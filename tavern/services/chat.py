@@ -18,7 +18,7 @@ from tavern.core.generation import GenerationJob
 from tavern.core.llm import LLMClient
 from tavern.core.prompt import substitute
 from tavern.core.runs import Run
-from tavern.services import cast, character_tree
+from tavern.services import cast, character_tree, lorebooks
 from tavern.services import notes as note_service
 from tavern.services import presets as preset_service
 from tavern.errors import AppError, Conflict, NotFound, TavernError
@@ -348,6 +348,9 @@ def _launch(
             chosen = await character_tree.select_for_chat(ctx, chat, members, history)
             for member in members:
                 member.blocks = chosen.get(member.character_id, [])
+            lore = await lorebooks.select_for_chat(
+                ctx, chat, members, history, max_context=max_context,
+                seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found))
             prompt_input = PromptInput(
                 preset=preset["data"], preset_id=preset["id"],
                 members=members,
@@ -355,6 +358,7 @@ def _launch(
                 impersonate=reply["role"] == "user",
                 max_context_tokens=max_context,
                 notes=note_service.for_reply(ctx, chat_id, [m.character_id for m in members], history),
+                lore=lore.found, lore_dropped=lore.dropped,
             )
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,

@@ -78,7 +78,9 @@ per file, 30 MB per theme.
 | `members-button`, `member` | chat 👥 button, one member in the members panel | |
 | `prompt-part`, `preset-block` | a part in "what the model saw", a block in the preset editor | |
 | `character-tree`, `tree-panel`, `tree-crumbs` | the bubble map of a character, the bubble editor panel, the path of opened spaces — details in the `style-bubble-map` skill | |
-| `character-history` | the versions list of a character ("🕘 История") | |
+| `character-history` | the versions list of a character or a lorebook ("🕘 История") | |
+| `tree-more` | «Ещё» in the bubble panel: the finer options, folded | |
+| `lorebooks`, `book-head`, `book-picker`, `lorebook-settings` | the "Лорбуки" part of the left panel, the name/description row of a book window, the list of books switched on for a place (⚙, 👥, card), Settings → "Лорбуки" | |
 | `notes-more`, `attached-note` | the "ещё N" chip beside a message, one note in the notes drop-down | |
 | `notes-button`, `note-list`, `note` | chat 📝 button, a list of author's notes, one note in it | |
 | `message-row` | a message with its notes (grid: hidden notes, message, visible notes) | |

@@ -14,7 +14,7 @@ from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body
 from tavern.errors import NotFound
 from tavern.formats.cards import card_to_png, decode_png_card, encode_card, parse_card
 from tavern.formats.media import media_type, sniff_image
-from tavern.services import character_tree, history
+from tavern.services import character_tree, history, lorebooks
 
 
 async def list_characters(request: Request) -> JSONResponse:
@@ -31,6 +31,7 @@ async def create_character(request: Request) -> JSONResponse:
     spec, data = parse_card(await json_body(request))
     character = ctx.characters.create(data, spec=spec)
     character_tree.take_book(ctx, character["id"])  # embedded lorebook entries become blocks
+    lorebooks.attach_card_world(ctx, character["id"])  # its named ST lorebook, if we have it
     return JSONResponse(ctx.characters.get(character["id"]), status_code=201)
 
 
@@ -43,6 +44,7 @@ async def import_character_png(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     character = ctx.characters.create(data, spec=spec, avatar=avatar)
     character_tree.take_book(ctx, character["id"])
+    lorebooks.attach_card_world(ctx, character["id"])
     return JSONResponse(ctx.characters.get(character["id"]), status_code=201)
 
 
@@ -107,9 +109,7 @@ async def undo_character(request: Request) -> JSONResponse:
 
 async def close_history(request: Request) -> JSONResponse:
     """The editor was closed: the changes so far become one version."""
-    ctx = ctx_of(request)
-    ctx.characters.get(request.path_params["id"])
-    history.close(ctx, request.path_params["id"])
+    history.close(ctx_of(request), request.path_params["id"])
     return JSONResponse({"ok": True})
 
 
@@ -142,7 +142,9 @@ SETTING_TYPES = {
     "embedding_connection": str,  # connection used for meaning vectors
     "notes_display": str,  # notes beside a message: "few" (2 + "ещё N", default) or "all"
     "skip_delete_confirm": bool,  # delete bubbles without asking "are you sure?"
+    "open_new_bubble": bool,  # "+ Пузырь" / "+ Подпузырь" opens the new bubble in the panel; default off
     "character_history": bool,  # keep the history of character changes ("Отменить", versions); default on
+    "lorebooks": dict,  # lorebook budget_tokens / budget_percent / recursion (services/lorebooks.py)
 }
 STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
 SETTING_CHOICES = {"notes_display": ("few", "all")}
@@ -166,6 +168,8 @@ async def put_settings(request: Request) -> JSONResponse:
             raise BadRequest(f"Setting {key!r} must map short strings to short strings")
         if key in SETTING_CHOICES and value not in ("", None, *SETTING_CHOICES[key]):
             raise BadRequest(f"Setting {key!r} must be one of: {', '.join(SETTING_CHOICES[key])}")
+        if key == "lorebooks" and value:
+            value = lorebooks.clean_settings(value)
         if value in ("", None):
             ctx.settings.delete(key)
         else:

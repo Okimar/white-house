@@ -1,7 +1,7 @@
-"""Character history: versions, steps (what things were before a change), raw block rows.
+"""History of a character or a lorebook (its owner): versions, steps, raw block rows.
 
-Step dict shape: id, character_id, version_id, at, what, undone, before (list of ops, see
-services/history.py). Version dict shape: id, character_id, started_at, closed_at.
+Step dict shape: id, owner_id, version_id, at, what, undone, before (list of ops, see
+services/history.py). Version dict shape: id, owner_id, started_at, closed_at.
 """
 
 from __future__ import annotations
@@ -27,59 +27,59 @@ class HistoryRepo:
 
     # --- versions and steps ----------------------------------------------------------------------
 
-    def open_version(self, character_id: str) -> dict[str, Any] | None:
+    def open_version(self, owner_id: str) -> dict[str, Any] | None:
         row = self.db.fetchone(
-            "SELECT * FROM character_versions WHERE character_id = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
-            (character_id,),
+            "SELECT * FROM character_versions WHERE owner_id = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
+            (owner_id,),
         )
         return dict(row) if row else None
 
-    def new_version(self, character_id: str, at: str) -> int:
+    def new_version(self, owner_id: str, at: str) -> int:
         return self.db.execute(
-            "INSERT INTO character_versions (character_id, started_at) VALUES (?, ?)", (character_id, at)
+            "INSERT INTO character_versions (owner_id, started_at) VALUES (?, ?)", (owner_id, at)
         ).lastrowid
 
     def close_version(self, version_id: int, at: str) -> None:
         self.db.execute("UPDATE character_versions SET closed_at = ? WHERE id = ?", (at, version_id))
 
-    def add_step(self, character_id: str, version_id: int, at: str, what: str, ops: list[dict[str, Any]]) -> int:
+    def add_step(self, owner_id: str, version_id: int, at: str, what: str, ops: list[dict[str, Any]]) -> int:
         return self.db.execute(
-            "INSERT INTO character_steps (character_id, version_id, at, what, before) VALUES (?, ?, ?, ?, ?)",
-            (character_id, version_id, at, what, _pack(ops)),
+            "INSERT INTO character_steps (owner_id, version_id, at, what, before) VALUES (?, ?, ?, ?, ?)",
+            (owner_id, version_id, at, what, _pack(ops)),
         ).lastrowid
 
-    def drop_undone(self, character_id: str) -> None:
-        self.db.execute("DELETE FROM character_steps WHERE character_id = ? AND undone = 1", (character_id,))
+    def drop_undone(self, owner_id: str) -> None:
+        self.db.execute("DELETE FROM character_steps WHERE owner_id = ? AND undone = 1", (owner_id,))
         self.db.execute(
-            "DELETE FROM character_versions WHERE character_id = ? AND closed_at IS NOT NULL "
-            "AND id NOT IN (SELECT version_id FROM character_steps)", (character_id,),
+            "DELETE FROM character_versions WHERE owner_id = ? AND closed_at IS NOT NULL "
+            "AND id NOT IN (SELECT version_id FROM character_steps)", (owner_id,),
         )
 
-    def last_step(self, character_id: str, *, undone: bool = False) -> dict[str, Any] | None:
+    def last_step(self, owner_id: str, *, undone: bool = False) -> dict[str, Any] | None:
         row = self.db.fetchone(
-            "SELECT * FROM character_steps WHERE character_id = ? AND undone = ? ORDER BY id DESC LIMIT 1",
-            (character_id, int(undone)),
+            "SELECT * FROM character_steps WHERE owner_id = ? AND undone = ? ORDER BY id DESC LIMIT 1",
+            (owner_id, int(undone)),
         )
         return self._step(row) if row else None
 
-    def steps_after(self, character_id: str, step_id: int) -> list[dict[str, Any]]:
+    def steps_after(self, owner_id: str, step_id: int) -> list[dict[str, Any]]:
         rows = self.db.fetchall(
-            "SELECT * FROM character_steps WHERE character_id = ? AND undone = 0 AND id > ? ORDER BY id DESC",
-            (character_id, step_id),
+            "SELECT * FROM character_steps WHERE owner_id = ? AND undone = 0 AND id > ? ORDER BY id DESC",
+            (owner_id, step_id),
         )
         return [self._step(r) for r in rows]
 
     def mark_undone(self, step_id: int) -> None:
         self.db.execute("UPDATE character_steps SET undone = 1 WHERE id = ?", (step_id,))
 
-    def versions(self, character_id: str) -> list[dict[str, Any]]:
+    def versions(self, owner_id: str) -> list[dict[str, Any]]:
         versions = [dict(r) for r in self.db.fetchall(
-            "SELECT * FROM character_versions WHERE character_id = ? ORDER BY id DESC", (character_id,)
+            "SELECT * FROM character_versions WHERE owner_id = ? ORDER BY id DESC", (owner_id,)
         )]
         steps: dict[int, list[dict[str, Any]]] = {}
         for row in self.db.fetchall(
-            "SELECT id, version_id, at, what, undone FROM character_steps WHERE character_id = ? ORDER BY id DESC",
-            (character_id,),
+            "SELECT id, version_id, at, what, undone FROM character_steps WHERE owner_id = ? ORDER BY id DESC",
+            (owner_id,),
         ):
             steps.setdefault(row["version_id"], []).append(
                 {"id": row["id"], "at": row["at"], "what": row["what"], "undone": bool(row["undone"])}
@@ -92,9 +92,9 @@ class HistoryRepo:
         row = self.db.fetchone("SELECT MAX(id) AS m FROM character_steps WHERE version_id = ?", (version_id,))
         return row["m"] if row else None
 
-    def size(self, character_id: str) -> int:
+    def size(self, owner_id: str) -> int:
         row = self.db.fetchone(
-            "SELECT COALESCE(SUM(LENGTH(before)), 0) AS n FROM character_steps WHERE character_id = ?", (character_id,)
+            "SELECT COALESCE(SUM(LENGTH(before)), 0) AS n FROM character_steps WHERE owner_id = ?", (owner_id,)
         )
         return int(row["n"])
 
@@ -115,7 +115,7 @@ class HistoryRepo:
         if row is None:
             self.db.execute("DELETE FROM character_blocks WHERE id = ?", (block_id,))
             return
-        columns = [c for c in row if c != "id"]
+        columns = [c for c in row if c not in ("id", "owner_id")]  # owner_id is computed by SQLite
         if self.block_row(block_id) is None:
             names = ["id", *columns]
             self.db.execute(

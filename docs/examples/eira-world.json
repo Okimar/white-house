@@ -1,0 +1,48 @@
+{
+  "name": "Мир Эйры",
+  "description": "Пример лорбука для Tavern (этап 5). Формат файла — как у SillyTavern: его можно импортировать и туда.",
+  "entries": {
+    "0": {
+      "uid": 0, "displayIndex": 0,
+      "key": ["Эйра"], "keysecondary": [], "comment": "Эйра — северный город",
+      "content": "Эйра — город на берегу холодного моря. Зимой гавань замерзает, и корабли ждут весны в доках.",
+      "constant": true, "disable": false, "position": 0, "order": 100, "probability": 100, "useProbability": false
+    },
+    "1": {
+      "uid": 1, "displayIndex": 1,
+      "key": ["гильдия", "воры", "вор"], "keysecondary": [], "comment": "Гильдия воров",
+      "content": "Гильдия воров держит порт Эйры. Ею правит Крыса.",
+      "constant": false, "disable": false, "position": 0, "order": 100, "probability": 100, "useProbability": false,
+      "sticky": 2
+    },
+    "2": {
+      "uid": 2, "displayIndex": 2,
+      "key": ["Крыса"], "keysecondary": [], "comment": "Крыса — главарь гильдии",
+      "content": "Крыса — хромой старик с золотым зубом. Никому не доверяет, но любит загадки.",
+      "constant": false, "disable": false, "position": 1, "order": 100, "probability": 100, "useProbability": false,
+      "matchWholeWords": true
+    },
+    "3": {
+      "uid": 3, "displayIndex": 3,
+      "key": ["дракон"], "keysecondary": ["ночь", "луна"], "selective": true, "selectiveLogic": 0,
+      "comment": "Дракон Ысс (только ночью)",
+      "content": "По ночам над горой видно дракона Ысс: он охраняет старую обсерваторию.",
+      "constant": false, "disable": false, "position": 4, "depth": 2, "role": 0, "order": 100,
+      "probability": 60, "useProbability": true, "cooldown": 3
+    },
+    "4": {
+      "uid": 4, "displayIndex": 4,
+      "key": ["погода", "небо"], "comment": "Погода: метель",
+      "content": "Над Эйрой метель, видно на десять шагов.",
+      "constant": false, "disable": false, "position": 2, "group": "погода", "groupWeight": 70,
+      "probability": 100, "useProbability": false
+    },
+    "5": {
+      "uid": 5, "displayIndex": 5,
+      "key": ["погода", "небо"], "comment": "Погода: ясно",
+      "content": "Над Эйрой ясное холодное небо.",
+      "constant": false, "disable": false, "position": 2, "group": "погода", "groupWeight": 30,
+      "probability": 100, "useProbability": false
+    }
+  }
+}

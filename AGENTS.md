@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–3, 3а, 4а, 4б (character tree) and 4в (author's notes) done; 5 (lorebooks) next**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–3, 3а, 4 (а, б, в) and 5 (lorebooks) done; 6 next**.
 
 ## Commands
 
@@ -57,9 +57,14 @@ tavern/                 Python package (backend)
                         UI, agents and the assistant alike; fires chat.members_changed
   services/presets.py   prompt presets: built-in default, user presets, per-chat choice, import/export
                         (our full .tavern-preset.json or SillyTavern)
-  services/character_tree.py  the block tree under a card: edit (fires character.blocks_changed),
+  services/character_tree.py  the block tree of an owner (a card or a lorebook): edit (fires
+                        character.blocks_changed / lorebook.blocks_changed), finer `rules` checked,
                         keyword suggestions, meaning vectors, choosing blocks for a reply,
                         ST character_book <-> blocks on import/export
+  services/lorebooks.py lorebooks: books, where they are on (global / chat / character), choosing
+                        entries for a reply (pool, budget, chains), ST world files in and out
+  storage/repos/lorebooks.py  lorebooks, lorebook_uses
+  formats/st_lorebook.py  SillyTavern world entry <-> bubble fields (rules, places, filters)
   services/notes.py     author's notes (global / character / chat): which fire for a reply; kinds once
                         (not kept), hidden (kept, out of sight), visible (kept, beside the message);
                         edits by message numbers; fires notes.changed and message_notes.changed
@@ -68,7 +73,8 @@ tavern/                 Python package (backend)
                         was before, packed), unlimited undo, versions; storage/repos/history.py
   core/retrieval.py     which blocks go: blue always (or every N replies), green by keywords (Russian
                         endings) / meaning / sticky with a chance, links between bubbles, free chains
-                        never, groups with paths, token budget
+                        never, groups with paths, token budget; finer rules (second keywords, whole
+                        words, pause, delay, one-per-group, filter), chains, lorebook pools by order
   storage/repos/blocks.py  character_blocks, block_embeddings, chat_block_hits
   core/presets.py       preset JSON shape and validation (block kinds, model params)
   core/assembly.py      builds the prompt from a preset + members + history, with budget trimming;
@@ -87,6 +93,7 @@ web/                    browser UI: Preact + htm vendored in web/vendor, plain E
   components/           VirtualList, Message, Composer, Sidebar, Settings (tabs), Themes, Gallery,
                         Members (chat members + chat preset), CharacterEditor, CharacterTree,
                         Presets, PromptView, Notes (📝 window, notes by numbers),
+                        Lorebooks (left-panel shelf, book window, BookPicker, settings tab),
                         roles (role icons/labels)
   styles.css            base look: CSS variables + data-slot places themes restyle; phone/tablet layout
   themes/               built-in themes (default, light, dark, sakura = example with effects)
