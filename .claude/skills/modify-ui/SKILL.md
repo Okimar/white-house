@@ -30,7 +30,10 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/core/theme.js` | `applyTheme` (stylesheet, base, effects script with error containment), `emit` events for theme scripts, `SAFE_MODE` (`/?safe`) |
 | `web/components/roles.js` | the three roles (user/assistant/system) with icon and label, shared by Composer and Message |
 | `web/components/VirtualList.js` | windowed list with variable heights, stick-to-bottom, scroll anchoring |
-| `web/components/Message.js`, `Composer.js`, `Sidebar.js`, `Settings.js` | views; Settings has tabs |
+| `web/components/Message.js`, `Composer.js`, `Sidebar.js`, `Settings.js` | views; Settings has tabs. Composer: 📎 / paste adds library pictures to the message (`send(text, role, images)`); Message shows `swipe_meta.reasoning` folded (💭) and `swipe_meta.images` |
+| `web/components/Profiles.js` | profiles block and "Несколько запросов сразу" (Settings → Подключения); `PickVariants` opens when a run ends with `done.pick` (state `chat.pick`, `GET /messages/{id}/swipes`); `variants_failed` events become an error toast; `ProfileSwitch` in the top bar (remounted when Settings closes), `FallbackSteps` in the connection editor; Message shows `swipe_meta.via` |
+| `web/components/Templates.js` | Settings tab "Шаблоны": instruct templates (built-in read-only, copy to edit), fields, live preview, import ours / ST instruct / ST context (optionally into the open template), export |
+| `web/components/Connections.js` | Settings tab "Подключения": service picker, editor (address, keys with proxies and order, model facts, «Проверить» / «Пробные запросы», log, settings console with ✓ ✗ ? per setting) |
 | `web/components/Themes.js`, `Gallery.js` | Settings tabs "Оформление" (themes, script approval, character themes, versions) and "Картинки" (image library, generation) |
 | `web/themes/<id>/` | built-in themes; `sakura` is the reference for effects |
 | `web/components/Members.js` | chat "👥" panel: members with depth / importance / "это я" / may the model write for me, chat preset |
@@ -52,7 +55,7 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 (the composer's "Ответ от" menu, remembered per chat; `user` means the model writes for you).
 Regenerate works on the last assistant or system message. Then
 `followRun` then receives
-`start` (message, user_message) -> `delta` (text) -> `done | stopped | error`, plus `trace`
+`start` (message, user_message) -> `delta` (text) and `reasoning` (the model's thinking) -> `done | stopped | error`, plus `trace`
 (progress of plugin generators, ignored by the chat view) and `ping` (filtered in api.js).
 The run lives on the server, so reloading the page mid-reply reattaches: `GET /chats/{id}`
 returns `run`, and `useChat` follows it again. Deltas are batched into one render per frame.

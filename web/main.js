@@ -8,6 +8,9 @@ import { scriptAllowed } from "./components/Themes.js";
 import { VirtualList } from "./components/VirtualList.js";
 import { Message } from "./components/Message.js";
 import { Composer } from "./components/Composer.js";
+import { ProfileSwitch, PickVariants } from "./components/Profiles.js";
+import { SpendingBar } from "./components/Spending.js";
+import { useSpending } from "./core/spending.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { Settings } from "./components/Settings.js";
 import { Members } from "./components/Members.js";
@@ -48,6 +51,7 @@ function App() {
   }, []);
 
   const chat = useChat(chatId, onError);
+  const { summary: spend, reload: reloadSpending } = useSpending(chatId);
 
   const refresh = async () => {
     try {
@@ -246,8 +250,9 @@ function App() {
     onNotesOpen=${(id, open) => setNotesOpen((o) => ({ ...o, [id]: open }))}
     notesDisplay=${settings.notes_display || "few"}
     onOpenNotes=${(message, shownNow) => setNotesFor({ message, shown: shownNow })}
-    avatar=${m.role === "assistant" ? avatar : null}
+    avatar=${m.role === "assistant" ? avatar : null} spend=${spend && spend.settings}
     streamText=${chat.stream && chat.stream.id === m.id ? chat.stream.text : null}
+    streamThinking=${chat.stream && chat.stream.id === m.id ? chat.stream.thinking : null}
     busy=${chat.running} isLast=${m.id === lastId}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
     onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${chat.regenerate}
@@ -272,6 +277,8 @@ function App() {
           ${shown && html`<form class="search" onSubmit=${search}>
             <input name="query" placeholder="Поиск" aria-label="Поиск по чату" />
           </form>`}
+          ${shown && html`<${SpendingBar} summary=${spend} />`}
+          ${shown && html`<${ProfileSwitch} key=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
           ${shown && html`<button data-slot="members-button" title="Участники чата и пресет"
             onClick=${() => setShowMembers(true)}>👥</button>`}
           ${shown && html`<button data-slot="notes-button" title="Заметки автора"
@@ -312,7 +319,8 @@ function App() {
               </div>`}
             </div>
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
-              onSend=${(text) => { emit("send", { text }); return chat.send(text, role); }} onStop=${chat.stop} />`
+              onSend=${(text, images) => { emit("send", { text }); return chat.send(text, role, images); }}
+              onStop=${chat.stop} onError=${onError} />`
           : html`<div class="empty" data-slot="empty">
               <p>Выберите чат слева или начните новый с персонажем.</p>
               ${!settings.active_connection && html`<p>Сначала добавьте подключение к API:
@@ -321,7 +329,7 @@ function App() {
         <div class="overlay-layer" data-slot="overlay"></div>
       </main>
       ${showSettings && html`<${Settings} settings=${settings} themes=${themes.themes}
-        deletedThemes=${themes.deleted} characters=${characters} onClose=${() => setShowSettings(false)}
+        deletedThemes=${themes.deleted} characters=${characters} onClose=${() => { setShowSettings(false); reloadSpending(); }}
         onChanged=${refresh} onError=${onError} />`}
       ${showMembers && shown && html`<${Members} chat=${chat.chat} characters=${characters} settings=${settings}
         onClose=${() => setShowMembers(false)} onError=${onError}
@@ -329,6 +337,8 @@ function App() {
       ${editingCharacter !== undefined && html`<${CharacterEditor} characterId=${editingCharacter}
         settings=${settings} onClose=${() => setEditingCharacter(undefined)} onError=${onError}
         onSaved=${() => { setEditingCharacter(undefined); refresh(); }} />`}
+      ${chat.pick && shown && html`<${PickVariants} messageId=${chat.pick} onError=${onError} onClose=${chat.closePick}
+        onPick=${async (index) => { await chat.swipe(chat.pick, index); chat.closePick(); }} />`}
       ${showNotes && shown && html`<${Notes} chat=${chat.chat} showHidden=${showHidden}
         onShowHidden=${chooseShowHidden} onClearHidden=${clearHidden} onChanged=${loadAttached}
         onEditNumbers=${(numbers) => { setShowNotes(false); setNotesNumbers(numbers); }}

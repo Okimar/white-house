@@ -5,8 +5,17 @@
 // AUTO_FOLD messages came after it), hidden ones on the left only when asked for. With the setting
 // notes_display = "few" a column shows its last FEW notes and an "ещё N" chip; 📝 and the chip
 // open the drop-down with every note of the message.
+// With spending shown under messages (`spend` = the spending settings), a small line says what this
+// version cost ("≈" = the service gave no counts, or the reply was stopped).
 import { html, useState } from "../vendor/preact-htm.mjs";
 import { ROLES, roleOf } from "./roles.js";
+import { usageLine } from "../core/spending.js";
+
+function usageTitle(u) {
+  return `Запрос: ${u.prompt_tokens} токенов, ответ: ${u.completion_tokens}` +
+    (u.requests > 1 ? `, запросов: ${u.requests}` : "") + (u.estimated ? ". Примерно: сервис не прислал счёт" : "") +
+    (u.unpriced ? ". Цена модели неизвестна — укажите свою в настройках «Расход»" : "");
+}
 
 const AUTO_FOLD = 3;
 const FEW = 2;
@@ -33,13 +42,15 @@ function NoteCard({ note, onHide }) {
 }
 
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
-  streamText, busy, isLast, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
-  onBranches, onPrompt, onNotesOpen, onOpenNotes }) {
+  streamText, streamThinking, busy, isLast, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
+  onBranches, onPrompt, onNotesOpen, onOpenNotes, spend }) {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
   const [picking, setPicking] = useState(false); // role menu open
   const streaming = streamText !== null && streamText !== undefined;
   const text = streaming ? streamText : message.content;
+  const meta = message.swipe_meta || {};
+  const thinking = streaming ? streamThinking : meta.reasoning;
   const role = roleOf(message.role);
   const canRegenerate = isLast && message.role !== "user" && !busy;
   const fallbackName = { user: "Вы", assistant: "Ассистент", system: "Система" }[message.role];
@@ -113,7 +124,18 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
             <button class="primary" onClick=${save}>Сохранить</button>
             <button onClick=${() => setEditing(null)}>Отмена</button>
           </div>`
-        : html`<div class="body" data-slot="message-body">${text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>`}
+        : html`${thinking && html`<details class="thinking" data-slot="message-thinking" open=${streaming && !text}>
+            <summary>💭 Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text">${thinking}</div>
+          </details>`}
+          ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
+            ${meta.images.map((name) => html`<a key=${name} href=${"/assets/" + encodeURIComponent(name)} target="_blank"
+              rel="noopener"><img src=${"/assets/" + encodeURIComponent(name)} alt="картинка" loading="lazy" /></a>`)}
+          </div>`}
+          ${meta.via && !streaming && html`<div class="msg-via muted" data-slot="message-via"
+            title="Основное подключение не ответило, ответил запасной путь">↪ через ${meta.via}</div>`}
+          <div class="body" data-slot="message-body">${text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
+          ${spend && spend.show.message && meta.usage && !streaming && html`<div class="msg-usage muted"
+            data-slot="message-usage" title=${usageTitle(meta.usage)}>${usageLine(meta.usage, spend)}</div>`}`}
     </article>
     ${showVisible && visible.length > 0 && html`<${NoteColumn} notes=${visible} side="right" few=${few}
       onHide=${hide} onMore=${more} />`}

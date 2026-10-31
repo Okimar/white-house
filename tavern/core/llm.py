@@ -4,6 +4,9 @@ It wraps a Provider and charges a shared `RunBudget` for every call, so a plugin
 many parallel agents cannot exceed the limits of the run it belongs to. `fork()` makes a client
 for another provider/model that shares the same budget and trace.
 
+A `meter` (set by the app, see services/spending) is told about every finished or interrupted call:
+it records the spending and returns the cost in dollars, which the budget's `max_cost` counts.
+
     llm = LLMClient(provider, model="gpt-x", budget=budget, trace=run.trace)
     other = llm.fork(provider=cheap_provider, model="small")
     a, b = await asyncio.gather(llm.generate(msgs_a), other.generate(msgs_b))
@@ -12,10 +15,13 @@ for another provider/model that shares the same budget and trace.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from dataclasses import replace
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from tavern.core import structured
 from tavern.core.budget import RunBudget
 from tavern.providers.base import (
     ChatMessage,
@@ -30,6 +36,16 @@ from tavern.providers.base import (
 TraceFn = Callable[..., None]
 
 
+class StructuredOutputError(ProviderError):
+    """The model kept answering in the wrong shape. `details`: the last text and what did not fit."""
+
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, reason="format", details=details)
+
+# (model asked for, usage, estimated, provider) -> cost in dollars or None when the price is unknown
+MeterFn = Callable[[str, Usage, bool, Provider], "float | None"]
+
+
 class LLMClient:
     def __init__(
         self,
@@ -39,23 +55,27 @@ class LLMClient:
         budget: RunBudget | None = None,
         trace: TraceFn | None = None,
         defaults: dict[str, Any] | None = None,
+        meter: MeterFn | None = None,
     ) -> None:
         self.provider = provider
         self.model = model
         self.budget = budget or RunBudget(max_steps=0)
         self._trace = trace
         self.defaults = defaults or {}
+        self.meter = meter
 
     def fork(
-        self, *, provider: Provider | None = None, model: str | None = None, **defaults: Any
+        self, *, provider: Provider | None = None, model: str | None = None, meter: MeterFn | None = None,
+        **defaults: Any,
     ) -> LLMClient:
-        """Another client sharing this one's budget and trace."""
+        """Another client sharing this one's budget and trace (and meter, unless given another)."""
         return LLMClient(
             provider or self.provider,
             model=self.model if model is None else model,
             budget=self.budget,
             trace=self._trace,
             defaults={**self.defaults, **defaults},
+            meter=meter or self.meter,
         )
 
     def _request(self, messages: list[ChatMessage], opts: dict[str, Any]) -> GenerationRequest:
@@ -71,12 +91,16 @@ class LLMClient:
             extra=merged,
         )
 
-    def _charge(self, usage: Usage, messages: list[ChatMessage], text: str) -> Usage:
+    def _charge(
+        self, usage: Usage, messages: list[ChatMessage], text: str, model: str, *, estimated: bool = False
+    ) -> Usage:
         if usage.total == 0:  # backend reported nothing: estimate so limits still work
             usage = Usage(
                 sum(len(m.content) for m in messages) // 4, len(text) // 4
             )
-        self.budget.charge(usage.prompt_tokens, usage.completion_tokens)
+            estimated = True
+        cost = self.meter(model, usage, estimated, self.provider) if self.meter else None
+        self.budget.charge(usage.prompt_tokens, usage.completion_tokens, cost or 0.0)
         return usage
 
     def trace(self, kind: str, **data: Any) -> None:
@@ -87,34 +111,83 @@ class LLMClient:
         self.budget.begin_step()
         request = self._request(messages, opts)
         parts: list[str] = []
-        async for event in self.provider.stream(request):
-            if event.kind == "text":
-                parts.append(event.text)
-                yield event
-            else:
-                usage = self._charge(event.usage or Usage(), messages, "".join(parts))
-                yield StreamEvent("done", usage=usage, finish_reason=event.finish_reason)
+        done = False
+        try:
+            async for event in self.provider.stream(request):
+                if event.kind == "text":
+                    parts.append(event.text)
+                    yield event
+                elif event.kind == "reasoning":
+                    yield event
+                elif event.kind == "done":
+                    done = True
+                    usage = self._charge(event.usage or Usage(), messages, "".join(parts), request.model)
+                    yield StreamEvent("done", usage=usage, finish_reason=event.finish_reason)
+        except (asyncio.CancelledError, GeneratorExit):
+            # Stopped by the user or lost a race: the service still bills what it already did.
+            if not done:
+                self._charge(Usage(), messages, "".join(parts), request.model, estimated=True)
+            raise
 
     async def generate(self, messages: list[ChatMessage], **opts: Any) -> GenerationResult:
         self.budget.begin_step()
-        result = await self.provider.generate(self._request(messages, opts))
-        result.usage = self._charge(result.usage, messages, result.text)
+        request = self._request(messages, opts)
+        result = await self.provider.generate(request)
+        result.usage = self._charge(result.usage, messages, result.text, request.model)
         return result
 
     async def generate_json(
-        self, messages: list[ChatMessage], *, schema: dict[str, Any] | None = None, **opts: Any
+        self, messages: list[ChatMessage], *, schema: dict[str, Any] | None = None, retries: int = 1,
+        **opts: Any,
     ) -> Any:
-        """Ask for JSON and return the parsed value.
+        """Ask for JSON and return the parsed value, checked against `schema` when one is given.
 
-        Uses the provider's JSON mode (`json_schema` when a schema is given). If the reply still
-        is not valid JSON (some local models ignore the mode), the first JSON value inside the text
-        is extracted. Raises ProviderError when nothing parseable comes back.
+        The provider's JSON mode is used (`json_schema` with a schema, else `json_object`); Claude
+        gets it as a forced tool, Gemini as responseJsonSchema. The request is also said in words,
+        so backends without a JSON mode (text completion, small local models, proxies) understand
+        it too; one that rejects the mode is asked again without it. The first JSON value in the
+        reply is taken (code fences and prose around it are tolerated). When the value is not valid
+        JSON or does not fit the schema (core/structured.problems), the model is told what was wrong
+        and asked again, up to `retries` more times. Then StructuredOutputError is raised.
+        Every attempt is a paid request charged to the budget.
         """
-        fmt = {"type": "json_schema", "name": "response", "schema": schema} if schema else {
-            "type": "json_object"
-        }
-        result = await self.generate(messages, response_format=fmt, **opts)
-        return extract_json(result.text)
+        fmt: dict[str, Any] = (
+            {"type": "json_schema", "name": "response", "schema": schema} if schema else {"type": "json_object"}
+        )
+        history = _with_note(messages, structured.instruction(schema))
+        native = True
+        text, found = "", []
+        for _ in range(max(0, retries) + 1):
+            try:
+                result = await self.generate(history, response_format=fmt if native else None, **opts)
+            except ProviderError as exc:
+                if not native or exc.reason != "request":
+                    raise
+                native = False  # the backend does not take the JSON mode: words only
+                result = await self.generate(history, **opts)
+            text = result.text
+            try:
+                value = extract_json(text)
+            except ProviderError:
+                found = []
+            else:
+                found = structured.problems(value, schema) if schema else []
+                if not found:
+                    return value
+            self.trace("json_retry", problems=found)
+            history = [*history, ChatMessage("assistant", text), ChatMessage("user", structured.retry_note(found))]
+        raise StructuredOutputError(
+            "The model did not answer in the required shape" + (f": {found[0]}" if found else " (no valid JSON)"),
+            details={"text": text[:500], "problems": found},
+        )
+
+
+def _with_note(messages: list[ChatMessage], note: str) -> list[ChatMessage]:
+    """The note joins the last user turn (or comes as one): every backend reads that last."""
+    if messages and messages[-1].role == "user":
+        last = messages[-1]
+        return [*messages[:-1], replace(last, content=f"{last.content}\n\n{note}")]
+    return [*messages, ChatMessage("user", note)]
 
 
 def extract_json(text: str) -> Any:

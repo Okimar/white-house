@@ -22,6 +22,7 @@ from tavern.storage.db import Database
 from tavern.storage.repos.characters import CharacterRepo
 from tavern.storage.repos.chats import ChatRepo
 from tavern.storage.repos.connections import ConnectionRepo
+from tavern.storage.repos.templates import TemplateRepo
 from tavern.storage.prompt_log import PromptLog
 from tavern.storage.repos.blocks import BlockRepo
 from tavern.storage.repos.members import MemberRepo
@@ -30,6 +31,7 @@ from tavern.storage.repos.history import HistoryRepo
 from tavern.storage.repos.lorebooks import LorebookRepo
 from tavern.storage.repos.presets import PresetRepo
 from tavern.storage.repos.settings import SettingsRepo
+from tavern.storage.repos.spending import SpendingRepo
 from tavern.storage.themes import ThemeStore
 
 log = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ class AppContext:
     characters: CharacterRepo
     chats: ChatRepo
     connections: ConnectionRepo
+    templates: TemplateRepo
     settings: SettingsRepo
     themes: ThemeStore
     assets: AssetStore
@@ -58,6 +61,7 @@ class AppContext:
     notes: NoteRepo
     history: HistoryRepo
     lorebooks: LorebookRepo
+    spending: SpendingRepo
     sandbox: bool = False
 
     def close(self) -> None:
@@ -90,7 +94,7 @@ def open_context(
     except BaseException:
         db.close()
         raise
-    return AppContext(
+    ctx = AppContext(
         paths=paths,
         config=config,
         db=db,
@@ -102,6 +106,7 @@ def open_context(
         characters=CharacterRepo(db),
         chats=ChatRepo(db),
         connections=ConnectionRepo(db),
+        templates=TemplateRepo(db),
         settings=SettingsRepo(db),
         themes=ThemeStore(BUILTIN_THEMES_DIR, paths.themes),
         assets=AssetStore(paths.assets),
@@ -112,5 +117,15 @@ def open_context(
         notes=NoteRepo(db),
         history=HistoryRepo(db),
         lorebooks=LorebookRepo(db),
+        spending=SpendingRepo(db),
         sandbox=sandbox,
     )
+
+    def resolve_template(template_id: str, model: str) -> dict:
+        from tavern.services.templates import resolve  # services import the context module
+
+        return resolve(ctx, template_id, model)
+
+    ctx.providers.template_resolver = resolve_template
+    ctx.providers.connection_lookup = ctx.connections.get
+    return ctx

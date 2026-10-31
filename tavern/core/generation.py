@@ -5,7 +5,8 @@ prompt and streams one model call. A plugin registers its own generator (for exa
 several agents and then writes the final answer) and selects it per chat (`chat.meta["generator"]`)
 or globally (setting `generator`). A custom generator may call `job.build_messages()` to reuse the
 standard prompt, `job.llm` (shared budget, forkable to other providers/models) and `job.run.trace()`
-to report progress to the UI.
+to report progress to the UI. The model's thinking (stream events of kind "reasoning") goes to
+`job.think(text)`: it is shown folded above the reply and kept with it, never mixed into the text.
 
 Events fired around a run (see core/events.py):
   chat.before_generate  action  job
@@ -49,6 +50,13 @@ class GenerationJob:
     # Filled by build_messages: how the prompt was made and what was finally sent.
     prompt: Prompt | None = None
     sent: list[ChatMessage] | None = None
+    reasoning: list[str] = field(default_factory=list)
+    on_reasoning: Any = None  # callable(text) set by the chat service to stream thinking to the UI
+
+    def think(self, text: str) -> None:
+        self.reasoning.append(text)
+        if self.on_reasoning is not None:
+            self.on_reasoning(text)
 
     async def build_messages(self) -> list[ChatMessage]:
         """Standard prompt for this job, after `prompt.built` filters."""
@@ -89,6 +97,8 @@ class DefaultGenerator:
         async for event in job.llm.stream(messages, **job.params):
             if event.kind == "text":
                 yield event.text
+            elif event.kind == "reasoning":
+                job.think(event.text)
 
 
 class GeneratorRegistry:

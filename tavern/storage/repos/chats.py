@@ -6,7 +6,8 @@ The active path is the chain root -> leaf, so long chats are paged by `depth`.
 
 Message dict shape returned to callers:
     id, chat_id, parent_id, depth, role, name, hidden, exclude_from_prompt, owner,
-    content (active swipe text), active_swipe, swipe_count, extra, created_at
+    content (active swipe text), swipe_meta (the active swipe's: reasoning, images, ...),
+    active_swipe, swipe_count, extra, created_at
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ ROLES = ("user", "assistant", "system")
 _MESSAGE_SELECT = """
 SELECT m.id, m.chat_id, m.parent_id, m.depth, m.role, m.name, m.hidden, m.exclude_from_prompt,
        m.owner, m.active_swipe, m.extra, m.created_at,
-       COALESCE(s.content, '') AS content,
+       COALESCE(s.content, '') AS content, COALESCE(s.meta, '{}') AS swipe_meta,
        (SELECT COUNT(*) FROM swipes WHERE message_id = m.id) AS swipe_count
 FROM messages m
 LEFT JOIN swipes s ON s.message_id = m.id AND s.idx = m.active_swipe
@@ -42,6 +43,7 @@ def _message(row: Any) -> dict[str, Any]:
         "exclude_from_prompt": bool(row["exclude_from_prompt"]),
         "owner": row["owner"],
         "content": row["content"],
+        "swipe_meta": json.loads(row["swipe_meta"]),
         "active_swipe": row["active_swipe"],
         "swipe_count": row["swipe_count"],
         "extra": json.loads(row["extra"]),
@@ -210,6 +212,19 @@ class ChatRepo:
             raise NotFound(f"Swipe {idx} of message {message_id} not found")
         self._touch(message["chat_id"])
 
+    def update_swipe_meta(self, message_id: str, swipe_idx: int, patch: dict[str, Any]) -> None:
+        """Merge keys into one swipe's meta; a None value removes the key."""
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT meta FROM swipes WHERE message_id = ? AND idx = ?", (message_id, swipe_idx)
+            ).fetchone()
+            if row is None:
+                raise NotFound(f"Swipe {swipe_idx} of message {message_id} not found")
+            meta = {**json.loads(row["meta"]), **patch}
+            meta = {k: v for k, v in meta.items() if v is not None}
+            conn.execute("UPDATE swipes SET meta = ? WHERE message_id = ? AND idx = ?",
+                         (json.dumps(meta), message_id, swipe_idx))
+
     def set_roles(self, chat_id: str, changes: dict[str, tuple[str, str]]) -> list[dict[str, Any]]:
         """Set (role, name) of several messages of one chat at once: all or nothing."""
         for role, _ in changes.values():
@@ -233,6 +248,14 @@ class ChatRepo:
             "SELECT content FROM swipes WHERE message_id = ? ORDER BY idx", (message_id,)
         )
         return [row["content"] for row in rows]
+
+    def list_swipes(self, message_id: str) -> list[dict[str, Any]]:
+        """Every version of a message: index, text and meta (who wrote it, thinking, pictures)."""
+        self.get_message(message_id)
+        rows = self.db.fetchall(
+            "SELECT idx, content, meta FROM swipes WHERE message_id = ? ORDER BY idx", (message_id,)
+        )
+        return [{"index": r["idx"], "content": r["content"], "meta": json.loads(r["meta"])} for r in rows]
 
     def add_swipe(self, message_id: str, content: str = "", meta: dict[str, Any] | None = None) -> int:
         """Add an alternative text and make it the active one. Returns its index."""

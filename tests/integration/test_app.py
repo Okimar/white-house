@@ -53,3 +53,10 @@ def test_schema_upgrade_takes_backup_first(data_paths, monkeypatch):
     names = [b.name for b in list_backups(data_paths.backups)]
     assert len(names) == 1
     assert names[0].endswith(f"pre-migrate-v{current}-to-v{current + 1}.sqlite3")
+
+
+async def test_page_has_an_icon(client):
+    """Regression: without an icon the browser asked for /favicon.ico and logged a 404."""
+    assert 'rel="icon" href="/favicon.svg"' in (await client.get("/")).text
+    icon = await client.get("/favicon.svg")
+    assert icon.status_code == 200 and icon.headers["content-type"].startswith("image/svg+xml")

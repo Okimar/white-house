@@ -24,7 +24,7 @@ from tavern.context import AppContext
 from tavern.core.llm import LLMClient
 from tavern.core.retrieval import LOGICS, PATH_SEPARATOR, FoundBlock, cosine, select_blocks, stem
 from tavern.errors import AppError, NotFound
-from tavern.services import history
+from tavern.services import history, spending
 from tavern.providers.base import ChatMessage, ProviderError
 
 log = logging.getLogger(__name__)
@@ -374,7 +374,8 @@ async def suggest_keywords(ctx: AppContext, block_id: str, avoid: list[str] | No
     connection = resolve_connection(ctx, {"meta": {}})
     provider = ctx.providers.create(connection)
     try:
-        llm = LLMClient(provider, model=connection["model"])
+        llm = LLMClient(provider, model=connection["model"],
+                        meter=spending.meter(ctx, connection, purpose="keywords"))
         prompt = KEYWORD_PROMPT.format(title=block["title"], content=block["content"][:6000])
         prompt += KEYWORD_AVOID.format(words=", ".join(known)[:3000])
         value = await llm.generate_json([ChatMessage("user", prompt)])

@@ -7,6 +7,7 @@ so a rejected request never leaves half-created messages behind.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import re
 from typing import Any
@@ -14,24 +15,42 @@ from typing import Any
 from tavern.context import AppContext
 from tavern.core.budget import BudgetExceeded, RunBudget
 from tavern.core.assembly import PromptInput
-from tavern.core.generation import GenerationJob
+from tavern.core.generation import DefaultGenerator, GenerationJob
 from tavern.core.llm import LLMClient
 from tavern.core.prompt import substitute
 from tavern.core.runs import Run
-from tavern.services import cast, character_tree, lorebooks
+from tavern.providers.params import request_params
+from tavern.services import cast, character_tree, lorebooks, parallel, spending
 from tavern.services import notes as note_service
 from tavern.services import presets as preset_service
 from tavern.errors import AppError, Conflict, NotFound, TavernError
 from tavern.formats.cards import greetings
+from tavern.formats.media import media_type, sniff_image
 from tavern.storage.repos.chats import ROLES
 
 log = logging.getLogger(__name__)
 
 DEFAULT_USER_NAME = "User"
 BUDGET_KEYS = ("max_steps", "max_tokens", "max_cost", "timeout")
-MODEL_PARAM_KEYS = ("temperature", "top_p", "max_tokens", "stop")
 # A user message may be the user's own text, so only replies get new versions.
 REGENERABLE_ROLES = ("assistant", "system")
+MAX_IMAGES = 8
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MODEL_IMAGE_TYPES = (".png", ".jpg", ".gif", ".webp")
+
+
+def load_image(ctx: AppContext, name: str) -> tuple[str, str] | None:
+    """A library picture as (media type, base64) for the model; None if gone, too big or not a picture."""
+    try:
+        blob = ctx.assets.path(name).read_bytes()
+    except (NotFound, OSError):
+        log.warning("Picture %r of a message is missing; sending the message without it", name)
+        return None
+    ext = sniff_image(blob)
+    if ext not in MODEL_IMAGE_TYPES or len(blob) > MAX_IMAGE_BYTES:  # models do not read SVG
+        log.warning("Picture %r is not sent: not a photo-like picture or larger than %d bytes", name, MAX_IMAGE_BYTES)
+        return None
+    return media_type(ext), base64.b64encode(blob).decode("ascii")
 IMPERSONATE_INSTRUCTION = (
     "[Write the next message of {{user}} in the first person, as {{user}} would. "
     "Only {{user}}'s words and actions, no reply from {{char}}.]"
@@ -97,29 +116,42 @@ def make_budget(ctx: AppContext) -> RunBudget:
     return RunBudget(**{k: configured[k] for k in BUDGET_KEYS if k in configured})
 
 
-def start_send(ctx: AppContext, chat_id: str, text: str, reply_role: str = "assistant") -> Run:
+def start_send(
+    ctx: AppContext, chat_id: str, text: str, reply_role: str = "assistant", images: list[str] | None = None
+) -> Run:
     """Append the user's message and an empty reply, then generate the reply in the background.
 
     `reply_role` is who the generated reply is saved as (the chat's "model writes as" choice).
+    `images` are picture names from the library, shown with the message and sent to the model.
     """
     text = text.strip()
-    if not text:
+    images = list(dict.fromkeys(images or []))
+    if not text and not images:
         raise AppError("Message is empty", code="empty_message")
+    if len(images) > MAX_IMAGES:
+        raise AppError(f"At most {MAX_IMAGES} pictures per message", code="too_many_images")
+    for name in images:
+        ctx.assets.get(name)  # NotFound for a picture that is not in the library
     _check_role(reply_role)
     chat = ctx.chats.get_chat(chat_id)
     _ensure_idle(ctx, chat_id)
     connection = resolve_connection(ctx, chat)
+    warning = spending.guard(ctx)
     character = ctx.characters.get(chat["character_id"]) if chat["character_id"] else None
 
     user_message = ctx.chats.add_message(
         chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id)
     )
+    if images:
+        ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images})
+        user_message = ctx.chats.get_message(user_message["id"])
     reply = ctx.chats.add_message(
         chat_id, role=reply_role, content="", parent_id=user_message["id"],
         name=_name_for(ctx, chat, reply_role),
     )
     return _launch(ctx, chat, connection, character, reply, swipe_idx=0, new_swipe=False,
-                   user_message=user_message, instruction=_instruction_for(reply_role))
+                   user_message=user_message, instruction=_instruction_for(reply_role), allow_parallel=True,
+                   warning=warning)
 
 
 def start_continue(ctx: AppContext, chat_id: str, role: str = "assistant") -> Run:
@@ -134,11 +166,12 @@ def start_continue(ctx: AppContext, chat_id: str, role: str = "assistant") -> Ru
     character = ctx.characters.get(chat["character_id"]) if chat["character_id"] else None
     if chat["leaf_id"] is None and role != "user":
         raise Conflict("Nothing to continue", code="nothing_to_continue")
+    warning = spending.guard(ctx)
     reply = ctx.chats.add_message(
         chat_id, role=role, content="", parent_id=chat["leaf_id"], name=_name_for(ctx, chat, role),
     )
     return _launch(ctx, chat, connection, character, reply, swipe_idx=0, new_swipe=False,
-                   user_message=None, instruction=_instruction_for(role))
+                   user_message=None, instruction=_instruction_for(role), warning=warning)
 
 
 def start_impersonate(ctx: AppContext, chat_id: str) -> Run:
@@ -234,10 +267,12 @@ def start_regenerate(ctx: AppContext, chat_id: str) -> Run:
         raise Conflict("The last message is not a reply", code="nothing_to_regenerate")
     connection = resolve_connection(ctx, chat)
     character = ctx.characters.get(chat["character_id"]) if chat["character_id"] else None
+    warning = spending.guard(ctx)
     swipe_idx = ctx.chats.add_swipe(last["id"], "")
     last = ctx.chats.get_message(last["id"])
     return _launch(ctx, chat, connection, character, last, swipe_idx=swipe_idx, new_swipe=True,
-                   user_message=None, instruction=_instruction_for(last["role"]))
+                   user_message=None, instruction=_instruction_for(last["role"]), allow_parallel=True,
+                   warning=warning)
 
 
 def stop(ctx: AppContext, chat_id: str) -> bool:
@@ -259,6 +294,43 @@ def _error_dict(exc: BaseException) -> dict[str, Any]:
     return {"code": "internal", "message": "Generation failed unexpectedly, see data/logs"}
 
 
+def _label(connection: dict[str, Any]) -> str:
+    return f"{connection['name']} · {connection['model']}" if connection["model"] else connection["name"]
+
+
+async def _main_with_variants(
+    run: Run, job: GenerationJob, llm: LLMClient, messages: list[Any], extras: list[parallel.Target],
+    parts: list[str],
+) -> list[parallel.Result]:
+    """Stream the main reply as usual while the extra requests run beside it; then wait for them."""
+    tasks = [asyncio.create_task(parallel.collect(llm, t, messages, job.params)) for t in extras]
+    try:
+        async for event in llm.stream(messages, **job.params):
+            if event.kind == "text":
+                parts.append(event.text)
+                run.emit("delta", text=event.text)
+            elif event.kind == "reasoning":
+                job.think(event.text)
+        return list(await asyncio.gather(*tasks))
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _add_variants(ctx: AppContext, message_id: str, main_idx: int, results: list[parallel.Result]) -> None:
+    """Extra replies become more versions of the message; the main one stays shown."""
+    added = False
+    for result in results:
+        if result.text.strip():
+            meta = {"via": result.label, **({"reasoning": result.reasoning} if result.reasoning else {}),
+                    **({"usage": result.usage} if result.usage else {})}
+            ctx.chats.add_swipe(message_id, result.text, meta)
+            added = True
+    if added:
+        ctx.chats.set_active_swipe(message_id, main_idx)
+
+
 def _launch(
     ctx: AppContext,
     chat: dict[str, Any],
@@ -270,13 +342,15 @@ def _launch(
     new_swipe: bool,
     user_message: dict[str, Any] | None,
     instruction: str = "",
+    allow_parallel: bool = False,
+    warning: str = "",
 ) -> Run:
     chat_id = chat["id"]
     params = dict(connection["params"])
     preset = preset_service.resolve(ctx, chat)
     max_context = preset["data"]["max_context_tokens"] or int(params.pop("max_context_tokens", 0) or 0)
     # The preset's model settings win over the connection's.
-    model_defaults = {k: params[k] for k in MODEL_PARAM_KEYS if k in params}
+    model_defaults = request_params(connection["kind"], params)
     model_defaults.update(preset["data"]["params"])
     generator_id = chat["meta"].get("generator") or ctx.settings.get("generator")
     me = user_name(ctx, chat_id)
@@ -331,16 +405,34 @@ def _launch(
         provider = ctx.providers.create(connection)
         parts: list[str] = []
         job: GenerationJob | None = None
+        via_label = ""
+        extras: list[parallel.Target] = []
+        tally = spending.Tally()  # what the shown version cost (the race winner's in "first" mode)
+        tallies: dict[str, spending.Tally] = {}
 
         def finish(text: str) -> bool:
             saved = settle(text)
             if saved and job is not None:
+                extra_meta: dict[str, Any] = {}
+                if job.reasoning:
+                    extra_meta["reasoning"] = "".join(job.reasoning)
+                if getattr(provider, "used", ""):
+                    extra_meta["via"] = provider.used  # a fallback step answered instead
+                if via_label:
+                    extra_meta["via"] = via_label  # parallel requests: which one this version is
+                spent = tallies.get(via_label, tally)
+                if spent.requests:
+                    extra_meta["usage"] = spent.as_meta()
+                if extra_meta:
+                    ctx.chats.update_swipe_meta(reply["id"], swipe_idx, extra_meta)
                 archive(job)
             return saved
 
         try:
-            llm = LLMClient(provider, model=connection["model"], budget=run.budget,
-                            trace=run.trace, defaults=model_defaults)
+            llm = LLMClient(provider, model=connection["model"], budget=run.budget, trace=run.trace,
+                            defaults=model_defaults,
+                            meter=spending.meter(ctx, connection, chat_id=chat_id, message_id=reply["id"],
+                                                 tally=tally))
             history = [
                 m for m in ctx.chats.active_path(chat_id) if m["id"] != reply["id"]
             ]
@@ -359,24 +451,63 @@ def _launch(
                 max_context_tokens=max_context,
                 notes=note_service.for_reply(ctx, chat_id, [m.character_id for m in members], history),
                 lore=lore.found, lore_dropped=lore.dropped,
+                load_image=lambda name: load_image(ctx, name),
             )
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,
                                 max_context_tokens=max_context, instruction=instruction,
                                 prompt_input=prompt_input)
+            job.on_reasoning = lambda text: run.emit("reasoning", text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
+            if warning:
+                run.emit("spend_warning", text=warning)
             await ctx.events.emit("chat.before_generate", job=job)
-            async for delta in ctx.generators.get(generator_id).generate(job):
-                parts.append(delta)
-                run.emit("delta", text=delta)
+            generator = ctx.generators.get(generator_id)
+            plan = parallel.get_settings(ctx)
+            results: list[parallel.Result] = []
+            if allow_parallel and plan["enabled"] and isinstance(generator, DefaultGenerator):
+                extras = parallel.extra_targets(ctx, connection, plan, overrides=preset["data"]["params"])
+                for target in extras:
+                    tallies[target.label] = spending.Tally()
+                    target.meter = spending.meter(ctx, target.connection or connection, chat_id=chat_id,
+                                                  message_id=reply["id"], tally=tallies[target.label])
+            if not extras:
+                async for delta in generator.generate(job):
+                    parts.append(delta)
+                    run.emit("delta", text=delta)
+            else:
+                messages = await job.build_messages()
+                if plan["mode"] != "first":
+                    via_label = _label(connection) + " (основной)"
+                    results = await _main_with_variants(run, job, llm, messages, extras, parts)
+                else:
+                    tallies[_label(connection)] = tally
+                    streams = [(_label(connection), llm.stream(messages, **job.params))]
+                    streams += [(t.label, parallel.client(llm, t).stream(messages, **job.params)) for t in extras]
+                    async for label, event in parallel.race(streams):
+                        if event.kind == "text":
+                            parts.append(event.text)
+                            run.emit("delta", text=event.text)
+                        elif event.kind == "reasoning":
+                            job.think(event.text)
+                        via_label = label
             text = "".join(parts)
+            for result in results:
+                if result.label in tallies and tallies[result.label].requests:
+                    result.usage = tallies[result.label].as_meta()
+            if results and text.strip():
+                _add_variants(ctx, reply["id"], swipe_idx, results)
+                failed = [{"label": r.label, "error": r.error} for r in results if r.error]
+                if failed:
+                    run.emit("variants_failed", failed=failed)
             if not finish(text):
                 run.emit("error", error={"code": "empty_reply",
                                          "message": "The model returned an empty reply"},
                          message=snapshot())
                 return
             message = snapshot()
-            run.emit("done", message=message, budget=run.budget.snapshot())
+            run.emit("done", message=message, budget=run.budget.snapshot(),
+                     pick=bool(results) and plan["mode"] == "pick")
             await ctx.events.emit("message.received", message=message, chat=chat)
         except asyncio.CancelledError:
             finish("".join(parts))
@@ -390,6 +521,8 @@ def _launch(
             await ctx.events.emit("generation.failed", chat_id=chat_id, error=exc)
         finally:
             await provider.aclose()
+            for target in extras:
+                await target.provider.aclose()
 
     try:
         return ctx.runs.start(chat_id, make_budget(ctx), body)

@@ -1,5 +1,6 @@
 // State and actions of one open chat: loading pages, sending, following a generation run.
 import { useState, useRef, useCallback, useEffect } from "../vendor/preact-htm.mjs";
+import { spendingChanged } from "./spending.js";
 import { api, followRun } from "./api.js";
 
 const PAGE = 50;
@@ -29,17 +30,23 @@ export function useChat(chatId, onError) {
   const follow = useCallback((runId) => {
     stopFollowing();
     let buffer = "";
+    let thinking = ""; // the model's reasoning, shown folded above the reply
     let scheduled = false;
     let replyId = null;
     // Deltas arrive faster than the screen refreshes: batch them into one render per frame.
     const flush = () => {
       scheduled = false;
       const text = buffer;
+      const thought = thinking;
       buffer = "";
-      if (text) setStream((s) => (s ? { ...s, text: s.text + text } : s));
+      thinking = "";
+      if (text || thought) {
+        setStream((s) => (s ? { ...s, text: s.text + text, thinking: s.thinking + thought } : s));
+      }
     };
     const finish = (event) => {
       buffer = "";
+      thinking = "";
       setStream(null);
       closeRef.current = null;
       setState((s) => ({
@@ -50,22 +57,30 @@ export function useChat(chatId, onError) {
           : s.messages.filter((m) => m.id !== replyId),
       }));
       if (event.type === "error") onError(event.error.message);
+      spendingChanged();
+      // Parallel requests in "pick" mode: show every version side by side to choose one.
+      if (event.type === "done" && event.pick && event.message) setState((s) => ({ ...s, pick: event.message.id }));
     };
     closeRef.current = followRun(runId, (event) => {
       if (event.type === "start") {
         replyId = event.message.id;
-        setStream({ id: replyId, text: "" });
+        setStream({ id: replyId, text: "", thinking: "" });
         setState((s) => {
           let messages = s.messages;
           if (event.user_message) messages = upsert(messages, event.user_message);
           return { ...s, running: true, messages: upsert(messages, event.message) };
         });
-      } else if (event.type === "delta") {
-        buffer += event.text;
+      } else if (event.type === "delta" || event.type === "reasoning") {
+        if (event.type === "delta") buffer += event.text;
+        else thinking += event.text;
         if (!scheduled) {
           scheduled = true;
           requestAnimationFrame(flush);
         }
+      } else if (event.type === "spend_warning") {
+        onError(event.text);
+      } else if (event.type === "variants_failed") {
+        onError("Не ответили: " + event.failed.map((f) => `${f.label} (${f.error})`).join("; "));
       } else if (["done", "stopped", "error"].includes(event.type)) {
         finish(event);
       }
@@ -110,12 +125,14 @@ export function useChat(chatId, onError) {
       }
     }, [chatId, onError]),
     // replyRole: who the generated message is saved as (user / assistant / system).
-    send: (text, replyRole = "assistant") => guard(api.post(`/chats/${chatId}/send`,
-      { text, reply_role: replyRole }).then((r) => follow(r.run_id))),
+    // images: picture names from the library, sent with the message for the model to see.
+    send: (text, replyRole = "assistant", images = []) => guard(api.post(`/chats/${chatId}/send`,
+      { text, reply_role: replyRole, images }).then((r) => follow(r.run_id))),
     continue: (role = "assistant") => guard(api.post(`/chats/${chatId}/continue`, { role })
       .then((r) => follow(r.run_id))),
     regenerate: () => guard(api.post(`/chats/${chatId}/regenerate`).then((r) => follow(r.run_id))),
     stop: () => guard(api.post(`/chats/${chatId}/stop`)),
+    closePick: () => setState((s) => ({ ...s, pick: null })),
     search: (query) => api.get(`/chats/${chatId}/search?q=${encodeURIComponent(query)}`),
     branches: (messageId) => api.get(`/messages/${messageId}/branches`),
     edit: (id, content) => guard(api.put(`/messages/${id}`, { content }).then((m) =>

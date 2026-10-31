@@ -72,8 +72,14 @@ per file, 30 MB per theme.
 | `topbar`, `title` | header and chat title | |
 | `message` | one message | `data-role` (user/assistant/system), `data-streaming` |
 | `message-header`, `message-avatar`, `message-name`, `message-body` | parts of a message | |
+| `message-thinking`, `message-images` | the model's folded thinking (`details.thinking`), pictures sent with a message | |
 | `chat-actions` | Continue / roles row | |
 | `composer`, `composer-input`, `send-button`, `stop-button` | input area | |
+| `attach-button`, `composer-images` | 📎 and the pictures waiting to be sent | |
+| `template-editor`, `template-preview` | Settings → Шаблоны | |
+| `parallel`, `pick-variants` | parallel requests settings, the side-by-side choice of versions | |
+| `profile-switch`, `profiles`, `fallback-steps`, `message-via` | profile picker in the top bar, profiles and fallback steps in Settings, "↪ через …" on a reply | |
+| `conn-list`, `conn-new`, `conn-editor`, `conn-keys`, `conn-log`, `conn-console`, `model-facts` | Settings → Подключения (the console: `.param.yes/.no/.unknown`, `.param-mark`) | |
 | `empty`, `dialog`, `toast` | empty screen, settings dialog, error popup | |
 | `members-button`, `member` | chat 👥 button, one member in the members panel | |
 | `prompt-part`, `preset-block` | a part in "what the model saw", a block in the preset editor | |

@@ -1,19 +1,54 @@
 // Message input. Enter sends, Shift+Enter inserts a newline. While a reply is being written,
 // the send button turns into Stop. Your text is always a user message; the role menu decides who
 // the model's next messages arrive from (assistant, system, or user for writing in your place).
+// 📎 (or pasting a picture) adds pictures to the message: they go to the picture library and the
+// model sees them with the message.
 import { html, useState, useRef } from "../vendor/preact-htm.mjs";
+import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
 
-export function Composer({ running, disabled, role, onRole, onSend, onStop }) {
+const MAX_IMAGES = 8;
+
+export function Composer({ running, disabled, role, onRole, onSend, onStop, onError }) {
   const [text, setText] = useState("");
+  const [images, setImages] = useState([]); // picture names in the library
+  const [uploading, setUploading] = useState(false);
   const box = useRef(null);
+  const picker = useRef(null);
 
   const submit = async () => {
     const value = text.trim();
-    if (!value || running || disabled) return;
+    if ((!value && !images.length) || running || disabled || uploading) return;
+    const pictures = images;
     setText("");
-    await onSend(value);
+    setImages([]);
+    await onSend(value, pictures);
     if (box.current) box.current.focus();
+  };
+
+  const attach = async (files) => {
+    const list = [...files].filter((f) => f.type.startsWith("image/")).slice(0, MAX_IMAGES - images.length);
+    if (!list.length) return;
+    setUploading(true);
+    try {
+      for (const file of list) {
+        const saved = await api.postBinary(`/assets?name=${encodeURIComponent(file.name || "picture")}`, file,
+          file.type || "application/octet-stream");
+        setImages((current) => [...current, saved.name]);
+      }
+    } catch (err) {
+      if (onError) onError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onPaste = (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.some((f) => f.type.startsWith("image/"))) {
+      e.preventDefault();
+      attach(files);
+    }
   };
 
   const onKeyDown = (e) => {
@@ -33,12 +68,24 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop }) {
           ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.icon} ${r.label}</option>`)}
         </select>
       </label>
+      ${images.length > 0 && html`<div class="composer-images" data-slot="composer-images">
+        ${images.map((name) => html`<span key=${name} class="composer-image">
+          <img src=${"/assets/" + encodeURIComponent(name)} alt="прикреплённая картинка" />
+          <button type="button" aria-label="Убрать картинку" onClick=${() => setImages(images.filter((n) => n !== name))}>✕</button>
+        </span>`)}
+      </div>`}
+      <button type="button" class="attach" data-slot="attach-button" title="Прикрепить картинку"
+        aria-label="Прикрепить картинку" disabled=${disabled || uploading || images.length >= MAX_IMAGES}
+        onClick=${() => picker.current && picker.current.click()}>${uploading ? "…" : "📎"}</button>
+      <input ref=${picker} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
+        onChange=${(e) => { attach(e.target.files); e.target.value = ""; }} />
       <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
         aria-label="Сообщение" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
-        onKeyDown=${onKeyDown}></textarea>
+        onKeyDown=${onKeyDown} onPaste=${onPaste}></textarea>
       ${running
         ? html`<button type="button" class="danger" data-slot="stop-button" onClick=${onStop}>Стоп</button>`
-        : html`<button type="submit" class="primary" data-slot="send-button" disabled=${disabled || !text.trim()}>Отправить</button>`}
+        : html`<button type="submit" class="primary" data-slot="send-button"
+            disabled=${disabled || uploading || (!text.trim() && !images.length)}>Отправить</button>`}
     </form>
   `;
 }

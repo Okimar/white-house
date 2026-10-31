@@ -13,6 +13,11 @@ Standalone, for manual testing in the browser:
 
 Without queued replies it answers "Echo: <last user message>".
 `/v1/images/generations` returns a small PNG whose colours depend on the prompt.
+
+It also speaks Gemini's own protocol under `/v1beta` (a connection of kind "gemini" with address
+http://127.0.0.1:5001/v1beta) and Claude's under `/v1/messages` (kind "anthropic", address
+http://127.0.0.1:5001/v1), and can pretend that a setting is not accepted
+(`rejected_params`) or that a key ran out of its limit (`key_status`).
 """
 
 from __future__ import annotations
@@ -48,6 +53,14 @@ class FakeLLM:
     requests: list[dict[str, Any]] = field(default_factory=list)
     image_requests: list[dict[str, Any]] = field(default_factory=list)
     embedding_requests: list[dict[str, Any]] = field(default_factory=list)
+    gemini_requests: list[dict[str, Any]] = field(default_factory=list)
+    anthropic_requests: list[dict[str, Any]] = field(default_factory=list)
+    text_requests: list[dict[str, Any]] = field(default_factory=list)  # /v1/completions (plain text)
+    # Settings answered with 400 "unknown field", as strict backends do.
+    rejected_params: set[str] = field(default_factory=set)
+    # API key -> HTTP status to answer with (e.g. {"spent": 429}); other keys are accepted.
+    key_status: dict[str, int] = field(default_factory=dict)
+    seen_keys: list[str] = field(default_factory=list)
 
     def queue(self, *texts: str) -> None:
         self.replies.extend(texts)
@@ -61,10 +74,33 @@ class FakeLLM:
             routes=[
                 Route("/v1/models", self._models, methods=["GET"]),
                 Route("/v1/chat/completions", self._chat, methods=["POST"]),
+                Route("/v1/completions", self._text, methods=["POST"]),
                 Route("/v1/images/generations", self._image, methods=["POST"]),
                 Route("/v1/embeddings", self._embeddings, methods=["POST"]),
+                Route("/v1/messages", self._anthropic, methods=["POST"]),
+                Route("/v1beta/models", self._gemini_models, methods=["GET"]),
+                Route("/v1beta/models/{target}", self._gemini_generate, methods=["POST"]),
             ]
         )
+
+    def _gate(self, request: Request, body: dict[str, Any]) -> JSONResponse | None:
+        """Key limits, refused settings and queued failures, in that order."""
+        auth = request.headers.get("authorization", "")
+        key = (auth.removeprefix("Bearer ").strip() or request.headers.get("x-goog-api-key", "")
+               or request.headers.get("x-api-key", ""))
+        self.seen_keys.append(key)
+        if key in self.key_status:
+            status = self.key_status[key]
+            return JSONResponse({"error": {"message": f"key refused ({status})", "type": "fake"}},
+                                status_code=status)
+        unknown = sorted(self.rejected_params & set(body))
+        if unknown:
+            return JSONResponse({"error": {"message": f"Unrecognized request argument supplied: {unknown[0]}",
+                                           "type": "invalid_request_error"}}, status_code=400)
+        if self.failures:
+            status, message = self.failures.popleft()
+            return JSONResponse({"error": {"message": message, "type": "fake"}}, status_code=status)
+        return None
 
     async def _embeddings(self, request: Request) -> JSONResponse:
         """Bag-of-word-stems vectors: texts sharing words get similar vectors, like a real model."""
@@ -98,14 +134,20 @@ class FakeLLM:
         return f"Echo: {last_user}"
 
     async def _models(self, request: Request) -> JSONResponse:
-        return JSONResponse({"object": "list", "data": [{"id": MODEL_ID, "object": "model"}]})
+        """OpenRouter-style details: context, accepted settings, prices per token."""
+        return JSONResponse({"object": "list", "data": [{
+            "id": MODEL_ID, "object": "model", "name": "Fake Model", "context_length": 32768,
+            "supported_parameters": ["temperature", "top_p", "top_k", "max_tokens", "stop", "seed"],
+            "pricing": {"prompt": "0.000001", "completion": "0.000002"},
+            "top_provider": {"max_completion_tokens": 4096},
+        }]})
 
     async def _chat(self, request: Request) -> Response:
         body = await request.json()
         self.requests.append(body)
-        if self.failures:
-            status, message = self.failures.popleft()
-            return JSONResponse({"error": {"message": message, "type": "fake"}}, status_code=status)
+        refusal = self._gate(request, body)
+        if refusal is not None:
+            return refusal
         text = self._next_reply(body)
         usage = {
             "prompt_tokens": _rough_tokens(json.dumps(body.get("messages", []))),
@@ -152,6 +194,123 @@ class FakeLLM:
         if usage is not None:
             yield event({**base, "choices": [], "usage": usage})
         yield b"data: [DONE]\n\n"
+
+
+    async def _text(self, request: Request) -> Response:
+        """Text completion: echoes the last line of the prompt that is not a marker."""
+        body = await request.json()
+        self.text_requests.append(body)
+        refusal = self._gate(request, {k: v for k, v in body.items() if k != "prompt"})
+        if refusal is not None:
+            return refusal
+        if self.replies:
+            text = self.replies.popleft()
+        else:
+            lines = [ln for ln in str(body.get("prompt", "")).splitlines() if ln.strip() and "<|" not in ln]
+            text = "Echo: " + (lines[-1] if lines else "")
+        usage = {"prompt_tokens": _rough_tokens(str(body.get("prompt", ""))), "completion_tokens": _rough_tokens(text)}
+        if not body.get("stream"):
+            return JSONResponse({"choices": [{"index": 0, "text": text, "finish_reason": "stop"}], "usage": usage})
+
+        async def events() -> AsyncIterator[bytes]:
+            for piece in _split_keep_spaces(text):
+                if self.chunk_delay:
+                    await anyio.sleep(self.chunk_delay)
+                yield ("data: " + json.dumps({"choices": [{"index": 0, "text": piece}]}) + "\n\n").encode()
+            yield ("data: " + json.dumps({"choices": [{"index": 0, "text": "", "finish_reason": "stop"}],
+                                          "usage": usage}) + "\n\n").encode()
+            yield b"data: [DONE]\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream")
+
+    async def _anthropic(self, request: Request) -> Response:
+        body = await request.json()
+        self.anthropic_requests.append(body)
+        refusal = self._gate(request, {k: v for k, v in body.items() if k != "messages"})
+        if refusal is not None:
+            return refusal
+        if self.replies:
+            text = self.replies.popleft()
+        else:
+            last = next((m for m in reversed(body.get("messages", [])) if m.get("role") == "user"), {})
+            content = last.get("content", "")
+            text = "Echo: " + (content if isinstance(content, str) else
+                               "".join(c.get("text", "") for c in content if c.get("type") == "text"))
+
+        def wire(payload: dict[str, Any]) -> bytes:
+            return f"event: {payload['type']}\ndata: {json.dumps(payload)}\n\n".encode()
+
+        async def events() -> AsyncIterator[bytes]:
+            yield wire({"type": "message_start", "message": {"usage": {
+                "input_tokens": _rough_tokens(json.dumps(body.get("messages", [])))}}})
+            if body.get("thinking"):
+                yield wire({"type": "content_block_delta", "index": 0,
+                            "delta": {"type": "thinking_delta", "thinking": "Thinking about it."}})
+            forced = (body.get("tool_choice") or {}).get("name")
+            if forced:  # JSON mode as a forced tool: the reply is the tool's input, in pieces
+                yield wire({"type": "content_block_start", "index": 1,
+                            "content_block": {"type": "tool_use", "name": forced, "input": {}}})
+            for piece in _split_keep_spaces(text):
+                if self.chunk_delay:
+                    await anyio.sleep(self.chunk_delay)
+                delta = ({"type": "input_json_delta", "partial_json": piece} if forced
+                         else {"type": "text_delta", "text": piece})
+                yield wire({"type": "content_block_delta", "index": 1, "delta": delta})
+            yield wire({"type": "message_delta", "delta": {"stop_reason": "tool_use" if forced else "end_turn"},
+                        "usage": {"output_tokens": _rough_tokens(text)}})
+            yield wire({"type": "message_stop"})
+
+        return StreamingResponse(events(), media_type="text/event-stream")
+
+    async def _gemini_models(self, request: Request) -> JSONResponse:
+        return JSONResponse({"models": [
+            {"name": f"models/{MODEL_ID}", "displayName": "Fake Gemini", "inputTokenLimit": 1048576,
+             "outputTokenLimit": 65536, "supportedGenerationMethods": ["generateContent", "countTokens"],
+             "temperature": 1.0, "maxTemperature": 2.0, "topP": 0.95, "topK": 64, "thinking": True},
+            {"name": "models/fake-embedding", "supportedGenerationMethods": ["embedContent"]},
+        ]})
+
+    async def _gemini_generate(self, request: Request) -> Response:
+        model, _, method = request.path_params["target"].partition(":")
+        body = await request.json()
+        self.gemini_requests.append({"model": model, "method": method, **body})
+        refusal = self._gate(request, {**body.get("generationConfig", {}), **body})
+        if refusal is not None:
+            return refusal
+        if self.replies:
+            text = self.replies.popleft()
+        else:
+            last = next((c for c in reversed(body.get("contents", [])) if c.get("role") == "user"), {})
+            text = "Echo: " + "".join(p.get("text", "") for p in last.get("parts", []))
+        usage = {"promptTokenCount": _rough_tokens(json.dumps(body.get("contents", []))),
+                 "candidatesTokenCount": _rough_tokens(text)}
+        thinking = (body.get("generationConfig") or {}).get("thinkingConfig") or {}
+        thought = [{"text": "Thinking about it.", "thought": True}] if thinking.get("includeThoughts") else []
+        if method == "generateContent":
+            return JSONResponse({"candidates": [{"content": {"role": "model", "parts": [*thought, {"text": text}]},
+                                                 "finishReason": "STOP"}], "usageMetadata": usage})
+        return StreamingResponse(self._gemini_stream(text, thought, usage), media_type="text/event-stream")
+
+    async def _gemini_stream(
+        self, text: str, thought: list[dict[str, Any]], usage: dict[str, int]
+    ) -> AsyncIterator[bytes]:
+        def event(parts: list[dict[str, Any]], **more: Any) -> dict[str, Any]:
+            return {"candidates": [{"content": {"role": "model", "parts": parts}, **more}]}
+
+        def wire(payload: dict[str, Any]) -> bytes:
+            return ("data: " + json.dumps(payload) + "\r\n\r\n").encode()
+
+        if thought:
+            yield wire(event(thought))
+        pieces = _split_keep_spaces(text)
+        for i, piece in enumerate(pieces):
+            if self.chunk_delay:
+                await anyio.sleep(self.chunk_delay)
+            last = i == len(pieces) - 1
+            payload = event([{"text": piece}], **({"finishReason": "STOP"} if last else {}))
+            if last:
+                payload["usageMetadata"] = usage
+            yield wire(payload)
 
 
 def _split_keep_spaces(text: str) -> list[str]:

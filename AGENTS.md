@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–3, 3а, 4 (а, б, в) and 5 (lorebooks) done; 6 next**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; stage 7 next**.
 
 ## Commands
 
@@ -81,7 +81,23 @@ tavern/                 Python package (backend)
                         keeps every part (entry) for the archive
   core/                 events (EventBus), budget (RunBudget), prompt, llm (LLMClient), generation
                         (Generator strategies), runs (background Run + SSE replay)
-  providers/            Provider interface, openai_compat, registry (kinds, API keys from secrets)
+  providers/            Provider interface, openai_compat, gemini and anthropic (own protocols), registry
+                        (kinds), keys (several keys per connection, a proxy each, next key / retries),
+                        params (every setting: type, range, kinds, sent or Tavern's own), catalog
+                        (known services with ready addresses), fallback (steps when a connection fails
+                        before writing: other model / connection / key, refusal phrases, empty reply)
+  services/profiles.py  connection profiles: snapshot of connection, model, settings, preset; apply
+  services/parallel.py  several requests at once: settings, extra targets, collect/gather (also for
+                        plugins and agents), race (first writer wins)
+  services/spending.py  spending: a meter for LLMClient records every request (tokens, dollars by the
+                        service's or own price), sums per message/chat/day/month, limits (warn/stop),
+                        currency at own rate; storage/repos/spending.py (table `spending`)
+  services/connections.py  what models can do: the service's model list, trial requests per setting
+  core/structured.py    structured output: JSON Schema check (pure Python subset), the request in
+                        words, the retry note; used by LLMClient.generate_json
+  core/templates.py     instruct templates: conversation -> one text for text completion (built-ins,
+                        auto by model name, SillyTavern instruct/context files both ways);
+                        services/templates.py (own + built-in, resolve), storage/repos/templates.py
   formats/cards.py      character card V1/V2/V3 parsing and PNG metadata import/export
   formats/jsonl.py      versioned JSONL chat tree and swipe import/export
   formats/media.py      allowed file types for themes/pictures, image type sniffing
@@ -91,6 +107,10 @@ web/                    browser UI: Preact + htm vendored in web/vendor, plain E
   main.js               app shell; core/api.js (fetch + SSE), core/chat.js (chat state hook),
                         core/theme.js (applies a theme, runs its effects script, safe mode /?safe)
   components/           VirtualList, Message, Composer, Sidebar, Settings (tabs), Themes, Gallery,
+                        Connections (services, keys, model check, settings console), Templates,
+                        Profiles (profiles, top-bar switch, fallback steps, parallel requests,
+                        side-by-side choice of variants), Spending (top-bar line, «Расход» tab;
+                        core/spending.js formats money and tokens),
                         Members (chat members + chat preset), CharacterEditor, CharacterTree,
                         Presets, PromptView, Notes (📝 window, notes by numbers),
                         Lorebooks (left-panel shelf, book window, BookPicker, settings tab),

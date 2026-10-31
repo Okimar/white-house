@@ -13,14 +13,29 @@ implementation) first.
 
 - `stream(request)` yields `StreamEvent(kind="text", text=...)` deltas, then one
   `StreamEvent(kind="done", usage=Usage(...), finish_reason=...)`.
-- `list_models()` returns model ids (also used as the "test connection" button).
+- `list_models()` returns model ids. Override `describe_models()` when the backend tells more
+  (context, maximum answer, accepted settings as names from `providers/params.py`, prices per
+  million tokens): the settings window marks settings ✓/✗ from it.
+- Map the settings of `providers/params.py` that your kind takes (add the kind to their `kinds`);
+  `request.extra` holds them under those names, plus `extra_body` to merge last.
+- Thinking text goes out as `StreamEvent("reasoning", ...)`, never mixed into "text" (it is saved as
+  the reply's `swipe_meta.reasoning`).
+- `ChatMessage.images` holds pictures as (media type, base64): put them into your wire format.
+- The `web_search` setting turns on the backend's own search tool where it has one.
 - Honour cancellation: never swallow `asyncio.CancelledError`. Stop is implemented by cancelling the
   task, so a provider must not wrap the stream in a bare `except`.
-- Report `Usage` whenever the backend gives it; the run budget (`max_tokens`, `max_cost`) depends on it.
+- Report `Usage` whenever the backend gives it; the run budget (`max_tokens`, `max_cost`) and spending
+  (`services/spending.py`: what each reply cost) depend on it. Without it the counts are a rough guess
+  marked «≈». Prices come from `describe_models()` (`ModelInfo.price_in/out`, dollars per million).
 - `request.response_format` (`{"type": "json_object"}` or `{"type": "json_schema", ...}`): map it to
-  the backend's native mode. If impossible, raise `ProviderError` (the caller `LLMClient.generate_json`
-  has a prompt-and-extract fallback).
-- Errors: raise `ProviderError` with a message safe to show to the user. Never include the API key
+  the backend's native mode (OpenAI `response_format`, Gemini `responseJsonSchema`, Claude a forced
+  tool, see `anthropic.py`). If the backend has none, ignore it: `LLMClient.generate_json` always says
+  the request in words too, checks the answer against the schema (`core/structured.py`) and asks
+  again with the problems. A backend that rejects the mode with a `request` error is asked once more
+  without it. Test it against the fake (`fake.queue('{...}')`, `fake.rejected_params`).
+- Errors: raise `ProviderError` with a message safe to show to the user and a `reason`
+  (`limit`, `auth`, `refused`, `network`, `server`, `request`; `reason_for_status()` maps HTTP codes):
+  key rotation and retries in `providers/keys.py` decide by it. Never include the API key
   or the full request in a message or a log line.
 - Use pure-Python `httpx` only. Accept an injected `httpx.AsyncClient` (tests pass one wired to the
   fake server); create and close your own when none is given.
@@ -30,9 +45,12 @@ implementation) first.
 Core kinds are added to `ProviderRegistry._factories` in `tavern/providers/registry.py`.
 A plugin calls `registry.register("kind", factory)`. The factory signature is
 `(connection: dict, api_key: str, http_client | None) -> Provider`. The API key comes from the secret
-store under `connection:<id>:api_key`; it is write-only through the API.
+store (`connection:<id>:keys`, one entry per key); keys are write-only through the API.
 
 The kind then appears in `GET /api/connections` (`kinds`) and can be chosen when creating a connection.
+Add ready addresses to `providers/catalog.py` if it is a public service. `registry.create()` wraps
+your provider per key in `KeyedProvider` (several keys, a proxy each: a key with a proxy gives your
+factory an `http_client` going through it).
 Connection `params` (temperature, top_p, max_tokens, stop, max_context_tokens) are passed by
 `services/chat.py`; provider-specific options go into `request.extra`.
 

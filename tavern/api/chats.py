@@ -125,13 +125,18 @@ async def _optional_body(request: Request) -> dict[str, Any]:
 
 
 async def send(request: Request) -> JSONResponse:
-    """Body: {text, reply_role?}. reply_role (default assistant) is who the reply is saved as."""
+    """Body: {text, reply_role?, images?}. reply_role (default assistant) is who the reply is saved
+    as; images are picture names from the library (text may then be empty)."""
     body = await json_body(request)
+    images = field(body, "images", list, default=[])
+    if not all(isinstance(name, str) for name in images):
+        raise BadRequest("'images' must be a list of picture names")
     run = chat_service.start_send(
         ctx_of(request),
         request.path_params["id"],
-        field(body, "text", str, allow_empty=False),
+        field(body, "text", str, allow_empty=bool(images)),
         field(body, "reply_role", str, default="assistant"),
+        images,
     )
     return JSONResponse({"run_id": run.id}, status_code=202)
 
@@ -264,6 +269,11 @@ async def search_chat(request: Request) -> JSONResponse:
     return JSONResponse({"messages": ctx.chats.search_messages(chat_id, query)})
 
 
+async def list_swipes(request: Request) -> JSONResponse:
+    """All versions of a message, to compare them side by side."""
+    return JSONResponse({"swipes": ctx_of(request).chats.list_swipes(request.path_params["id"])})
+
+
 async def select_swipe(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     message_id = request.path_params["id"]
@@ -307,4 +317,5 @@ routes = [
     Route("/messages/{id}", edit_message, methods=["PUT"]),
     Route("/messages/{id}", delete_message, methods=["DELETE"]),
     Route("/messages/{id}/swipe", select_swipe, methods=["PUT"]),
+    Route("/messages/{id}/swipes", list_swipes, methods=["GET"]),
 ]

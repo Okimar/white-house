@@ -359,3 +359,88 @@ input.num { width: 4.5em; }
 .history-steps { margin: 4px 0 8px; padding-left: 1.4em; font-size: .9rem; }
 .history-steps li.undone { opacity: .5; text-decoration: line-through; }
 .history-status { margin-left: 10px; font-size: .85rem; }
+
+/* Settings → Подключения (Connections.js) */
+.conn-card { display: flex; gap: 8px; align-items: center; }
+.conn-pick { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; text-align: left; min-height: var(--tap); }
+.conn-card.open .conn-pick { border-color: var(--accent); }
+.service-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+.service-grid .service { min-height: var(--tap); text-align: left; }
+.conn-editor { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin-top: 10px; }
+.key-row { flex-wrap: wrap; }
+.key-form { border-left: 3px solid var(--accent); padding-left: 8px; }
+.model-facts { margin: 0; font-size: .9em; }
+.conn-log, .conn-console { font-family: ui-monospace, Consolas, monospace; font-size: .85em; }
+.conn-log { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px;
+  max-height: 9em; overflow-y: auto; }
+.conn-log .line.ok { color: var(--mode-search); }
+.conn-log .line.err { color: var(--danger); }
+.conn-console fieldset { border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 6px 0; padding: 4px 8px; }
+.conn-console legend { color: var(--muted); padding: 0 4px; }
+.param { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(160px, 1.3fr) 1.5em; gap: 8px; align-items: center;
+  padding: 3px 0; border-bottom: 1px dashed var(--line); }
+.param:last-child { border-bottom: 0; }
+.param:not(.on) .param-control { opacity: .55; }
+.param.no .param-name { text-decoration: line-through; color: var(--muted); }
+.param-name { display: flex; gap: 6px; align-items: center; min-height: var(--tap); }
+.param-name code { color: var(--accent); }
+.param-control { display: flex; gap: 6px; align-items: center; }
+.param-control input[type="range"] { flex: 1; min-width: 80px; }
+.param-control .num { width: 7em; }
+.param-control textarea { flex: 1; font-family: inherit; }
+.param-mark { text-align: center; font-weight: bold; }
+.param-mark.yes { color: var(--mode-search); }
+.param-mark.no { color: var(--danger); }
+.param-mark.unknown { color: var(--mode-off); }
+@media (max-width: 720px) {
+  .param { grid-template-columns: 1fr 1.5em; }
+  .param-control { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* Model thinking and pictures in messages; pictures waiting in the composer */
+.thinking { margin: 0 0 6px; border-left: 3px solid var(--line); padding: 2px 8px; color: var(--muted); font-size: .9em; }
+.thinking summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; }
+.thinking-text { white-space: pre-wrap; max-height: 40vh; overflow-y: auto; }
+.msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.msg-images img { max-width: 220px; max-height: 220px; border-radius: var(--radius-sm); display: block; }
+.composer-images { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.composer-image { position: relative; }
+.composer-image img { width: 64px; height: 64px; object-fit: cover; border-radius: var(--radius-sm); display: block; }
+.composer-image button { position: absolute; top: -6px; right: -6px; min-height: 0; width: 24px; height: 24px; padding: 0;
+  border-radius: 50%; }
+.composer .attach { min-width: 40px; }
+.composer { flex-wrap: wrap; }
+
+/* Settings → Шаблоны (Templates.js) */
+.template-editor { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin-top: 10px; }
+.template-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.template-editor .mono, .template-preview { font-family: ui-monospace, Consolas, monospace; font-size: .85em; }
+.template-preview { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px;
+  white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow-y: auto; margin: 0; }
+
+/* Profiles and fallback steps (Profiles.js), "via" mark on a reply */
+.profile-row { flex-wrap: wrap; gap: 6px; }
+.profile-row.active > button:first-child { font-weight: bold; }
+.profile-switch { max-width: 160px; min-height: var(--tap); }
+.fallback-steps { padding-left: 1.4em; margin: 4px 0; }
+.fallback-step { border-bottom: 1px dashed var(--line); padding: 6px 0; }
+.fallback-step input:not([type=checkbox]) { min-width: 0; flex: 1 1 140px; }
+.msg-via { font-size: .8em; margin-bottom: 4px; }
+
+/* Parallel requests (Profiles.js): settings and the side-by-side choice */
+.parallel-target input:not([type=checkbox]):not(.num) { flex: 1 1 140px; min-width: 0; }
+.parallel-target .num { width: 4.5em; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.pick-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; background: var(--msg-bot-bg); }
+.pick-text { white-space: pre-wrap; max-height: 50vh; overflow-y: auto; flex: 1; }
+
+/* Spending (Spending.js): top-bar line, the line under a message, the settings tab */
+.spending-bar { display: flex; gap: 10px; font-size: .8em; white-space: nowrap; overflow-x: auto; min-width: 0; scrollbar-width: none; }
+.spend-part.over { color: var(--danger); font-weight: bold; }
+.msg-usage { font-size: .75em; margin-top: 4px; }
+.spending .num { width: 6em; }
+.spending li.row input:not(.num) { flex: 1 1 160px; min-width: 0; }
+.table-wrap { overflow-x: auto; }
+.spend-table { border-collapse: collapse; width: 100%; font-size: .9em; }
+.spend-table th, .spend-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+@media (max-width: 700px) { .topbar { flex-wrap: wrap; } .spending-bar { order: 10; flex-basis: 100%; font-size: .75em; } }

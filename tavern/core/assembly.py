@@ -62,6 +62,8 @@ class PromptInput:
     # that did not fit the lorebook budget (shown in "what the model saw").
     lore: list[Any] = field(default_factory=list)
     lore_dropped: list[str] = field(default_factory=list)
+    # name -> (media type, base64) for pictures attached to messages; None when it cannot be read.
+    load_image: Any = None
 
 
 @dataclass
@@ -85,6 +87,7 @@ class Entry:
     msg: int = 0  # index of the sent message this entry ended up in
     owner: str = ""  # character id whose card this is (for budget trimming)
     follow: list[Entry] = field(default_factory=list)  # notes attached to this message
+    images: list[tuple[str, str]] = field(default_factory=list)  # pictures the model sees with it
 
     def as_dict(self) -> dict[str, Any]:
         return {"role": self.role, "text": self.text, "source": self.source,
@@ -312,6 +315,11 @@ def assemble(data: PromptInput) -> Prompt:
     def message_entry(m: dict[str, Any]) -> Entry:
         entry = Entry(m["role"], sub(m["content"]), f"message:{m['id']}",
                       f"№{m['depth'] + 1} {m.get('name') or m['role']}", "message")
+        if data.load_image is not None:
+            for name in (m.get("swipe_meta") or {}).get("images") or []:
+                picture = data.load_image(name)
+                if picture is not None:
+                    entry.images.append(picture)
         for n in m.get("notes") or []:
             if not n["text"].strip():
                 continue
@@ -417,7 +425,7 @@ def assemble(data: PromptInput) -> Prompt:
             last = sent[-1]
             sent[-1] = ChatMessage("system", f"{last.content}\n\n{entry.text}")
         else:
-            sent.append(ChatMessage(entry.role, entry.text))
+            sent.append(ChatMessage(entry.role, entry.text, tuple(entry.images)))
         entry.msg = len(sent) - 1
         previous = entry
     return Prompt(entries=entries, messages=sent, tokens=_tokens(entries), dropped=dropped,

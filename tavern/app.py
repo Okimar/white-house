@@ -17,6 +17,9 @@ from tavern.api import assets as assets_api
 from tavern.api import chats as chats_api
 from tavern.api import characters as characters_api
 from tavern.api import connections as connections_api
+from tavern.api import templates as templates_api
+from tavern.api import profiles as profiles_api
+from tavern.api import spending as spending_api
 from tavern.api import jsonl as jsonl_api
 from tavern.api import blocks as blocks_api
 from tavern.api import lorebooks as lorebooks_api
@@ -83,6 +86,9 @@ def api_routes() -> list[Route]:
         Route("/health", health, methods=["GET"]),
         *characters_api.routes,
         *connections_api.routes,
+        *templates_api.routes,
+        *profiles_api.routes,
+        *spending_api.routes,
         *themes_api.routes,
         *assets_api.routes,
         *jsonl_api.routes,
