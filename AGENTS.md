@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts) next**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done**.
 
 ## Commands
 
@@ -92,7 +92,8 @@ tavern/                 Python package (backend)
                         writes, GitHub), api (PluginAPI given to setup(api)), manager (find, approve,
                         load/unload, commands, actions, the model-access gate, «may it?» questions);
                         api/plugins.py; storage/repos/plugins.py (plugins, plugin_data); ADR 0009
-  builtin_plugins/      dice (/roll), translate (Google Translate, no model)
+  builtin_plugins/      dice (/roll), translate (Google Translate, no model), thoughts (tree of thoughts:
+                        a reply writer; thinkers in parallel, rounds, thoughts in swipe_meta; ADR 0011)
   services/assistant.py the assistant over the chat (stage 8б): conversations, the step loop (JSON form
                         via generate_json, any model), confirmations, own spending limits, undo;
                         services/assistant_tools.py (tools over the same services as the UI);
@@ -135,7 +136,8 @@ web/                    browser UI: Preact + htm vendored in web/vendor, plain E
                         Presets, PromptView, Notes (📝 window, notes by numbers),
                         Lorebooks (left-panel shelf, book window, BookPicker, settings tab),
                         roles (role icons/labels), Plugins (Settings tab, «may it?» window), Assistant (🪄 window);
-                        core/plugins.js runs plugins' web parts (buttons, lines under messages)
+                        core/plugins.js runs plugins' web parts (buttons, lines and trees under messages,
+                        side panels: components/PluginTree.js)
   styles.css            base look: CSS variables + data-slot places themes restyle; phone/tablet layout
   themes/               built-in themes (default, light, dark, sakura = example with effects)
 tests/unit/             pure logic, no I/O beyond tmp_path
@@ -181,8 +183,8 @@ data/                   user data, git-ignored. Never commit, never delete
 | [make-theme](.claude/skills/make-theme/SKILL.md) | restyling the interface: themes, pictures, animations, effects scripts |
 | [style-bubble-map](.claude/skills/style-bubble-map/SKILL.md) | restyling the character bubble map: classes, states, lines, tokens, speed rules |
 | [create-plugin](.claude/skills/create-plugin/SKILL.md) | writing or changing a plugin (server part, web part, tests, sharing) |
+| [agentic-plugin](.claude/skills/agentic-plugin/SKILL.md) | a reply writer that thinks: several model calls, live tree, data kept with the reply |
 
-Planned with their stages: `agentic-plugin` (stage 8в).
 
 ## Done checklist
 

@@ -18,7 +18,8 @@ import { CharacterEditor } from "./components/CharacterEditor.js";
 import { PromptView } from "./components/PromptView.js";
 import { MessageNotes, Notes, NotesByNumbers } from "./components/Notes.js";
 import { ROLES } from "./components/roles.js";
-import { pluginNotice, setPluginEnv, syncPlugins } from "./core/plugins.js";
+import { pluginNotice, setPluginEnv, syncPlugins, usePluginUi } from "./core/plugins.js";
+import { PanelButtons, Panels } from "./components/PluginTree.js";
 import { PluginAsks } from "./components/Plugins.js";
 import { Assistant } from "./components/Assistant.js";
 
@@ -31,6 +32,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [menu, setMenu] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
+  const pluginUi = usePluginUi(); // side panels of plugins
   const assistantRef = useRef({ changed() {}, show() {} }); // the event stream outlives renders: it calls the newest
   const [toast, setToast] = useState("");
   const [searchResults, setSearchResults] = useState(null);
@@ -354,6 +356,7 @@ function App() {
           </form>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
           ${shown && html`<${ProfileSwitch} key=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
+          ${shown && html`<${PanelButtons} panels=${pluginUi.panels} />`}
           ${shown && html`<button data-slot="members-button" title="Участники чата и пресет"
             onClick=${() => setShowMembers(true)}>👥</button>`}
           ${shown && html`<button data-slot="notes-button" title="Заметки автора"
@@ -417,6 +420,7 @@ function App() {
             </div>`}
         <div class="overlay-layer" data-slot="overlay"></div>
       </main>
+      ${shown && html`<${Panels} panels=${pluginUi.panels} />`}
       ${showSettings && html`<${Settings} settings=${settings} themes=${themes.themes}
         deletedThemes=${themes.deleted} characters=${characters} onClose=${() => { setShowSettings(false); reloadSpending(); loadPlugins(); }}
         onChanged=${refresh} onError=${onError} />`}

@@ -4,10 +4,15 @@
 //   t.id, t.name, t.settings (current values), t.signal (aborted when the plugin is switched off)
 //   t.call(action, payload) -> the server part's api.action result
 //   t.command("/roll 2d6") runs a chat command in the open chat; t.chatId() the open chat
-//   t.on(type, fn): "chat" {chatId,...}, "generation" {running}, "message" {role, text}, "send" {text}
+//   t.on(type, fn): "chat" {chatId,...}, "generation" {running}, "message" {role, text}, "send" {text},
+//     "trace" {kind, chatId, ...} (progress its reply writer reports with job.run.trace)
 //   t.onNotice(name, fn): what the server part sends with api.notify(name, **data)
 //   t.messageButton({icon, title, onClick(message)}), t.messageFooter(message => text | null),
 //   t.composerButton({icon, title, onClick()}): places in the chat; t.refresh() redraws them
+//   t.messageTree(message => tree | null): a folded tree under the message;
+//   t.panel({icon, title, render: () => tree | null}) -> {open(), close()}: a side panel with a
+//     button in the top bar. tree = {title, open, items: [{title, text, state, children}]},
+//     state "wait" | "done" | "error" | ""; everything is plain text, never HTML
 //   t.toast(text), t.reloadChat(), t.url(path) -> this plugin's file
 // A plugin's style.css is added while it is on. Errors are caught and reported with the plugin's
 // name; a failing setup leaves that plugin's web part off. Safe mode (/?safe) loads none of them.
@@ -15,7 +20,7 @@ import { useEffect, useState } from "../vendor/preact-htm.mjs";
 import { api } from "./api.js";
 import { SAFE_MODE, on as onEvent } from "./theme.js";
 
-const ui = { messageButtons: [], messageFooters: [], composerButtons: [] };
+const ui = { messageButtons: [], messageFooters: [], composerButtons: [], messageTrees: [], panels: [] };
 const listeners = new Set();
 const loaded = new Map(); // id -> {hash, controller, cleanup}
 const current = new Map(); // id -> plugin summary from /api/plugins (fresh settings)
@@ -97,6 +102,16 @@ async function load(p) {
     messageButton: ({ icon, title, onClick }) => add("messageButtons", { icon, title, onClick: guard(onClick) }),
     messageFooter: (fn) => add("messageFooters", { fn: guard(fn) }),
     composerButton: ({ icon, title, onClick }) => add("composerButtons", { icon, title, onClick: guard(onClick) }),
+    messageTree: (fn) => add("messageTrees", { fn: guard(fn) }),
+    panel: ({ icon, title, render }) => {
+      const panel = { icon, title, render: guard(render), shown: false, key: p.id + ":" + ui.panels.length };
+      add("panels", panel);
+      const set = (shown) => {
+        ui.panels = ui.panels.map((x) => (x.key === panel.key ? { ...x, shown } : x));
+        changed();
+      };
+      return { open: () => set(true), close: () => set(false) };
+    },
   };
   try {
     const module = await import(`/plugins/${p.id}/${p.web}?v=${p.hash}`);
@@ -130,4 +145,19 @@ export function messageExtras(message) {
     if (text) lines.push({ owner: f.owner, text: String(text) });
   }
   return lines;
+}
+
+// Trees plugins show under a message (folded).
+export function messageTrees(message) {
+  const out = [];
+  for (const f of ui.messageTrees) {
+    const tree = f.fn(message);
+    if (tree) out.push({ owner: f.owner, tree });
+  }
+  return out;
+}
+
+export function togglePanel(key, shown) {
+  ui.panels = ui.panels.map((x) => (x.key === key ? { ...x, shown } : x));
+  changed();
 }

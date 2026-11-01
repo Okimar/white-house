@@ -6,7 +6,8 @@ description: How to write a Tavern plugin - plugin.json, the server part (setup(
 # Creating a plugin
 
 Decisions behind this: `docs/adr/0009-plugins.md`. Examples: `tavern/builtin_plugins/dice`
-(command, message, composer button) and `tavern/builtin_plugins/translate` (actions, storage,
+(command, message, composer button), `tavern/builtin_plugins/thoughts` (reply writer, trees,
+panel, list settings) and `tavern/builtin_plugins/translate` (actions, storage,
 events, message button and footer, notify, network with a swappable `transport` for tests).
 
 ## Folder
@@ -28,7 +29,8 @@ data/plugins/<id>/          (built-in ones: tavern/builtin_plugins/<id>/)
               {"key": "auto", "label": "Сразу", "type": "bool", "default": false}]}
 ```
 `id` = folder name (`a-z0-9_-`). `uses` is what the user sees before enabling: list honestly what
-the plugin does. Setting types: bool, number (min/max), text, choice. Files allowed: see
+the plugin does. Setting types: bool, number (min/max), text (`"multiline": true` for a box), choice,
+connection (a user's connection, "" = as in the chat), list (rows of `fields`). Files allowed: see
 `EXTENSIONS` in `tavern/plugins/manifest.py`.
 
 ## Server part: `setup(api)` (tavern/plugins/api.py)
@@ -45,7 +47,7 @@ the error shown. Everything registered is removed when the plugin is switched of
 | `api.storage(chat_id="")` | `.get/.set/.delete/.all` — JSON values, per chat (gone with the chat) or app-wide |
 | `api.add_message(chat_id, text, role="system", name=, hidden=False, to_model=True, extra=)` | a message at the end of the chat, owner = the plugin |
 | `api.llm(connection_id=, model=, chat_id=, budget=)` | an `LLMClient` (`generate`, `stream`, `generate_json(schema=)`) |
-| `api.add_generator(gen, name)` | a reply writer; the user picks it per chat in 👥 «Ответ пишет». `gen.id`, `async def generate(job)` yielding text; reuse `job.build_messages()`, `job.llm`, `job.run.trace(kind, ...)`, `job.think(text)` |
+| `api.add_generator(gen, name)` | a reply writer; the user picks it per chat in 👥 «Ответ пишет». `gen.id`, `async def generate(job)` yielding text; reuse `job.build_messages()`, `job.llm`, `job.run.trace(kind, ...)`, `job.think(text)`, `job.meta` (kept with the version), `job.message_id`; see the `agentic-plugin` skill |
 | `api.notify(name, **data)` | to the web part on every open page: `t.onNotice(name, fn)` |
 | `api.on_unload(fn)`, `api.log`, `api.ctx`, `api.folder` | cleanup, logger, the whole app (services may be imported directly: `tavern.services.cast` …) |
 
@@ -65,6 +67,9 @@ export default function setup(t) {
   t.messageButton({ icon: "🌐", title: (m) => "Перевести", onClick: async (m) => { ... } });
   t.messageFooter((m) => (text for under the message) || null);   // plain text, never HTML
   t.composerButton({ icon: "🎲", title: "…", onClick: () => t.command("/roll 2d6") });
+  t.messageTree((m) => tree || null);   // folded tree under a message: {title, open, items: [{title, text, state, children}]}
+  const panel = t.panel({ icon: "🌳", title: "…", render: () => tree || null });   // side panel; panel.open()
+  t.on("trace", (e) => ...);            // progress of its reply writer: {kind, chatId, ...}
   t.on("chat", (d) => ...);          // {chatId, characterId, characterName}; also "generation" {running}, "message", "send"
   t.onNotice("translated", (data) => ...);
   const result = await t.call("translate", { message_id: m.id });

@@ -453,6 +453,27 @@ input.num { width: 4.5em; }
 /* Plugins (stage 8а): their places in the chat and the «Дополнения» tab */
 .msg-plugin { margin-top: 6px; padding: 6px 8px; border-left: 3px solid var(--accent); border-radius: 4px;
   background: color-mix(in srgb, var(--accent) 8%, transparent); white-space: pre-wrap; font-size: .95em; }
+/* Plugin trees (stage 8в): under a message and in a side panel */
+.ptree { margin: 0 0 6px; border-left: 3px solid var(--accent); padding: 2px 8px; font-size: .9em; }
+.ptree summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; color: var(--muted); }
+.ptree-list { list-style: none; margin: 0; padding: 0 0 0 4px; display: flex; flex-direction: column; gap: 6px; }
+.ptree-list .ptree-list { padding-left: 14px; border-left: 1px dashed var(--line); margin-top: 4px; }
+.ptree-head { display: flex; gap: 6px; align-items: baseline; }
+.ptree-text { white-space: pre-wrap; color: var(--muted); }
+.ptree-item[data-state="wait"] > .ptree-head { opacity: .7; }
+.ptree-item[data-state="error"] > .ptree-head { color: var(--danger, #c33); }
+.plugin-panel { flex: 0 0 min(360px, 34vw); border-left: 1px solid var(--line); background: var(--dialog-bg);
+  overflow-y: auto; padding: 8px 10px; }
+.plugin-panel header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; position: sticky; top: 0;
+  background: var(--dialog-bg); }
+@media (max-width: 720px) {
+  .plugin-panel { position: fixed; inset: auto 0 0 0; max-height: 60dvh; z-index: 30; border-left: 0;
+    border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgb(0 0 0 / .2); }
+}
+.setting-list { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 8px; }
+.setting-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line); }
+.setting-row textarea { width: min(100%, 420px); }
 .plugin-list { display: flex; flex-direction: column; gap: 8px; }
 .list li.plugin-card { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .plugin-card[data-enabled="true"] { border-color: var(--accent); }

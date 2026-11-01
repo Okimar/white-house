@@ -38,9 +38,46 @@ function ApproveDialog({ plugin, onYes, onNo }) {
   </div>`;
 }
 
+// Connections for "connection" settings, loaded once per opened tab.
+let connectionsPromise = null;
+function useConnections() {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    connectionsPromise ||= api.get("/connections").then((d) => d.connections).catch(() => []);
+    connectionsPromise.then(setList);
+    return () => { connectionsPromise = null; };
+  }, []);
+  return list;
+}
+
+function ConnectionField({ field, value, onSave }) {
+  const connections = useConnections();
+  return html`<label>${field.label}<br /><select value=${value} onChange=${(e) => onSave(e.target.value)}>
+    <option value="">Как в чате</option>
+    ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+  </select></label>`;
+}
+
+// "list": rows of small fields (e.g. the thinkers of the tree of thoughts); add, remove, edit.
+function ListField({ field, value, onSave }) {
+  const rows = value || [];
+  const blank = () => Object.fromEntries(field.fields.map((f) => [f.key, f.default]));
+  const put = (i, key, v) => onSave(rows.map((r, j) => (j === i ? { ...r, [key]: v } : r)));
+  return html`<fieldset class="setting-list" data-slot="plugin-setting-list"><legend>${field.label}</legend>
+    ${rows.map((row, i) => html`<div key=${i} class="setting-row">
+      ${field.fields.map((f) => html`<${SettingField} key=${f.key} field=${f} value=${row[f.key]}
+        onSave=${(v) => put(i, f.key, v)} />`)}
+      <button title="Убрать строку" onClick=${() => confirm("Убрать эту строку?") && onSave(rows.filter((_, j) => j !== i))}>🗑</button>
+    </div>`)}
+    <button onClick=${() => onSave([...rows, blank()])}>+ Добавить</button>
+  </fieldset>`;
+}
+
 function SettingField({ field, value, onSave }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
+  if (field.type === "list") return html`<${ListField} field=${field} value=${value} onSave=${onSave} />`;
+  if (field.type === "connection") return html`<${ConnectionField} field=${field} value=${value} onSave=${onSave} />`;
   if (field.type === "bool") {
     return html`<label><input type="checkbox" checked=${Boolean(value)}
       onChange=${(e) => onSave(e.target.checked)} /> ${field.label}</label>`;
@@ -51,6 +88,10 @@ function SettingField({ field, value, onSave }) {
     </select></label>`;
   }
   const number = field.type === "number";
+  if (field.multiline) {
+    return html`<label>${field.label}<br /><textarea rows="3" value=${draft} onInput=${(e) => setDraft(e.target.value)}
+      onBlur=${() => { if (draft !== value) onSave(draft); }}></textarea></label>`;
+  }
   return html`<label>${field.label}<br /><input type=${number ? "number" : "text"} value=${draft}
     min=${field.min} max=${field.max} onInput=${(e) => setDraft(e.target.value)}
     onBlur=${() => { const v = number ? Number(draft) : draft; if (v !== value) onSave(v); }} /></label>`;

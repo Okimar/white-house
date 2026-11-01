@@ -6,8 +6,13 @@ A plugin is a folder:
                    "web": "web.js",         ES module, `export default function setup(t)` (optional)
                    "style": "style.css",    added to the page while the plugin is on (optional)
                    "uses": ["commands", "models", ...],   what it says it does, shown before enabling
-                   "settings": [{"key", "label", "type": bool|number|text|choice, "default",
-                                 "choices": [[value, label]], "min", "max", "help"}]}
+                   "settings": [{"key", "label", "type": bool|number|text|choice|connection|list,
+                                 "default", "choices": [[value, label]], "min", "max", "help",
+                                 "multiline": true  text only: a box of several lines
+                                 "fields": [...]   list only: the fields of one row (bool/number/text/choice)
+                                }]}
+"connection" is the id of one of the user's connections ("" = as in the chat); "list" is a list of rows,
+each an object with the row fields (e.g. the thinkers of the tree of thoughts).
 The hash covers every file (names and contents), so any change asks for approval again.
 """
 
@@ -26,7 +31,9 @@ from tavern.errors import AppError
 MANIFEST = "plugin.json"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 USES = ("commands", "messages", "storage", "models", "generator", "events", "ui", "network")
-FIELD_TYPES = ("bool", "number", "text", "choice")
+FIELD_TYPES = ("bool", "number", "text", "choice", "connection", "list")
+ROW_TYPES = ("bool", "number", "text", "choice")
+MAX_ROWS = 100
 EXTENSIONS = frozenset({
     ".py", ".js", ".mjs", ".css", ".json", ".md", ".txt", ".toml",
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".woff", ".woff2", ".ttf",
@@ -91,12 +98,12 @@ def _text(raw: dict[str, Any], key: str, limit: int) -> str:
     return value.strip()[:limit] if isinstance(value, str) else ""
 
 
-def _field(raw: Any) -> dict[str, Any]:
+def _field(raw: Any, types: tuple[str, ...] = FIELD_TYPES) -> dict[str, Any]:
     if not isinstance(raw, dict) or not isinstance(raw.get("key"), str) or not raw["key"]:
         raise PluginError("plugin.json: у каждой настройки нужен key")
     kind = raw.get("type", "text")
-    if kind not in FIELD_TYPES:
-        raise PluginError(f"plugin.json: тип настройки {kind!r} неизвестен ({', '.join(FIELD_TYPES)})")
+    if kind not in types:
+        raise PluginError(f"plugin.json: тип настройки {kind!r} неизвестен ({', '.join(types)})")
     out: dict[str, Any] = {"key": raw["key"][:64], "label": _text(raw, "label", 200) or raw["key"],
                            "type": kind, "help": _text(raw, "help", 500)}
     if kind == "choice":
@@ -105,6 +112,13 @@ def _field(raw: Any) -> dict[str, Any]:
             raise PluginError(f"plugin.json: у настройки {out['key']!r} нет choices")
         out["choices"] = [[str(c[0]), str(c[1])] if isinstance(c, list) and len(c) == 2 else [str(c), str(c)]
                           for c in choices]
+    if kind == "text" and raw.get("multiline") is True:
+        out["multiline"] = True  # shown as a box of several lines
+    if kind == "list":
+        rows = raw.get("fields")
+        if not isinstance(rows, list) or not rows:
+            raise PluginError(f"plugin.json: у списка {out['key']!r} нет fields")
+        out["fields"] = [_field(f, ROW_TYPES) for f in rows]
     if kind == "number":
         for bound in ("min", "max"):
             if isinstance(raw.get(bound), (int, float)) and not isinstance(raw.get(bound), bool):
@@ -118,7 +132,9 @@ def _field(raw: Any) -> dict[str, Any]:
 
 
 def _empty(kind: str, field: dict[str, Any]) -> Any:
-    return {"bool": False, "number": 0, "text": ""}.get(kind, field.get("choices", [[""]])[0][0])
+    if kind == "list":
+        return []
+    return {"bool": False, "number": 0, "text": "", "connection": ""}.get(kind, field.get("choices", [[""]])[0][0])
 
 
 def coerce(field: dict[str, Any], value: Any) -> Any:
@@ -133,6 +149,16 @@ def coerce(field: dict[str, Any], value: Any) -> Any:
         if "min" in field and value < field["min"] or "max" in field and value > field["max"]:
             raise PluginError(f"{field['label']}: от {field.get('min', '…')} до {field.get('max', '…')}")
         return value
+    if kind == "list":
+        if not isinstance(value, list) or len(value) > MAX_ROWS:
+            raise PluginError(f"{field['label']}: нужен список (до {MAX_ROWS} строк)")
+        rows = []
+        for row in value:
+            if not isinstance(row, dict):
+                raise PluginError(f"{field['label']}: каждая строка — объект")
+            rows.append({f["key"]: coerce(f, row[f["key"]]) if f["key"] in row else f["default"]
+                         for f in field["fields"]})
+        return rows
     if not isinstance(value, str):
         raise PluginError(f"{field['label']}: нужен текст")
     if kind == "choice" and value not in [c[0] for c in field["choices"]]:

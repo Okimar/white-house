@@ -11,7 +11,8 @@
 import { html, useState } from "../vendor/preact-htm.mjs";
 import { ROLES, roleOf } from "./roles.js";
 import { usageLine } from "../core/spending.js";
-import { messageExtras, usePluginUi } from "../core/plugins.js";
+import { messageExtras, messageTrees, usePluginUi } from "../core/plugins.js";
+import { MessageTree } from "./PluginTree.js";
 
 function usageTitle(u) {
   return `Запрос: ${u.prompt_tokens} токенов, ответ: ${u.completion_tokens}` +
@@ -138,6 +139,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
         : html`${thinking && html`<details class="thinking" data-slot="message-thinking" open=${streaming && !text}>
             <summary>💭 Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text">${thinking}</div>
           </details>`}
+          ${messageTrees(message).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
             ${meta.images.map((name) => html`<a key=${name} href=${"/assets/" + encodeURIComponent(name)} target="_blank"
               rel="noopener"><img src=${"/assets/" + encodeURIComponent(name)} alt="картинка" loading="lazy" /></a>`)}

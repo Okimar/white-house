@@ -5,7 +5,9 @@ prompt and streams one model call. A plugin registers its own generator (for exa
 several agents and then writes the final answer) and selects it per chat (`chat.meta["generator"]`)
 or globally (setting `generator`). A custom generator may call `job.build_messages()` to reuse the
 standard prompt, `job.llm` (shared budget, forkable to other providers/models) and `job.run.trace()`
-to report progress to the UI. The model's thinking (stream events of kind "reasoning") goes to
+to report progress to the UI (its web part gets them as the page event "trace"). What it puts in
+`job.meta` is kept with this version of the reply (swipe_meta), e.g. the tree of thoughts (8в);
+`job.message_id` is the reply being written. The model's thinking (stream events of kind "reasoning") goes to
 `job.think(text)`: it is shown folded above the reply and kept with it, never mixed into the text.
 
 Events fired around a run (see core/events.py):
@@ -51,6 +53,8 @@ class GenerationJob:
     prompt: Prompt | None = None
     sent: list[ChatMessage] | None = None
     reasoning: list[str] = field(default_factory=list)
+    message_id: str = ""  # the reply being written
+    meta: dict[str, Any] = field(default_factory=dict)  # kept with this version of the reply (swipe_meta)
     on_reasoning: Any = None  # callable(text) set by the chat service to stream thinking to the UI
 
     def think(self, text: str) -> None:

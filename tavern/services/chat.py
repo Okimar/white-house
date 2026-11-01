@@ -539,7 +539,7 @@ def _writer(
         def finish(text: str) -> bool:
             saved = settle(text)
             if saved and job is not None:
-                extra_meta: dict[str, Any] = {}
+                extra_meta: dict[str, Any] = dict(job.meta)  # a plugin writer's own data first: core keys win
                 if job.reasoning:
                     extra_meta["reasoning"] = "".join(job.reasoning)
                 if getattr(provider, "used", ""):
@@ -609,7 +609,7 @@ def _writer(
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,
                                 max_context_tokens=max_context, instruction=instruction,
-                                prompt_input=prompt_input)
+                                prompt_input=prompt_input, message_id=reply["id"])
             job.on_reasoning = lambda text: run.emit("reasoning", id=reply["id"], text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
             if warning:

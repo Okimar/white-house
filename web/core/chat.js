@@ -2,6 +2,7 @@
 import { useState, useRef, useCallback, useEffect } from "../vendor/preact-htm.mjs";
 import { spendingChanged } from "./spending.js";
 import { api, followRun } from "./api.js";
+import { emit } from "./theme.js";
 
 const PAGE = 50;
 const EMPTY = { chat: null, messages: [], hasMore: false, running: false };
@@ -107,7 +108,7 @@ export function useChat(chatId, onError) {
       } else if (["done", "stopped", "error"].includes(event.type)) {
         finish(event);
       }
-      // "trace" (progress of plugin generators) is ignored until the stage 8 progress panel.
+      if (event.type === "trace") emit("trace", { ...event, chatId }); // progress of plugin reply writers
     });
   }, [onError]);
 
