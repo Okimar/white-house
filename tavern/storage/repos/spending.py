@@ -54,6 +54,22 @@ class SpendingRepo:
         """Everything spent on a message: every version, fallback attempt and extra request."""
         return _sums(self.db.fetchone(f"SELECT {_SUMS} FROM spending WHERE message_id = ?", (message_id,)))
 
+    def purpose(self, purpose: str, *, day: str = "", month: str = "") -> dict[str, Any]:
+        """Sums for one purpose ("plugin:dice"): all time, one `day`, or one `month` (YYYY-MM)."""
+        where, args = "purpose = ?", [purpose]
+        if day:
+            where, args = where + " AND day = ?", [*args, day]
+        if month:
+            where, args = where + " AND day LIKE ?", [*args, month + "-%"]
+        return _sums(self.db.fetchone(f"SELECT {_SUMS} FROM spending WHERE {where}", tuple(args)))
+
+    def by_purpose(self, prefix: str, since_day: str) -> list[dict[str, Any]]:
+        """Sums per purpose starting with `prefix` ("plugin:") since a day."""
+        rows = self.db.fetchall(
+            f"SELECT purpose, {_SUMS} FROM spending WHERE purpose LIKE ? AND day >= ? GROUP BY purpose "
+            "ORDER BY cost DESC, requests DESC", (prefix + "%", since_day))
+        return [{"purpose": r["purpose"], **_sums(r)} for r in rows]
+
     def by_model(self, since_day: str) -> list[dict[str, Any]]:
         rows = self.db.fetchall(
             f"SELECT connection_id, MAX(connection_name) AS connection_name, model, MAX(day) AS last_day, {_SUMS} "

@@ -60,6 +60,7 @@ GLOBAL_ORDER_ID = 100001
 # ST key -> our preset["prompts"] key (texts, kept as written)
 TEXTS = {
     "impersonation_prompt": "impersonate",
+    "group_nudge_prompt": "speaker_reply",
     "assistant_prefill": "prefill",
     "personality_format": "personality_format",
     "scenario_format": "scenario_format",

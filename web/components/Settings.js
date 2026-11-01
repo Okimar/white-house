@@ -1,5 +1,5 @@
 // Settings dialog, in tabs: your name, API connections (Connections.js), templates, spending (Spending.js),
-// prompt, lorebooks, themes, pictures.
+// prompt, lorebooks, themes, pictures, plugins (Plugins.js).
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { Themes } from "./Themes.js";
@@ -9,9 +9,10 @@ import { LorebookSettings } from "./Lorebooks.js";
 import { Connections } from "./Connections.js";
 import { Templates } from "./Templates.js";
 import { SpendingSettings } from "./Spending.js";
+import { Plugins } from "./Plugins.js";
 
 const TABS = [["main", "Основное"], ["connections", "Подключения"], ["templates", "Шаблоны"], ["spending", "Расход"], ["prompt", "Промпт"],
-  ["lore", "Лорбуки"], ["look", "Оформление"], ["pictures", "Картинки"]];
+  ["lore", "Лорбуки"], ["look", "Оформление"], ["pictures", "Картинки"], ["plugins", "Дополнения"]];
 
 export function Settings({ settings, themes, deletedThemes, characters, initialTab, onClose, onChanged, onError }) {
   const [tab, setTab] = useState(initialTab || "main");
@@ -39,7 +40,7 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
   return html`
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
-      <div class=${"dialog" + (["connections", "templates", "spending"].includes(tab) ? " wide" : "")} data-slot="dialog" role="dialog" aria-modal="true"
+      <div class=${"dialog" + (["connections", "templates", "spending", "plugins"].includes(tab) ? " wide" : "")} data-slot="dialog" role="dialog" aria-modal="true"
         aria-label="Настройки">
         <div class="side-head"><strong>Настройки</strong><span class="spacer"></span>
           <button onClick=${onClose} title="Закрыть">✕</button></div>
@@ -91,6 +92,7 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         ${tab === "connections" && html`<${Connections} onChanged=${onChanged} onError=${onError} />`}
         ${tab === "templates" && html`<${Templates} onError=${onError} />`}
         ${tab === "spending" && html`<${SpendingSettings} onError=${onError} />`}
+        ${tab === "plugins" && html`<${Plugins} onError=${onError} />`}
       </div>
     </div>
   `;

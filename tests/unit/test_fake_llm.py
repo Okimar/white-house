@@ -50,3 +50,11 @@ async def test_scripted_failure(llm):
     response = await http.post("/v1/chat/completions", json={"messages": []})
     assert response.status_code == 429
     assert response.json()["error"]["message"] == "slow down"
+
+
+async def test_replies_can_be_queued_over_http_for_manual_checks(llm):
+    fake, http = llm
+    assert (await http.post("/fake/queue", json={"replies": ["one", "two"]})).json() == {"queued": 2}
+    body = {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    reply = (await http.post("/v1/chat/completions", json=body)).json()
+    assert reply["choices"][0]["message"]["content"] == "one"

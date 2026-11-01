@@ -62,6 +62,14 @@ DEFAULT_PROMPTS = {
         "[{{user}} is played by the user. Never write {{user}}'s words, thoughts or actions; "
         "stop and let the user continue.]"
     ),
+    # Two or more characters: whom the model writes for now ({{char}} is the speaker); empty = not said.
+    "speaker_reply": "[Write the next reply only as {{char}}. Do not write for the other characters or {{user}}.]",
+    # The narrator after an all-at-once round (stage 7б): turns the replies into one scene.
+    "narrator": (
+        "You are the narrator of this roleplay. The characters below acted at the same time. In the third "
+        "person and briefly, write what came of all their actions together: who was first, what clashed, "
+        "what the scene looks like now. Do not write new lines for the characters or for {{user}}."
+    ),
     # Sent as the start of the model's own reply (last assistant message); empty = none.
     "prefill": "",
     # How card parts are written. Empty = "Personality:\n..." sections; ST-style templates use

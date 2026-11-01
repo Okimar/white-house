@@ -11,7 +11,8 @@ Standalone, for manual testing in the browser:
     python -m tavern.devtools.fake_llm --port 5001
     # then point an OpenAI-compatible connection at http://127.0.0.1:5001/v1
 
-Without queued replies it answers "Echo: <last user message>".
+Without queued replies it answers "Echo: <last user message>". A manual check queues replies
+over HTTP: POST /fake/queue {"replies": ["...", "..."]} (e.g. the assistant's JSON steps).
 `/v1/images/generations` returns a small PNG whose colours depend on the prompt.
 
 It also speaks Gemini's own protocol under `/v1beta` (a connection of kind "gemini" with address
@@ -80,8 +81,14 @@ class FakeLLM:
                 Route("/v1/messages", self._anthropic, methods=["POST"]),
                 Route("/v1beta/models", self._gemini_models, methods=["GET"]),
                 Route("/v1beta/models/{target}", self._gemini_generate, methods=["POST"]),
+                Route("/fake/queue", self._queue, methods=["POST"]),
             ]
         )
+
+    async def _queue(self, request: Request) -> JSONResponse:
+        replies = (await request.json()).get("replies", [])
+        self.queue(*[str(r) for r in replies])
+        return JSONResponse({"queued": len(self.replies)})
 
     def _gate(self, request: Request, body: dict[str, Any]) -> JSONResponse | None:
         """Key limits, refused settings and queued failures, in that order."""

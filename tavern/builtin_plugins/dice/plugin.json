@@ -1,0 +1,14 @@
+{
+  "id": "dice",
+  "name": "🎲 Кубики",
+  "version": "1.0.0",
+  "author": "Tavern",
+  "description": "Бросок кубиков в чате: команда /roll 2d6+1 (или /r) и кнопка 🎲 у поля ввода. Результат появляется в чате сообщением, и модель его видит (можно выключить). Моделей не тратит.",
+  "server": "server.py",
+  "web": "web.js",
+  "uses": ["commands", "messages", "ui"],
+  "settings": [
+    {"key": "default", "label": "Кубики по умолчанию (для /roll без формулы)", "type": "text", "default": "1d20"},
+    {"key": "to_model", "label": "Модель видит результат броска", "type": "bool", "default": true}
+  ]
+}

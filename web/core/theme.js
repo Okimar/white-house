@@ -21,6 +21,14 @@ export function emit(type, detail) {
   bus.dispatchEvent(new CustomEvent(type, { detail }));
 }
 
+// The same events for plugins' web parts (core/plugins.js). State-like ones are replayed at once.
+export function on(type, fn, signal) {
+  const handler = (e) => fn(e.detail);
+  bus.addEventListener(type, handler, { signal });
+  if (lastDetail.has(type)) queueMicrotask(() => { if (!signal || !signal.aborted) fn(lastDetail.get(type)); });
+  return () => bus.removeEventListener(type, handler);
+}
+
 function stylesheet() {
   let link = document.getElementById("theme-css");
   if (!link) {

@@ -2,7 +2,8 @@
 
 Member dict shape:
     chat_id, character_id, name, has_avatar, position, depth (None = start of the prompt),
-    importance (1 most important .. 10), is_me, model_may_write
+    importance (1 most important .. 10), is_me, model_may_write,
+    talkativeness (0..100), muted, blurb (stage 7: group chats)
 """
 
 from __future__ import annotations
@@ -14,11 +15,13 @@ from tavern.storage.db import Database
 from tavern.util.ids import now_iso
 
 DEFAULT_IMPORTANCE = 5
-MEMBER_FIELDS = ("depth", "importance", "is_me", "model_may_write", "position")
+DEFAULT_TALKATIVENESS = 50
+MEMBER_FIELDS = ("depth", "importance", "is_me", "model_may_write", "position", "talkativeness", "muted",
+                 "blurb")
 
 _SELECT = """
 SELECT cm.chat_id, cm.character_id, cm.position, cm.depth, cm.importance, cm.is_me,
-       cm.model_may_write, c.name, (c.avatar IS NOT NULL AND c.avatar != '') AS has_avatar
+       cm.model_may_write, cm.talkativeness, cm.muted, cm.blurb, c.name, (c.avatar IS NOT NULL AND c.avatar != '') AS has_avatar
 FROM chat_members cm JOIN characters c ON c.id = cm.character_id
 """
 
@@ -34,6 +37,9 @@ def _member(row: Any) -> dict[str, Any]:
         "importance": row["importance"],
         "is_me": bool(row["is_me"]),
         "model_may_write": bool(row["model_may_write"]),
+        "talkativeness": row["talkativeness"],
+        "muted": bool(row["muted"]),
+        "blurb": row["blurb"],
     }
 
 
@@ -64,6 +70,9 @@ class MemberRepo:
         importance: int = DEFAULT_IMPORTANCE,
         is_me: bool = False,
         model_may_write: bool = True,
+        talkativeness: int = DEFAULT_TALKATIVENESS,
+        muted: bool = False,
+        blurb: str = "",
     ) -> dict[str, Any]:
         with self.db.transaction() as conn:
             if conn.execute(
@@ -79,8 +88,9 @@ class MemberRepo:
                 conn.execute("UPDATE chat_members SET is_me = 0 WHERE chat_id = ?", (chat_id,))
             conn.execute(
                 "INSERT INTO chat_members (chat_id, character_id, position, depth, importance, "
-                "is_me, model_may_write) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (chat_id, character_id, position, depth, importance, int(is_me), int(model_may_write)),
+                "is_me, model_may_write, talkativeness, muted, blurb) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (chat_id, character_id, position, depth, importance, int(is_me), int(model_may_write),
+                 talkativeness, int(muted), blurb),
             )
             conn.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now_iso(), chat_id))
         return self.get(chat_id, character_id)

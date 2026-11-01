@@ -7,9 +7,11 @@
 // open the drop-down with every note of the message.
 // With spending shown under messages (`spend` = the spending settings), a small line says what this
 // version cost ("≈" = the service gave no counts, or the reply was stopped).
+// Plugins add buttons to the header and plain-text lines under the text (core/plugins.js).
 import { html, useState } from "../vendor/preact-htm.mjs";
 import { ROLES, roleOf } from "./roles.js";
 import { usageLine } from "../core/spending.js";
+import { messageExtras, usePluginUi } from "../core/plugins.js";
 
 function usageTitle(u) {
   return `Запрос: ${u.prompt_tokens} токенов, ответ: ${u.completion_tokens}` +
@@ -43,7 +45,8 @@ function NoteCard({ note, onHide }) {
 
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
   streamText, streamThinking, busy, isLast, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
-  onBranches, onPrompt, onNotesOpen, onOpenNotes, spend }) {
+  onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend }) {
+  const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
   const [picking, setPicking] = useState(false); // role menu open
@@ -79,8 +82,9 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   return html`<div class="msg-row" data-slot="message-row">
     ${showHiddenHere && hidden.length > 0 && html`<${NoteColumn} notes=${hidden} side="left" few=${few}
       onHide=${hide} onMore=${more} />`}
-    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "")}
-      data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}>
+    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (message.exclude_from_prompt ? " msg-excluded" : "")}
+      data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}
+      data-excluded=${message.exclude_from_prompt ? "true" : "false"}>
       <header data-slot="message-header">
         ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy}
           aria-label=${"Выбрать сообщение " + (message.depth + 1)} onChange=${() => onSelect(message.id)} />`}
@@ -111,10 +115,17 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           <button title="Удалить" onClick=${() => confirm("Удалить это сообщение и всё после него?") && onRemove(message.id)}>🗑</button>
           <button title="Показать ветки" onClick=${() => onBranches(message.id)}>⑂</button>
           <button title="Что видела модель перед этим сообщением" onClick=${() => onPrompt(message)}>👁</button>
+          <button data-slot="message-exclude" aria-pressed=${message.exclude_from_prompt}
+            title=${message.exclude_from_prompt ? "Скрыто от модели. Нажмите, чтобы модель снова его видела"
+              : "Скрыть от модели: сообщение останется в чате, но модель его не прочтёт"}
+            onClick=${() => onExclude(message.id, !message.exclude_from_prompt)}>🙈</button>
           <button class=${"notes-toggle" + (notes.length ? " has" : "")} aria-pressed=${anyShown}
             title=${notes.length ? `Заметки этого сообщения (${notes.length}): посмотреть, изменить, добавить`
               : "Нет заметки. Нажмите, чтобы написать"}
-            onClick=${more}>📝${notes.length ? html`<small>${notes.length}</small>` : ""}</button>`}
+            onClick=${more}>📝${notes.length ? html`<small>${notes.length}</small>` : ""}</button>
+          ${!streaming && plugins.messageButtons.map((b, i) => html`<button key=${b.owner + i} data-slot="message-plugin-button"
+            data-plugin=${b.owner} title=${typeof b.title === "function" ? b.title(message) : b.title}
+            onClick=${() => b.onClick(message)}>${b.icon}</button>`)}`}
         ${canRegenerate && html`<button title="Другой вариант" onClick=${onRegenerate}>↻</button>`}
       </header>
       ${editing !== null
@@ -133,7 +144,10 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           </div>`}
           ${meta.via && !streaming && html`<div class="msg-via muted" data-slot="message-via"
             title="Основное подключение не ответило, ответил запасной путь">↪ через ${meta.via}</div>`}
+          ${message.exclude_from_prompt && html`<div class="msg-excluded-note muted" data-slot="message-excluded">🙈 скрыто от модели</div>`}
           <div class="body" data-slot="message-body">${text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
+          ${!streaming && messageExtras(message).map((line, i) => html`<div key=${line.owner + i} class="msg-plugin"
+            data-slot="message-plugin" data-plugin=${line.owner}>${line.text}</div>`)}
           ${spend && spend.show.message && meta.usage && !streaming && html`<div class="msg-usage muted"
             data-slot="message-usage" title=${usageTitle(meta.usage)}>${usageLine(meta.usage, spend)}</div>`}`}
     </article>

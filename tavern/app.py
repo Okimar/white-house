@@ -24,6 +24,8 @@ from tavern.api import jsonl as jsonl_api
 from tavern.api import blocks as blocks_api
 from tavern.api import lorebooks as lorebooks_api
 from tavern.api import notes as notes_api
+from tavern.api import plugins as plugins_api
+from tavern.api import assistant as assistant_api
 from tavern.api import prompts as prompts_api
 from tavern.api import static as static_api
 from tavern.api import themes as themes_api
@@ -89,6 +91,7 @@ def api_routes() -> list[Route]:
         *templates_api.routes,
         *profiles_api.routes,
         *spending_api.routes,
+        *assistant_api.routes,
         *themes_api.routes,
         *assets_api.routes,
         *jsonl_api.routes,
@@ -96,6 +99,7 @@ def api_routes() -> list[Route]:
         *blocks_api.routes,
         *lorebooks_api.routes,
         *notes_api.routes,
+        *plugins_api.routes,
         *chats_api.routes,
         # Must stay last: unknown /api paths get JSON 404 instead of falling through to static files.
         Route("/{path:path}", api_not_found, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),

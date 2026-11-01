@@ -114,7 +114,11 @@ export function LorebookShelf({ settings, onError }) {
   const [editing, setEditing] = useState(null);
   const fileInput = useRef(null);
   const load = () => api.get("/lorebooks").then((d) => setBooks(d.lorebooks)).catch((e) => onError(e.message));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener("tavern:lorebooks", load); // the assistant changed books
+    return () => window.removeEventListener("tavern:lorebooks", load);
+  }, []);
 
   const create = async () => {
     const name = prompt("Название книги", "Новый лорбук");

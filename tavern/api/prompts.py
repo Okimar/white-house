@@ -17,7 +17,7 @@ from tavern.services import cast
 from tavern.services import presets as preset_service
 from tavern.services.chat import resolve_connection
 
-MEMBER_KEYS = ("depth", "importance", "is_me", "model_may_write", "position")
+MEMBER_KEYS = ("depth", "importance", "is_me", "model_may_write", "position", "talkativeness", "muted", "blurb")
 MAX_PRESET_FILE = 5 * 1024 * 1024
 
 

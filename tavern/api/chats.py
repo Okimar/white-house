@@ -13,6 +13,7 @@ from starlette.routing import Route
 from tavern.api.util import BadRequest, ctx_of, field, json_body
 from tavern.errors import NotFound
 from tavern.services import chat as chat_service
+from tavern.services import speakers
 
 PAGE_DEFAULT = 50
 PAGE_MAX = 200
@@ -106,6 +107,13 @@ async def update_chat_meta(request: Request) -> JSONResponse:
     return JSONResponse(ctx.chats.get_chat(chat["id"]))
 
 
+async def update_speakers(request: Request) -> JSONResponse:
+    """Who speaks: {order?, others?} (services/speakers.py)."""
+    body = await json_body(request)
+    settings = speakers.save_settings(ctx_of(request), request.path_params["id"], body)
+    return JSONResponse({"speakers": settings})
+
+
 async def delete_chat(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     chat_id = request.path_params["id"]
@@ -125,8 +133,10 @@ async def _optional_body(request: Request) -> dict[str, Any]:
 
 
 async def send(request: Request) -> JSONResponse:
-    """Body: {text, reply_role?, images?}. reply_role (default assistant) is who the reply is saved
-    as; images are picture names from the library (text may then be empty)."""
+    """Body: {text, reply_role?, images?, speaker?}. reply_role (default assistant) is who the reply
+    is saved as; images are picture names from the library (text may then be empty); speaker is the
+    character who answers. With two or more characters and the order "manual" only the message is saved:
+    {"run_id": null, "message": ...}."""
     body = await json_body(request)
     images = field(body, "images", list, default=[])
     if not all(isinstance(name, str) for name in images):
@@ -137,7 +147,12 @@ async def send(request: Request) -> JSONResponse:
         field(body, "text", str, allow_empty=bool(images)),
         field(body, "reply_role", str, default="assistant"),
         images,
+        field(body, "speaker", str, default="") or None,
     )
+    if run is None:
+        ctx = ctx_of(request)
+        leaf = ctx.chats.get_chat(request.path_params["id"])["leaf_id"]
+        return JSONResponse({"run_id": None, "message": ctx.chats.get_message(leaf)}, status_code=201)
     return JSONResponse({"run_id": run.id}, status_code=202)
 
 
@@ -171,11 +186,21 @@ async def set_roles(request: Request) -> JSONResponse:
 
 
 async def continue_chat(request: Request) -> JSONResponse:
-    """Body (optional): {role?}. The generated message is saved with this role (default assistant)."""
+    """Body (optional): {role?, speaker?}. The generated message is saved with this role (default
+    assistant); speaker is the character who writes it ("ответь ты")."""
     body = await _optional_body(request)
     run = chat_service.start_continue(
-        ctx_of(request), request.path_params["id"], field(body, "role", str, default="assistant")
+        ctx_of(request), request.path_params["id"], field(body, "role", str, default="assistant"),
+        field(body, "speaker", str, default="") or None,
     )
+    return JSONResponse({"run_id": run.id}, status_code=202)
+
+
+async def talk(request: Request) -> JSONResponse:
+    """«Пусть поговорят». Body (optional): {count?}: how many replies (default the chat's talk_limit)."""
+    body = await _optional_body(request)
+    count = field(body, "count", int, default=0) or None
+    run = chat_service.start_talk(ctx_of(request), request.path_params["id"], count)
     return JSONResponse({"run_id": run.id}, status_code=202)
 
 
@@ -228,13 +253,20 @@ async def run_events(request: Request) -> StreamingResponse:
 
 
 async def edit_message(request: Request) -> JSONResponse:
+    """Body: {content?, exclude_from_prompt?}: new text of the shown version; true hides the message
+    from the model (it stays in the chat), false shows it to the model again."""
     ctx = ctx_of(request)
     message_id = request.path_params["id"]
     body = await json_body(request)
     message = ctx.chats.get_message(message_id)
     if ctx.runs.active(message["chat_id"]) is not None:
         raise BadRequest("Wait for the generation to finish before editing", code="busy")
-    ctx.chats.set_content(message_id, field(body, "content", str))
+    if "content" not in body and "exclude_from_prompt" not in body:
+        raise BadRequest("Nothing to change: give content and/or exclude_from_prompt")
+    if "content" in body:
+        ctx.chats.set_content(message_id, field(body, "content", str))
+    if "exclude_from_prompt" in body:
+        ctx.chats.set_excluded(message_id, field(body, "exclude_from_prompt", bool))
     return JSONResponse(ctx.chats.get_message(message_id))
 
 
@@ -301,12 +333,14 @@ routes = [
     Route("/chats/{id}", rename_chat, methods=["PUT"]),
     Route("/chats/{id}", delete_chat, methods=["DELETE"]),
     Route("/chats/{id}/meta", update_chat_meta, methods=["PUT"]),
+    Route("/chats/{id}/speakers", update_speakers, methods=["PUT"]),
     Route("/chats/{id}/messages", get_messages, methods=["GET"]),
     Route("/chats/{id}/history", get_history, methods=["GET"]),
     Route("/chats/{id}/send", send, methods=["POST"]),
     Route("/chats/{id}/messages", add_message, methods=["POST"]),
     Route("/chats/{id}/roles", set_roles, methods=["PUT"]),
     Route("/chats/{id}/continue", continue_chat, methods=["POST"]),
+    Route("/chats/{id}/talk", talk, methods=["POST"]),
     Route("/chats/{id}/impersonate", impersonate, methods=["POST"]),
     Route("/chats/{id}/regenerate", regenerate, methods=["POST"]),
     Route("/chats/{id}/stop", stop, methods=["POST"]),

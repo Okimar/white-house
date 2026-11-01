@@ -104,13 +104,27 @@ class DefaultGenerator:
 class GeneratorRegistry:
     def __init__(self) -> None:
         self._items: dict[str, Generator] = {DEFAULT_GENERATOR: DefaultGenerator()}
+        self._about: dict[str, tuple[str, str]] = {DEFAULT_GENERATOR: ("", "Обычный")}  # id -> (owner, name)
 
-    def register(self, generator: Generator) -> None:
+    def register(self, generator: Generator, *, owner: str = "", name: str = "") -> None:
+        """`owner` = the plugin id: its model calls count as the plugin's and obey its access rules."""
         self._items[generator.id] = generator
+        self._about[generator.id] = (owner, name or generator.id)
 
     def unregister(self, generator_id: str) -> None:
         if generator_id != DEFAULT_GENERATOR:
             self._items.pop(generator_id, None)
+            self._about.pop(generator_id, None)
+
+    def unregister_owner(self, owner: str) -> None:
+        for generator_id in [g for g, (o, _) in self._about.items() if owner and o == owner]:
+            self.unregister(generator_id)
+
+    def owner_of(self, generator_id: str) -> str:
+        return self._about.get(generator_id, ("", ""))[0]
+
+    def describe(self) -> list[dict[str, str]]:
+        return [{"id": g, "owner": o, "name": n} for g, (o, n) in sorted(self._about.items())]
 
     @property
     def ids(self) -> list[str]:

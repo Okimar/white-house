@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; stage 7 next**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts) next**.
 
 ## Commands
 
@@ -30,7 +30,7 @@ Use the virtualenv interpreter: `.venv/bin/python` (Windows: `.venv\Scripts\pyth
 
 ```
 tavern/                 Python package (backend)
-  cli.py                entry point, subcommands; `serve` is the default
+  cli.py                entry point, subcommands; `serve` is the default (`--no-plugins`)
   app.py                Starlette app factory, API routes, error handlers, page CSP
   context.py            AppContext: config + db + secrets for one running instance
   config.py             data/config.toml -> frozen dataclasses, strict validation
@@ -55,6 +55,12 @@ tavern/                 Python package (backend)
   services/chat.py      use cases: create chat, send, continue, impersonate, regenerate, stop
   services/cast.py      chat members (depth, importance, "me", may the model write for me); used by
                         UI, agents and the assistant alike; fires chat.members_changed
+  services/speakers.py  who speaks next in a chat (many characters is the normal state, not a mode):
+                        by name / talkativeness, in turns, the model decides, manual; muted
+                        members; what the model knows about the others; messages.character_id =
+                        who wrote a reply. Agents add characters via cast.add_member + speaker=.
+                        Turns of several replies live in services/chat.py (_start_turn, _round,
+                        _narrate): «пусть поговорят», everyone at once, the narrator
   services/presets.py   prompt presets: built-in default, user presets, per-chat choice, import/export
                         (our full .tavern-preset.json or SillyTavern)
   services/character_tree.py  the block tree of an owner (a card or a lorebook): edit (fires
@@ -80,7 +86,21 @@ tavern/                 Python package (backend)
   core/assembly.py      builds the prompt from a preset + members + history, with budget trimming;
                         keeps every part (entry) for the archive
   core/                 events (EventBus), budget (RunBudget), prompt, llm (LLMClient), generation
-                        (Generator strategies), runs (background Run + SSE replay)
+                        (Generator strategies), runs (background Run + SSE replay), notices (app-wide
+                        events for every open page: GET /api/events)
+  plugins/              stage 8а: manifest (plugin.json, files, approval hash, zips), install (folder
+                        writes, GitHub), api (PluginAPI given to setup(api)), manager (find, approve,
+                        load/unload, commands, actions, the model-access gate, «may it?» questions);
+                        api/plugins.py; storage/repos/plugins.py (plugins, plugin_data); ADR 0009
+  builtin_plugins/      dice (/roll), translate (Google Translate, no model)
+  services/assistant.py the assistant over the chat (stage 8б): conversations, the step loop (JSON form
+                        via generate_json, any model), confirmations, own spending limits, undo;
+                        services/assistant_tools.py (tools over the same services as the UI);
+                        services/assistant_app.py (app_call: the page's own requests in process, closed
+                        routes, read_chat, theme tools, show); storage/changelog.py (rows a request
+                        changed, via TEMP triggers, for undo);
+                        storage/snapshot.py (rows + what goes with them on delete, put back);
+                        storage/repos/assistant.py; api/assistant.py; ADR 0010
   providers/            Provider interface, openai_compat, gemini and anthropic (own protocols), registry
                         (kinds), keys (several keys per connection, a proxy each, next key / retries),
                         params (every setting: type, range, kinds, sent or Tavern's own), catalog
@@ -114,7 +134,8 @@ web/                    browser UI: Preact + htm vendored in web/vendor, plain E
                         Members (chat members + chat preset), CharacterEditor, CharacterTree,
                         Presets, PromptView, Notes (📝 window, notes by numbers),
                         Lorebooks (left-panel shelf, book window, BookPicker, settings tab),
-                        roles (role icons/labels)
+                        roles (role icons/labels), Plugins (Settings tab, «may it?» window), Assistant (🪄 window);
+                        core/plugins.js runs plugins' web parts (buttons, lines under messages)
   styles.css            base look: CSS variables + data-slot places themes restyle; phone/tablet layout
   themes/               built-in themes (default, light, dark, sakura = example with effects)
 tests/unit/             pure logic, no I/O beyond tmp_path
@@ -159,8 +180,9 @@ data/                   user data, git-ignored. Never commit, never delete
 | [add-provider](.claude/skills/add-provider/SKILL.md) | adding an LLM provider kind (core or plugin) |
 | [make-theme](.claude/skills/make-theme/SKILL.md) | restyling the interface: themes, pictures, animations, effects scripts |
 | [style-bubble-map](.claude/skills/style-bubble-map/SKILL.md) | restyling the character bubble map: classes, states, lines, tokens, speed rules |
+| [create-plugin](.claude/skills/create-plugin/SKILL.md) | writing or changing a plugin (server part, web part, tests, sharing) |
 
-Planned with their stages: `create-plugin` and `agentic-plugin` (stage 8).
+Planned with their stages: `agentic-plugin` (stage 8в).
 
 ## Done checklist
 

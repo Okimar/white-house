@@ -74,6 +74,9 @@ per file, 30 MB per theme.
 | `message-header`, `message-avatar`, `message-name`, `message-body` | parts of a message | |
 | `message-thinking`, `message-images` | the model's folded thinking (`details.thinking`), pictures sent with a message | |
 | `chat-actions` | Continue / roles row | |
+| `speakers` | «Ответит:» buttons under the chat, one per character (`.muted-member` when muted) | |
+| `talk-button` | «Пусть поговорят» (characters answer one another) | |
+| `together-settings`, `narrator-settings` | in «Кто говорит»: how an everyone-at-once round is shown; the narrator's name, connection, model | |
 | `composer`, `composer-input`, `send-button`, `stop-button` | input area | |
 | `attach-button`, `composer-images` | 📎 and the pictures waiting to be sent | |
 | `template-editor`, `template-preview` | Settings → Шаблоны | |
@@ -82,6 +85,7 @@ per file, 30 MB per theme.
 | `conn-list`, `conn-new`, `conn-editor`, `conn-keys`, `conn-log`, `conn-console`, `model-facts` | Settings → Подключения (the console: `.param.yes/.no/.unknown`, `.param-mark`) | |
 | `empty`, `dialog`, `toast` | empty screen, settings dialog, error popup | |
 | `members-button`, `member` | chat 👥 button, one member in the members panel | |
+| `speaker-settings`, `member-speaking`, `member-blurb` | «Кто говорит» in 👥 (order, what the model knows about the others); a character's talkativeness / «молчит»; its short description | |
 | `prompt-part`, `preset-block` | a part in "what the model saw", a block in the preset editor | |
 | `character-tree`, `tree-panel`, `tree-crumbs` | the bubble map of a character, the bubble editor panel, the path of opened spaces — details in the `style-bubble-map` skill | |
 | `character-history` | the versions list of a character or a lorebook ("🕘 История") | |
@@ -93,6 +97,13 @@ per file, 30 MB per theme.
 | `message-notes-hidden`, `message-notes-visible` | the column of hidden notes (left) and visible notes (right); under the message on narrow screens | |
 | `message-note` | one note beside a message; `data-kind="hidden"` or `"visible"` | |
 | `numbered-message` | one message in the "notes by numbers" window | |
+| `message-plugin-button`, `message-plugin`, `composer-plugin-button` | a plugin's button on a message, its line under the text (a translation), its button beside the message box | `data-plugin` (the plugin id) |
+| `plugins`, `plugin-card`, `plugin-access`, `plugin-spent`, `plugin-error`, `plugin-warning` | Settings → Дополнения: the tab, one plugin (`data-enabled`), its model access, what it spent, why it did not start, the full-access warning | `data-plugin` on the card |
+| `plugin-ask` | «Дополнение хочет обратиться к модели» window | |
+| `generator-pick`, `spending-plugins` | «Ответ пишет» in 👥, the plugins' lines in Settings → Расход | |
+| `assistant-button`, `assistant`, `assistant-head`, `assistant-body`, `assistant-input`, `assistant-settings` | the 🪄 button, the assistant window, its header (drag handle), messages, input, ⚙ panel | |
+| `message-exclude`, `message-excluded` | 🙈 «скрыть от модели» on a message, the «скрыто от модели» line (the message has `data-excluded="true"`) | |
+| `assistant-user`, `assistant-reply`, `assistant-action`, `assistant-ask`, `spending-assistant` | a request, a reply, one journal line (class = status: done / undone / denied), the «Разрешить?» box, its line in Расход | |
 
 Inside theme CSS, relative URLs resolve to the theme folder: `url(assets/bg.webp)`.
 Library pictures are at `/assets/<name>`, but copy them into the theme

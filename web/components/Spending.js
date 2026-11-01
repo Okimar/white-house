@@ -139,6 +139,18 @@ export function SpendingSettings({ onError }) {
               title="Указать для этой модели свою цену">своя</button>`}</td>
           </tr>`)}</tbody>
         </table></div>`}
+        ${(report.plugins || []).length > 0 && html`<h3>Дополнения</h3>
+        <ul class="list spend-plugins" data-slot="spending-plugins">
+          ${report.plugins.map((p) => html`<li key=${p.plugin} class="row"><span>${p.name}</span>
+            <span class="muted">запросов: ${p.requests}</span><span class="spacer"></span>
+            <span class="muted">${sumLine(p, settings)}</span></li>`)}
+        </ul>`}
+        ${report.assistant && html`<h3>Помощник</h3>
+        <ul class="list spend-plugins" data-slot="spending-assistant">
+          <li class="row"><span>🪄 Помощник</span>
+            <span class="muted">запросов: ${report.assistant.requests}</span><span class="spacer"></span>
+            <span class="muted">${sumLine(report.assistant, settings)}</span></li>
+        </ul>`}
         ${report.days.length > 0 && html`<ul class="list spend-days">
           ${report.days.map((d) => html`<li key=${d.day} class="row"><span>${d.day}</span><span class="spacer"></span>
             <span class="muted">${sumLine(d, settings)}</span></li>`)}

@@ -16,7 +16,9 @@ function upsert(list, message) {
 
 export function useChat(chatId, onError) {
   const [state, setState] = useState(EMPTY);
-  const [stream, setStream] = useState(null); // { id, text } of the reply being written
+  // Replies being written: id -> { text, thinking }. Several at once when everyone answers together.
+  const [streams, setStreams] = useState({});
+  const reloadRef = useRef(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   const closeRef = useRef(null);
@@ -29,54 +31,75 @@ export function useChat(chatId, onError) {
 
   const follow = useCallback((runId) => {
     stopFollowing();
-    let buffer = "";
-    let thinking = ""; // the model's reasoning, shown folded above the reply
+    const buffers = {}; // id -> { text, thinking } not drawn yet
     let scheduled = false;
-    let replyId = null;
+    let replyId = null; // the reply of the last "start": events without an id belong to it
     // Deltas arrive faster than the screen refreshes: batch them into one render per frame.
     const flush = () => {
       scheduled = false;
-      const text = buffer;
-      const thought = thinking;
-      buffer = "";
-      thinking = "";
-      if (text || thought) {
-        setStream((s) => (s ? { ...s, text: s.text + text, thinking: s.thinking + thought } : s));
-      }
+      const pending = Object.entries(buffers);
+      for (const [id] of pending) delete buffers[id];
+      if (!pending.length) return;
+      setStreams((s) => {
+        const next = { ...s };
+        for (const [id, b] of pending) {
+          if (next[id]) next[id] = { text: next[id].text + b.text, thinking: next[id].thinking + b.thinking };
+        }
+        return next;
+      });
+    };
+    const drop = (id) => {
+      delete buffers[id];
+      setStreams((s) => { const { [id]: _, ...rest } = s; return rest; });
     };
     const finish = (event) => {
-      buffer = "";
-      thinking = "";
-      setStream(null);
+      for (const id of Object.keys(buffers)) delete buffers[id];
+      setStreams({});
       closeRef.current = null;
-      setState((s) => ({
-        ...s,
-        running: false,
-        messages: event.message
-          ? upsert(s.messages, event.message)
-          : s.messages.filter((m) => m.id !== replyId),
-      }));
+      if (event.reload) {
+        // A turn of several replies: a round may have reordered or joined them on the server.
+        setState((s) => ({ ...s, running: false }));
+        if (reloadRef.current) reloadRef.current();
+      } else {
+        setState((s) => ({
+          ...s,
+          running: false,
+          messages: event.message
+            ? upsert(s.messages, event.message)
+            : s.messages.filter((m) => m.id !== replyId),
+        }));
+      }
       if (event.type === "error") onError(event.error.message);
       spendingChanged();
       // Parallel requests in "pick" mode: show every version side by side to choose one.
       if (event.type === "done" && event.pick && event.message) setState((s) => ({ ...s, pick: event.message.id }));
     };
     closeRef.current = followRun(runId, (event) => {
-      if (event.type === "start") {
+      if (event.type === "turn_start") {
+        setState((s) => ({ ...s, running: true,
+          messages: event.user_message ? upsert(s.messages, event.user_message) : s.messages }));
+      } else if (event.type === "start") {
         replyId = event.message.id;
-        setStream({ id: replyId, text: "", thinking: "" });
+        setStreams((s) => ({ ...s, [replyId]: { text: "", thinking: "" } }));
         setState((s) => {
           let messages = s.messages;
           if (event.user_message) messages = upsert(messages, event.user_message);
           return { ...s, running: true, messages: upsert(messages, event.message) };
         });
       } else if (event.type === "delta" || event.type === "reasoning") {
-        if (event.type === "delta") buffer += event.text;
-        else thinking += event.text;
+        const b = (buffers[event.id || replyId] ||= { text: "", thinking: "" });
+        if (event.type === "delta") b.text += event.text;
+        else b.thinking += event.text;
         if (!scheduled) {
           scheduled = true;
           requestAnimationFrame(flush);
         }
+      } else if (event.type === "reply_done") {
+        drop(event.message.id);
+        setState((s) => ({ ...s, messages: upsert(s.messages, event.message) }));
+      } else if (event.type === "reply_error") {
+        drop(event.id);
+        onError(event.error.message);
       } else if (event.type === "spend_warning") {
         onError(event.text);
       } else if (event.type === "variants_failed") {
@@ -90,7 +113,7 @@ export function useChat(chatId, onError) {
 
   useEffect(() => {
     stopFollowing();
-    setStream(null);
+    setStreams({});
     setState(EMPTY);
     if (!chatId) return undefined;
     let dead = false;
@@ -106,10 +129,11 @@ export function useChat(chatId, onError) {
   // After the active branch changed on the server: reload its newest page.
   const reload = () => api.get(`/chats/${chatId}?limit=${PAGE}`).then((d) =>
     setState((s) => ({ ...s, chat: d.chat, messages: d.messages, hasMore: d.has_more })));
+  reloadRef.current = reload;
 
   return {
     ...state,
-    stream,
+    streams,
     loadOlder: useCallback(async () => {
       const s = stateRef.current;
       if (loadingOlder.current || !s.hasMore || !s.messages.length) return;
@@ -126,9 +150,16 @@ export function useChat(chatId, onError) {
     }, [chatId, onError]),
     // replyRole: who the generated message is saved as (user / assistant / system).
     // images: picture names from the library, sent with the message for the model to see.
+    // With two or more characters and the order "manual" only the message is saved (no run): the user picks who answers.
     send: (text, replyRole = "assistant", images = []) => guard(api.post(`/chats/${chatId}/send`,
-      { text, reply_role: replyRole, images }).then((r) => follow(r.run_id))),
-    continue: (role = "assistant") => guard(api.post(`/chats/${chatId}/continue`, { role })
+      { text, reply_role: replyRole, images }).then((r) => r.run_id
+        ? follow(r.run_id)
+        : setState((s) => ({ ...s, messages: upsert(s.messages, r.message) })))),
+    // speaker: the character who writes it ("ответь ты"); default the chat's order.
+    continue: (role = "assistant", speaker = null) => guard(api.post(`/chats/${chatId}/continue`,
+      speaker ? { role, speaker } : { role }).then((r) => follow(r.run_id))),
+    // «Пусть поговорят»: the characters answer one another (count: how many replies; default the chat's).
+    talk: (count = null) => guard(api.post(`/chats/${chatId}/talk`, count ? { count } : {})
       .then((r) => follow(r.run_id))),
     regenerate: () => guard(api.post(`/chats/${chatId}/regenerate`).then((r) => follow(r.run_id))),
     stop: () => guard(api.post(`/chats/${chatId}/stop`)),
@@ -146,6 +177,8 @@ export function useChat(chatId, onError) {
     // Chat fields (main character, preset) changed elsewhere: refresh them without touching messages.
     refreshInfo: () => guard(api.get(`/chats/${chatId}?limit=1`).then((d) =>
       setState((s) => ({ ...s, chat: d.chat })))),
+    // Something else added messages (a plugin's command): show the newest page.
+    reload: () => guard(reload()),
     selectBranch: (messageId) => guard(api.post(`/chats/${chatId}/branch`, { leaf_id: messageId }).then(reload)),
     remove: (id) => guard(api.del(`/messages/${id}`).then(reload)),
   };

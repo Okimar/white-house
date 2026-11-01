@@ -12,8 +12,10 @@ from typing import Any
 from tavern.config import Config, load_config, with_server_overrides
 from tavern.core.events import EventBus
 from tavern.core.generation import GeneratorRegistry
+from tavern.core.notices import Notices
 from tavern.core.runs import RunManager
-from tavern.paths import BUILTIN_THEMES_DIR, DataPaths
+from tavern.paths import BUILTIN_PLUGINS_DIR, BUILTIN_THEMES_DIR, DataPaths
+from tavern.plugins.manager import PluginManager
 from tavern.providers.registry import ProviderRegistry
 from tavern.secret_store import SecretStore
 from tavern.storage.assets import AssetStore
@@ -24,11 +26,13 @@ from tavern.storage.repos.chats import ChatRepo
 from tavern.storage.repos.connections import ConnectionRepo
 from tavern.storage.repos.templates import TemplateRepo
 from tavern.storage.prompt_log import PromptLog
+from tavern.storage.repos.assistant import AssistantRepo
 from tavern.storage.repos.blocks import BlockRepo
 from tavern.storage.repos.members import MemberRepo
 from tavern.storage.repos.notes import NoteRepo
 from tavern.storage.repos.history import HistoryRepo
 from tavern.storage.repos.lorebooks import LorebookRepo
+from tavern.storage.repos.plugins import PluginRepo
 from tavern.storage.repos.presets import PresetRepo
 from tavern.storage.repos.settings import SettingsRepo
 from tavern.storage.repos.spending import SpendingRepo
@@ -62,9 +66,15 @@ class AppContext:
     history: HistoryRepo
     lorebooks: LorebookRepo
     spending: SpendingRepo
+    plugin_repo: PluginRepo
+    assistant_repo: AssistantRepo
+    notices: Notices
+    plugins: PluginManager = None  # type: ignore[assignment]  # set right after construction
     sandbox: bool = False
 
     def close(self) -> None:
+        if self.plugins is not None:
+            self.plugins.stop()
         self.db.close()
 
 
@@ -73,10 +83,13 @@ def open_context(
     *,
     server_overrides: dict[str, Any] | None = None,
     sandbox: bool = False,
+    load_plugins: bool = True,
 ) -> AppContext:
     """Create the data dir if needed, load config, open and migrate the database.
 
-    An existing database is snapshotted before any migration runs.
+    An existing database is snapshotted before any migration runs. Plugins are found but not
+    started: the caller runs `ctx.plugins.start()` (the server does; tests do when they need it).
+    `load_plugins=False` (`--no-plugins`) never runs their server parts.
     """
     paths.ensure()
     config = load_config(paths.config)
@@ -118,8 +131,12 @@ def open_context(
         history=HistoryRepo(db),
         lorebooks=LorebookRepo(db),
         spending=SpendingRepo(db),
+        plugin_repo=PluginRepo(db),
+        assistant_repo=AssistantRepo(db),
+        notices=Notices(),
         sandbox=sandbox,
     )
+    ctx.plugins = PluginManager(ctx, BUILTIN_PLUGINS_DIR, paths.plugins, load_server=load_plugins)
 
     def resolve_template(template_id: str, model: str) -> dict:
         from tavern.services.templates import resolve  # services import the context module

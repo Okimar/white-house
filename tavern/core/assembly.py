@@ -64,6 +64,11 @@ class PromptInput:
     lore_dropped: list[str] = field(default_factory=list)
     # name -> (media type, base64) for pictures attached to messages; None when it cannot be read.
     load_image: Any = None
+    # Two or more characters in the chat (stage 7): the primary member is the one speaking now.
+    # Replies of the others go with their names and the model is told whom it writes for. `scene`
+    # names the characters whose cards it does not get (name, short description or "").
+    several: bool = False
+    scene: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -186,6 +191,10 @@ def assemble(data: PromptInput) -> Prompt:
     after: list[Entry] = []
     injections: list[_Injection] = []
     history_seen = False
+    scene = ""
+    if data.scene:
+        scene = "Also in the scene:\n" + "\n".join(
+            f"- {name}" + (f": {about}" if about else "") for name, about in data.scene)
 
     def place(entry: Entry, block: dict[str, Any], member_depth: int | None = None) -> None:
         if not entry.text.strip():
@@ -276,6 +285,9 @@ def assemble(data: PromptInput) -> Prompt:
                 place(Entry(role, sub(text), f"character:{member.character_id}:card",
                             member.name, kind, owner=member.character_id), block, member.depth)
                 place_blocks(member, block)
+            if scene:
+                place(Entry(role, sub(scene), "prompt:scene", "Остальные в сцене", "prompt"), block)
+                scene = ""
         elif kind == "examples":
             place_lore("examples_top", block)
             for member in others:
@@ -292,6 +304,8 @@ def assemble(data: PromptInput) -> Prompt:
 
     # Presets that switch the card blocks off still get the character's tree blocks, just before
     # the chat (blocks with their own depth go inside it as usual).
+    if scene:  # the preset has no character block switched on
+        before.append(Entry("system", sub(scene), "prompt:scene", "Остальные в сцене", "prompt"))
     for member in data.members:
         if member.character_id not in blocks_placed:
             history_seen_before, history_seen = history_seen, False
@@ -313,7 +327,11 @@ def assemble(data: PromptInput) -> Prompt:
     saved_sources: dict[str, set[str]] = {}  # note id -> its attached copies in the history
 
     def message_entry(m: dict[str, Any]) -> Entry:
-        entry = Entry(m["role"], sub(m["content"]), f"message:{m['id']}",
+        text = m["content"]
+        together = (m.get("extra") or {}).get("together")  # a combined round names everyone inside
+        if data.several and m["role"] == "assistant" and m.get("name") and m["name"] != char and not together:
+            text = f"{m['name']}: {text}"  # another character's line, so the model does not take it as its own
+        entry = Entry(m["role"], sub(text), f"message:{m['id']}",
                       f"№{m['depth'] + 1} {m.get('name') or m['role']}", "message")
         if data.load_image is not None:
             for name in (m.get("swipe_meta") or {}).get("images") or []:
@@ -355,6 +373,9 @@ def assemble(data: PromptInput) -> Prompt:
     if me is not None and not me.model_may_write and not data.impersonate:
         tail.append(Entry("system", sub(preset["prompts"]["no_write_for_me"]), "prompt:no_write_for_me",
                           f"Запрет: не писать за «{me.name}»", "prompt"))
+    if data.several and not data.impersonate and (preset["prompts"].get("speaker_reply") or "").strip():
+        tail.append(Entry("system", sub(preset["prompts"]["speaker_reply"]), "prompt:speaker_reply",
+                          f"Отвечает: {char}", "prompt"))
     if data.impersonate:
         tail.append(Entry("user", sub(preset["prompts"]["impersonate"]), "prompt:impersonate",
                           "Написать за меня", "prompt"))

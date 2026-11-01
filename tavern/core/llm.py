@@ -6,6 +6,8 @@ for another provider/model that shares the same budget and trace.
 
 A `meter` (set by the app, see services/spending) is told about every finished or interrupted call:
 it records the spending and returns the cost in dollars, which the budget's `max_cost` counts.
+A `gate` (set for plugins, see plugins/manager.py) is awaited before every request and raises to
+refuse it: no permission to use models, the plugin's own limit, or the user said no.
 
     llm = LLMClient(provider, model="gpt-x", budget=budget, trace=run.trace)
     other = llm.fork(provider=cheap_provider, model="small")
@@ -18,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import replace
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from tavern.core import structured
@@ -44,6 +46,7 @@ class StructuredOutputError(ProviderError):
 
 # (model asked for, usage, estimated, provider) -> cost in dollars or None when the price is unknown
 MeterFn = Callable[[str, Usage, bool, Provider], "float | None"]
+GateFn = Callable[[], Awaitable[None]]
 
 
 class LLMClient:
@@ -56,6 +59,7 @@ class LLMClient:
         trace: TraceFn | None = None,
         defaults: dict[str, Any] | None = None,
         meter: MeterFn | None = None,
+        gate: GateFn | None = None,
     ) -> None:
         self.provider = provider
         self.model = model
@@ -63,12 +67,13 @@ class LLMClient:
         self._trace = trace
         self.defaults = defaults or {}
         self.meter = meter
+        self.gate = gate
 
     def fork(
         self, *, provider: Provider | None = None, model: str | None = None, meter: MeterFn | None = None,
-        **defaults: Any,
+        gate: GateFn | None = None, **defaults: Any,
     ) -> LLMClient:
-        """Another client sharing this one's budget and trace (and meter, unless given another)."""
+        """Another client sharing this one's budget and trace (and meter and gate, unless given others)."""
         return LLMClient(
             provider or self.provider,
             model=self.model if model is None else model,
@@ -76,7 +81,13 @@ class LLMClient:
             trace=self._trace,
             defaults={**self.defaults, **defaults},
             meter=meter or self.meter,
+            gate=gate or self.gate,
         )
+
+    async def _begin(self) -> None:
+        if self.gate is not None:
+            await self.gate()
+        self.budget.begin_step()
 
     def _request(self, messages: list[ChatMessage], opts: dict[str, Any]) -> GenerationRequest:
         merged = {**self.defaults, **opts}
@@ -108,7 +119,7 @@ class LLMClient:
             self._trace(kind, **data)
 
     async def stream(self, messages: list[ChatMessage], **opts: Any) -> AsyncIterator[StreamEvent]:
-        self.budget.begin_step()
+        await self._begin()
         request = self._request(messages, opts)
         parts: list[str] = []
         done = False
@@ -130,7 +141,7 @@ class LLMClient:
             raise
 
     async def generate(self, messages: list[ChatMessage], **opts: Any) -> GenerationResult:
-        self.budget.begin_step()
+        await self._begin()
         request = self._request(messages, opts)
         result = await self.provider.generate(request)
         result.usage = self._charge(result.usage, messages, result.text, request.model)

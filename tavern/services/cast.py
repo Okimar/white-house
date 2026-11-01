@@ -16,8 +16,10 @@ from typing import Any
 from tavern.context import AppContext
 from tavern.core.assembly import Member
 from tavern.errors import AppError, NotFound
+from tavern.services import speakers
 
 DEFAULT_USER_NAME = "User"
+MAX_BLURB = 500
 
 
 def _check(changes: dict[str, Any]) -> dict[str, Any]:
@@ -30,7 +32,14 @@ def _check(changes: dict[str, Any]) -> dict[str, Any]:
         elif key == "importance":
             if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 10:
                 raise AppError("Importance must be 1..10", code="bad_member")
-        elif key in ("is_me", "model_may_write"):
+        elif key == "talkativeness":
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+                raise AppError("Talkativeness must be 0..100", code="bad_member")
+        elif key == "blurb":
+            if not isinstance(value, str) or len(value) > MAX_BLURB:
+                raise AppError(f"The short description is at most {MAX_BLURB} characters", code="bad_member")
+            value = value.strip()
+        elif key in ("is_me", "model_may_write", "muted"):
             if not isinstance(value, bool):
                 raise AppError(f"{key} must be true or false", code="bad_member")
         elif key == "position":
@@ -98,10 +107,18 @@ def user_name(ctx: AppContext, chat_id: str | None = None) -> str:
     return ctx.settings.get("user_name") or DEFAULT_USER_NAME
 
 
-def prompt_members(ctx: AppContext, chat: dict[str, Any]) -> list[Member]:
-    """Members with their cards, for prompt assembly."""
+def prompt_members(ctx: AppContext, chat: dict[str, Any], speaker: str | None = None) -> list[Member]:
+    """Members with their cards, for prompt assembly. `speaker` writes this reply: its card is the
+    primary one ({{char}}); default the chat's main character. With two or more characters muted
+    ones stay out, and unless the chat shows the others in full only the speaker and "me" go in
+    with their cards (services/speakers.py)."""
+    speaker = speaker or chat["character_id"]
+    rows = ctx.members.list(chat["id"])
+    if speakers.several(rows):
+        full = speakers.get_settings(chat)["others"] == "full"
+        rows = [m for m in rows if m["is_me"] or m["character_id"] == speaker or (full and not m["muted"])]
     result = []
-    for member in ctx.members.list(chat["id"]):
+    for member in rows:
         try:
             card = ctx.characters.get(member["character_id"])["data"]
         except NotFound:
@@ -110,6 +127,6 @@ def prompt_members(ctx: AppContext, chat: dict[str, Any]) -> list[Member]:
             character_id=member["character_id"], name=member["name"], card=card,
             depth=member["depth"], importance=member["importance"], is_me=member["is_me"],
             model_may_write=member["model_may_write"],
-            primary=member["character_id"] == chat["character_id"],
+            primary=member["character_id"] == speaker,
         ))
     return result

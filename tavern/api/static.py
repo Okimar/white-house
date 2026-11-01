@@ -34,7 +34,13 @@ async def asset_file(request: Request) -> FileResponse:
     return serve(ctx_of(request).assets.path(request.path_params["name"]))
 
 
+async def plugin_file(request: Request) -> FileResponse:
+    """The web part of a plugin that is on (never its Python files)."""
+    return serve(ctx_of(request).plugins.web_file(request.path_params["id"], request.path_params["path"]))
+
+
 routes = [
     Route("/themes/{id}/{path:path}", theme_file, methods=["GET", "HEAD"]),
+    Route("/plugins/{id}/{path:path}", plugin_file, methods=["GET", "HEAD"]),
     Route("/assets/{name}", asset_file, methods=["GET", "HEAD"]),
 ]

@@ -36,7 +36,7 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/components/Connections.js` | Settings tab "Подключения": service picker, editor (address, keys with proxies and order, model facts, «Проверить» / «Пробные запросы», log, settings console with ✓ ✗ ? per setting) |
 | `web/components/Themes.js`, `Gallery.js` | Settings tabs "Оформление" (themes, script approval, character themes, versions) and "Картинки" (image library, generation) |
 | `web/themes/<id>/` | built-in themes; `sakura` is the reference for effects |
-| `web/components/Members.js` | chat "👥" panel: members with depth / importance / "это я" / may the model write for me, chat preset |
+| `web/components/Members.js` | chat "👥" panel: members with depth / importance / "это я" / may the model write for me, chat preset; «Кто говорит» (any chat may have many characters: the order, what the model knows about the others), per character talkativeness / «молчит» / short description / 🗣 «ответь ты». `main.js` loads the members for per-reply avatars (`message.character_id`) and the «Ответит:» buttons (`chat.continue(role, speaker)`); `send` with 2+ characters in the order «manual» returns no run, only the message |
 | `web/components/CharacterEditor.js` | create or edit a card; "мой персонаж по умолчанию" (setting `default_me`) |
 | `web/components/Presets.js` | Settings tab "Промпт": presets, block list editor, model params, ST import/export |
 | `web/components/CharacterTree.js` | "Дерево" tab of a character: bubble map (pan/pinch, drag to move or drop inside another, nested or line display, culling: only bubbles in view are rendered) and list; bubble panel (mode, keywords + "Подобрать", depth, role, sticky) |
@@ -45,6 +45,9 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/components/Lorebooks.js` | lorebooks: `LorebookShelf` (left panel: list, create, import, download, delete; opens `LorebookEditor`: name, description, undo/history, the book's bubble map = `CharacterTree` with `character={id, name, book: true}`), `BookPicker` (books on for global / chat / character, used in Settings → "Лорбуки", 👥 and the card), `LorebookSettings` (budget, chain steps) |
 | `web/components/CharacterTree.js` (cont.) | «Ещё» (`MoreRules`): second keywords, whole words, case, scan, pause, delay, groups, place, chains, character filter |
 | `web/components/CharacterTree.js` (cont.) | list view `TreeList`: foldable branches (`tavern.treeOpen.<owner id>` in localStorage), fixed-height rows and only the rows in view are rendered — keep rows one line high (`ROW_H`). New bubbles open in the panel only with the setting `open_new_bubble` |
+| `web/core/plugins.js` | web parts of plugins: `syncPlugins(list)` loads/unloads them, `usePluginUi()` (message buttons, message footer lines, composer buttons), `setPluginEnv` (toast, command, chat id, reload), `pluginNotice` (server → plugin). Contract for plugin authors: `.claude/skills/create-plugin` |
+| `web/components/Assistant.js` | the 🪄 assistant window (opened from the sidebar head): dragged by its header (position in localStorage), full width under 700px, folded with ▁; conversation list, timeline of messages and journal lines (`Отменить` undoes that action and later ones), «Разрешить / Нет» for deletes, ⚙ model / steps / own limits; follows the run with `followRun`. `main.js` reloads lists, the open chat and settings on the notice `assistant_changed`, fires `tavern:lorebooks` for the shelf, and opens a chat / character on `assistant_show` (through `assistantRef`: the event stream outlives renders). Whatever a person can do on the page the assistant reaches through the same HTTP route (`services/assistant_app.py`): a new button needs a route, not a new tool |
+| `web/components/Plugins.js` | Settings tab "Дополнения": cards (switch, approval dialog with the full-access warning, settings fields, model access and spending, updates, delete), install from a file or a GitHub link; `PluginAsks` = «хочет обратиться к модели» window. `main.js` keeps one `EventSource("/api/events")` open (types in `core/notices.py`), hides `hidden` messages, sends "/команда" to `POST /plugins/command` when a plugin owns it; 👥 «Ответ пишет» picks `chat.meta.generator` |
 | `web/components/PromptView.js` | "👁" on a message: what the model saw, exact count, read-only versions with copy |
 | `web/components/Notes.js` | author's notes: `NoteList` (one level, also in the "Промпт" tab), the chat "📝" window (Чат / Персонажи / Общие / По номерам, show all hidden notes or delete them), `NotesByNumbers` (picked messages with their kept notes, folded when many). `Message.js` draws kept notes beside the message (`.msg-row` grid: hidden left, visible right; under it below 1200px), folds visible ones after 3 later messages, and has the per-message 📝 toggle |
 
@@ -59,7 +62,11 @@ Regenerate works on the last assistant or system message. Then
 (progress of plugin generators, ignored by the chat view) and `ping` (filtered in api.js).
 The run lives on the server, so reloading the page mid-reply reattaches: `GET /chats/{id}`
 returns `run`, and `useChat` follows it again. Deltas are batched into one render per frame.
-`useChat` must only react to `start`, `delta` and the three terminal events; reacting to any
+A *turn* of several replies (`POST /chats/{id}/talk`, or the order «все сразу») sends `turn_start`,
+then per reply `start` / `delta {id}` / `reply_done` | `reply_error`, and ends with a terminal event
+carrying `reload: true` (the newest page is reloaded: a round may reorder or join replies).
+`useChat` keeps `streams` (id -> text) so several replies can stream at once.
+`useChat` must only react to `start`, `delta`, the turn events above and the three terminal events; reacting to any
 other type (e.g. `trace`) as if it ended the run breaks streaming.
 
 Actions that change the active branch on the server (`POST /chats/{id}/branch`, deleting a

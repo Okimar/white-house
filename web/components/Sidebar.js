@@ -3,7 +3,7 @@ import { html, useRef } from "../vendor/preact-htm.mjs";
 import { LorebookShelf } from "./Lorebooks.js";
 
 export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat,
-  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, open, onClose,
+  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, open, onClose,
   settings, onError }) {
   const fileInput = useRef(null);
   const chatFileInput = useRef(null);
@@ -19,6 +19,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
       <div class="side-head">
         <strong>Tavern</strong>
         <span class="spacer"></span>
+        <button title="Помощник" data-slot="assistant-button" onClick=${onAssistant}>🪄</button>
         <button title="Настройки" onClick=${onSettings}>⚙</button>
         <button class="only-mobile" title="Закрыть" onClick=${onClose}>✕</button>
       </div>

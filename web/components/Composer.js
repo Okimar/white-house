@@ -2,14 +2,17 @@
 // the send button turns into Stop. Your text is always a user message; the role menu decides who
 // the model's next messages arrive from (assistant, system, or user for writing in your place).
 // 📎 (or pasting a picture) adds pictures to the message: they go to the picture library and the
-// model sees them with the message.
+// model sees them with the message. Plugins add buttons here (core/plugins.js); "/command" text
+// is offered to plugins first by the app shell (main.js).
 import { html, useState, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
+import { usePluginUi } from "../core/plugins.js";
 
 const MAX_IMAGES = 8;
 
 export function Composer({ running, disabled, role, onRole, onSend, onStop, onError }) {
+  const plugins = usePluginUi(); // buttons plugins put beside the message box
   const [text, setText] = useState("");
   const [images, setImages] = useState([]); // picture names in the library
   const [uploading, setUploading] = useState(false);
@@ -77,6 +80,9 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
       <button type="button" class="attach" data-slot="attach-button" title="Прикрепить картинку"
         aria-label="Прикрепить картинку" disabled=${disabled || uploading || images.length >= MAX_IMAGES}
         onClick=${() => picker.current && picker.current.click()}>${uploading ? "…" : "📎"}</button>
+      ${plugins.composerButtons.map((b, i) => html`<button key=${b.owner + i} type="button" class="attach"
+        data-slot="composer-plugin-button" data-plugin=${b.owner} title=${b.title} aria-label=${b.title}
+        disabled=${disabled || running} onClick=${() => b.onClick()}>${b.icon}</button>`)}
       <input ref=${picker} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
         onChange=${(e) => { attach(e.target.files); e.target.value = ""; }} />
       <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"

@@ -264,6 +264,8 @@ export function Presets({ settings, onChanged, onError }) {
           onInput=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, impersonate: e.target.value } })}></textarea></label>
       ${[
         ["no_write_for_me", "Запрет писать за моего персонажа", 3],
+        ["narrator", "Рассказчик после хода «все сразу» (сводит действия в одну сцену)", 3],
+        ["speaker_reply", "Несколько персонажей: за кого модель пишет сейчас ({{char}} — тот, кто говорит); пусто — не говорить", 2],
         ["prefill", "Начало ответа модели (prefill): отправляется как начало её ответа; пусто — нет", 3],
         ["personality_format", "Формат характера, например [{{char}}'s personality: {{personality}}]; пусто — «Personality:»", 1],
         ["scenario_format", "Формат сценария с {{scenario}}; пусто — «Scenario:»", 1],

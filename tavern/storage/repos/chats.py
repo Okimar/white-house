@@ -5,7 +5,8 @@ A message is a node (`parent_id`, `depth`); its text lives in `swipes` rows and
 The active path is the chain root -> leaf, so long chats are paged by `depth`.
 
 Message dict shape returned to callers:
-    id, chat_id, parent_id, depth, role, name, hidden, exclude_from_prompt, owner,
+    id, chat_id, parent_id, depth, role, name, character_id (who wrote a reply, stage 7), hidden,
+    exclude_from_prompt, owner,
     content (active swipe text), swipe_meta (the active swipe's: reasoning, images, ...),
     active_swipe, swipe_count, extra, created_at
 """
@@ -22,7 +23,7 @@ from tavern.util.ids import new_id, now_iso
 ROLES = ("user", "assistant", "system")
 
 _MESSAGE_SELECT = """
-SELECT m.id, m.chat_id, m.parent_id, m.depth, m.role, m.name, m.hidden, m.exclude_from_prompt,
+SELECT m.id, m.chat_id, m.parent_id, m.depth, m.role, m.name, m.character_id, m.hidden, m.exclude_from_prompt,
        m.owner, m.active_swipe, m.extra, m.created_at,
        COALESCE(s.content, '') AS content, COALESCE(s.meta, '{}') AS swipe_meta,
        (SELECT COUNT(*) FROM swipes WHERE message_id = m.id) AS swipe_count
@@ -39,6 +40,7 @@ def _message(row: Any) -> dict[str, Any]:
         "depth": row["depth"],
         "role": row["role"],
         "name": row["name"],
+        "character_id": row["character_id"],
         "hidden": bool(row["hidden"]),
         "exclude_from_prompt": bool(row["exclude_from_prompt"]),
         "owner": row["owner"],
@@ -162,6 +164,7 @@ class ChatRepo:
         content: str,
         parent_id: str | None = None,
         name: str = "",
+        character_id: str | None = None,
         hidden: bool = False,
         exclude_from_prompt: bool = False,
         owner: str = "",
@@ -184,10 +187,10 @@ class ChatRepo:
                     raise NotFound(f"Parent message {parent_id} not found in chat {chat_id}")
                 depth = parent["depth"] + 1
             conn.execute(
-                "INSERT INTO messages (id, chat_id, parent_id, depth, role, name, hidden, "
-                "exclude_from_prompt, owner, extra, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO messages (id, chat_id, parent_id, depth, role, name, character_id, hidden, "
+                "exclude_from_prompt, owner, extra, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    message_id, chat_id, parent_id, depth, role, name, int(hidden),
+                    message_id, chat_id, parent_id, depth, role, name, character_id, int(hidden),
                     int(exclude_from_prompt), owner, json.dumps(extra or {}), now,
                 ),
             )
@@ -212,6 +215,12 @@ class ChatRepo:
             raise NotFound(f"Swipe {idx} of message {message_id} not found")
         self._touch(message["chat_id"])
 
+    def set_excluded(self, message_id: str, excluded: bool) -> None:
+        """Hide a message from the model (it stays in the chat) or show it to the model again."""
+        message = self.get_message(message_id)
+        self.db.execute("UPDATE messages SET exclude_from_prompt = ? WHERE id = ?", (int(excluded), message_id))
+        self._touch(message["chat_id"])
+
     def update_swipe_meta(self, message_id: str, swipe_idx: int, patch: dict[str, Any]) -> None:
         """Merge keys into one swipe's meta; a None value removes the key."""
         with self.db.transaction() as conn:
@@ -225,18 +234,53 @@ class ChatRepo:
             conn.execute("UPDATE swipes SET meta = ? WHERE message_id = ? AND idx = ?",
                          (json.dumps(meta), message_id, swipe_idx))
 
-    def set_roles(self, chat_id: str, changes: dict[str, tuple[str, str]]) -> list[dict[str, Any]]:
-        """Set (role, name) of several messages of one chat at once: all or nothing."""
-        for role, _ in changes.values():
+    def set_extra(self, message_id: str, patch: dict[str, Any]) -> None:
+        """Merge `patch` into the message's extra (e.g. {"together": true} for a combined round)."""
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT extra FROM messages WHERE id = ?", (message_id,)).fetchone()
+            if row is None:
+                raise NotFound(f"Message {message_id} not found")
+            conn.execute("UPDATE messages SET extra = ? WHERE id = ?",
+                         (json.dumps({**json.loads(row["extra"]), **patch}), message_id))
+
+    def rechain(self, chat_id: str, parent_id: str | None, ordered: list[str], drop: list[str]) -> None:
+        """Put `ordered` one after another under `parent_id` (None = the root), delete `drop`, and
+        make the last of them the leaf: replies written at the same time, in the order chosen
+        afterwards (stage 7б). The messages must have no other children."""
+        with self.db.transaction() as conn:
+            depth = -1
+            if parent_id is not None:
+                depth = conn.execute("SELECT depth FROM messages WHERE id = ?", (parent_id,)).fetchone()["depth"]
+            parent = parent_id
+            for message_id in ordered:
+                depth += 1
+                conn.execute("UPDATE messages SET parent_id = ?, depth = ? WHERE id = ? AND chat_id = ?",
+                             (parent, depth, message_id, chat_id))
+                parent = message_id
+            for message_id in drop:
+                conn.execute("DELETE FROM messages WHERE id = ? AND chat_id = ?", (message_id, chat_id))
+            conn.execute("UPDATE chats SET leaf_id = ?, updated_at = ? WHERE id = ?", (parent, now_iso(), chat_id))
+
+    def set_speaker(self, message_id: str, character_id: str | None, name: str) -> None:
+        """Who wrote a reply (chosen after the placeholder was created, e.g. by the model)."""
+        self.db.execute("UPDATE messages SET character_id = ?, name = ? WHERE id = ?",
+                        (character_id, name, message_id))
+
+    def set_roles(
+        self, chat_id: str, changes: dict[str, tuple[str, str, str | None]]
+    ) -> list[dict[str, Any]]:
+        """Set (role, name, character_id) of several messages of one chat at once: all or nothing."""
+        for role, _, _ in changes.values():
             if role not in ROLES:
                 raise ValueError(f"Unknown role {role!r}")
         with self.db.transaction() as conn:
-            for message_id, (role, name) in changes.items():
+            for message_id, (role, name, character_id) in changes.items():
                 row = conn.execute("SELECT chat_id FROM messages WHERE id = ?", (message_id,)).fetchone()
                 if row is None or row["chat_id"] != chat_id:
                     raise NotFound(f"Message {message_id} not found in chat {chat_id}")
                 conn.execute(
-                    "UPDATE messages SET role = ?, name = ? WHERE id = ?", (role, name, message_id)
+                    "UPDATE messages SET role = ?, name = ?, character_id = ? WHERE id = ?",
+                    (role, name, character_id, message_id),
                 )
             conn.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now_iso(), chat_id))
         return [self.get_message(message_id) for message_id in changes]

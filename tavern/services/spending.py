@@ -200,8 +200,12 @@ def meter(
 # Limits and summaries
 
 
-def _rate(settings: dict[str, Any]) -> float:
+def rate(settings: dict[str, Any]) -> float:
+    """Shown currency per dollar (1 when money is shown in dollars). Plugin limits use it too."""
     return settings["currency"]["rate"] if settings["currency"]["code"] else 1.0
+
+
+_rate = rate
 
 
 def limit_state(ctx: AppContext, settings: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -256,4 +260,14 @@ def report(ctx: AppContext) -> dict[str, Any]:
     models = ctx.spending.by_model(since)
     for row in models:
         row["price"] = price_for(ctx, row["connection_id"], row["model"], settings)
-    return {"since": since, "models": models, "days": ctx.spending.by_day(since)}
+    # Plugins' requests, one line each (the owner asked to see what every plugin spends).
+    found = ctx.plugins.discover()
+    plugins = ctx.spending.by_purpose("plugin:", since)
+    for row in plugins:
+        plugin_id = row["purpose"].removeprefix("plugin:")
+        item = found.get(plugin_id)
+        row["plugin"] = plugin_id
+        row["name"] = (item.manifest or {}).get("name", plugin_id) if item else plugin_id
+    assistant = ctx.spending.by_purpose("assistant", since)  # the assistant over the chat, its own line
+    return {"since": since, "models": models, "days": ctx.spending.by_day(since), "plugins": plugins,
+            "assistant": assistant[0] if assistant else None}

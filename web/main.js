@@ -18,6 +18,9 @@ import { CharacterEditor } from "./components/CharacterEditor.js";
 import { PromptView } from "./components/PromptView.js";
 import { MessageNotes, Notes, NotesByNumbers } from "./components/Notes.js";
 import { ROLES } from "./components/roles.js";
+import { pluginNotice, setPluginEnv, syncPlugins } from "./core/plugins.js";
+import { PluginAsks } from "./components/Plugins.js";
+import { Assistant } from "./components/Assistant.js";
 
 function App() {
   const [characters, setCharacters] = useState([]);
@@ -27,6 +30,8 @@ function App() {
   const [themes, setThemes] = useState({ themes: [], deleted: [] });
   const [showSettings, setShowSettings] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
+  const assistantRef = useRef({ changed() {}, show() {} }); // the event stream outlives renders: it calls the newest
   const [toast, setToast] = useState("");
   const [searchResults, setSearchResults] = useState(null);
   const [branchResults, setBranchResults] = useState(null);
@@ -36,6 +41,7 @@ function App() {
   const [bulkRole, setBulkRole] = useState("user");
   const [numbers, setNumbers] = useState("");
   const [showMembers, setShowMembers] = useState(false);
+  const [members, setMembers] = useState([]); // of the open chat: avatars by reply, "ответь ты" buttons
   const [editingCharacter, setEditingCharacter] = useState(undefined); // id, null = new, undefined = closed
   const [promptOf, setPromptOf] = useState(null); // message whose prompt is shown
   const [showNotes, setShowNotes] = useState(false);
@@ -44,6 +50,8 @@ function App() {
   const [showHidden, setShowHidden] = useState(() => localStorage.getItem("tavern.showHiddenNotes") === "1");
   const [notesOpen, setNotesOpen] = useState({}); // message id -> true/false after 📝 or ✕ there
   const [notesFor, setNotesFor] = useState(null); // {message, shown}: the drop-down with one message's notes
+  const [plugins, setPlugins] = useState({ plugins: [], commands: [], generators: [] }); // GET /plugins
+  const [asks, setAsks] = useState([]); // plugins asking to call a model (access setting "ask")
 
   const onError = useCallback((message) => {
     setToast(message);
@@ -51,6 +59,43 @@ function App() {
   }, []);
 
   const chat = useChat(chatId, onError);
+
+  // Plugins: the list (their web parts load from it) and the app-wide event stream for their questions.
+  const loadPlugins = () => api.get("/plugins").then((d) => {
+    setPlugins(d);
+    setAsks(d.asks);
+    syncPlugins(d.plugins);
+  }).catch((e) => onError(e.message));
+  useEffect(() => {
+    loadPlugins();
+    const source = new EventSource("/api/events");
+    source.onmessage = (message) => {
+      const event = JSON.parse(message.data);
+      if (event.type === "plugins") loadPlugins();
+      else if (event.type === "plugin_ask") setAsks((a) => [...a.filter((x) => x.id !== event.ask.id), event.ask]);
+      else if (event.type === "plugin_asked") setAsks((a) => a.filter((x) => x.id !== event.id));
+      else if (event.type === "plugin") pluginNotice(event);
+      else if (event.type === "assistant_changed") assistantRef.current.changed();
+      else if (event.type === "assistant_show") assistantRef.current.show(event);
+    };
+    return () => source.close();
+  }, []);
+  // "/roll 2d6": a plugin's command. Unknown commands are sent as ordinary text.
+  const runCommand = async (text) => {
+    if (!chatId) { onError("Сначала откройте чат"); return null; }
+    try {
+      const result = await api.post("/plugins/command", { chat_id: chatId, text });
+      if (!result.handled) onError(`Нет такой команды: ${text.split(" ")[0]}`);
+      else chat.reload();
+      return result;
+    } catch (e) {
+      onError(e.message);
+      return null;
+    }
+  };
+  setPluginEnv({ toast: onError, chatId: () => chatId, reloadChat: () => chat.reload(), command: runCommand });
+  const isCommand = (text) => text.startsWith("/") &&
+    plugins.commands.some((c) => c.name === text.slice(1).split(/\s/)[0].toLowerCase());
   const { summary: spend, reload: reloadSpending } = useSpending(chatId);
 
   const refresh = async () => {
@@ -67,6 +112,25 @@ function App() {
     }
   };
   useEffect(() => { refresh(); }, []);
+  // The assistant changed something (or undid it): lists, books, the open chat and its members reload
+  // (the settings reload brings a new theme too). "show": it opens a chat or a character for the user.
+  const assistantChanged = () => {
+    refresh();
+    window.dispatchEvent(new Event("tavern:lorebooks"));
+    if (chatId) { chat.reload(); chat.refreshInfo(); loadMembers(); }
+  };
+  assistantRef.current = {
+    changed: assistantChanged,
+    show: (event) => {
+      if (event.chat_id) open(event.chat_id);
+      else if (event.character_id) setEditingCharacter(event.character_id);
+    },
+  };
+  const loadMembers = () => chatId
+    ? api.get(`/chats/${chatId}/members`).then((d) => setMembers(d.members)).catch((e) => onError(e.message))
+    : setMembers([]);
+  // After each reply too: a plugin or an agent may have brought a character into the scene.
+  useEffect(() => { if (!chat.running) loadMembers(); }, [chatId, chat.running]);
   useEffect(() => {
     if (chatId) localStorage.setItem("tavern.chat", chatId);
     else localStorage.removeItem("tavern.chat");
@@ -242,6 +306,14 @@ function App() {
 
   const lastId = chat.messages.length ? chat.messages[chat.messages.length - 1].id : null;
   const avatar = character && character.avatar ? `/api/characters/${character.id}/avatar` : null;
+  // Each reply shows the avatar of the character who wrote it (a chat may have many).
+  const avatarOf = (m) => {
+    if (m.role !== "assistant") return null;
+    if (!m.character_id) return avatar;
+    const who = characters.find((c) => c.id === m.character_id);
+    return who && who.avatar ? `/api/characters/${who.id}/avatar` : null;
+  };
+  const cast = members.filter((m) => !m.is_me);
   const notesOf = {};
   for (const n of attached) (notesOf[n.message_id] ||= []).push(n);
   const lastDepth = chat.messages.length ? chat.messages[chat.messages.length - 1].depth : 0;
@@ -250,24 +322,27 @@ function App() {
     onNotesOpen=${(id, open) => setNotesOpen((o) => ({ ...o, [id]: open }))}
     notesDisplay=${settings.notes_display || "few"}
     onOpenNotes=${(message, shownNow) => setNotesFor({ message, shown: shownNow })}
-    avatar=${m.role === "assistant" ? avatar : null} spend=${spend && spend.settings}
-    streamText=${chat.stream && chat.stream.id === m.id ? chat.stream.text : null}
-    streamThinking=${chat.stream && chat.stream.id === m.id ? chat.stream.thinking : null}
+    avatar=${avatarOf(m)} spend=${spend && spend.settings}
+    streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
+    streamThinking=${chat.streams[m.id] ? chat.streams[m.id].thinking : null}
     busy=${chat.running} isLast=${m.id === lastId}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
     onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${chat.regenerate}
-    onBranches=${openBranches} onPrompt=${setPromptOf} />`;
+    onBranches=${openBranches} onPrompt=${setPromptOf}
+    onExclude=${(id, on) => api.put(`/messages/${id}`, { exclude_from_prompt: on }).then(() => chat.reload())
+      .catch((e) => onError(e.message))} />`;
 
   const shown = chatId && chat.chat;
   return html`
     <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"}>
-      ${SAFE_MODE && html`<div class="safe-banner" role="status">Безопасный режим: темы выключены.
+      ${SAFE_MODE && html`<div class="safe-banner" role="status">Безопасный режим: темы и окна дополнений выключены.
         <a href="/">Выйти</a></div>`}
       <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} open=${menu}
         onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
         onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat}
         onEditCharacter=${(id) => { setEditingCharacter(id); setMenu(false); }}
         onDeleteCharacter=${deleteCharacter} onSettings=${() => setShowSettings(true)}
+        onAssistant=${() => { setShowAssistant(true); setMenu(false); }}
         onClose=${() => setMenu(false)} settings=${settings} onError=${onError} />
       <main class="main" data-slot="chat" data-running=${chat.running ? "true" : "false"}>
         <div class="scene" data-slot="scene" aria-hidden="true"></div>
@@ -287,11 +362,21 @@ function App() {
         </div>
         ${shown
           ? html`
-            <${VirtualList} items=${chat.messages} renderItem=${renderItem}
+            <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
               onReachTop=${chat.loadOlder} resetKey=${chatId} />
             <div class="chat-actions" data-slot="chat-actions">
               <button disabled=${chat.running} onClick=${() => chat.continue(role)}
                 title="Модель напишет следующее сообщение от выбранной роли без вашей реплики">Продолжить</button>
+              ${cast.length > 1 && html`<button data-slot="talk-button" disabled=${chat.running} onClick=${() => chat.talk()}
+                title="Персонажи отвечают друг другу сами, пока не наберётся предел из «Кто говорит» (👥) или пока вы не нажмёте «Стоп»">Пусть поговорят</button>`}
+              ${cast.length > 0 && html`<div class="speakers" data-slot="speakers" role="group" aria-label="Ответит">
+                <span class="muted">Ответит:</span>
+                ${cast.map((m) => html`<button key=${m.character_id} class=${m.muted ? "muted-member" : ""}
+                  disabled=${chat.running} onClick=${() => chat.continue("assistant", m.character_id)}
+                  title=${`Ответь ты: ${m.name}` + (m.muted ? " (молчит, но ответит, раз просите)" : "")}>
+                  ${m.has_avatar && html`<img class="speaker-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
+                  ${m.name}</button>`)}
+              </div>`}
               <button aria-pressed=${selecting} onClick=${() => { setSelecting(!selecting); setSelected(new Set()); }}>
                 ${selecting ? "Готово" : "Сменить роли…"}</button>
               ${selecting && html`<div class="bulk-roles" role="group" aria-label="Массовая смена ролей">
@@ -319,7 +404,11 @@ function App() {
               </div>`}
             </div>
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
-              onSend=${(text, images) => { emit("send", { text }); return chat.send(text, role, images); }}
+              onSend=${(text, images) => {
+                if (isCommand(text) && !images.length) return runCommand(text);
+                emit("send", { text });
+                return chat.send(text, role, images);
+              }}
               onStop=${chat.stop} onError=${onError} />`
           : html`<div class="empty" data-slot="empty">
               <p>Выберите чат слева или начните новый с персонажем.</p>
@@ -329,11 +418,13 @@ function App() {
         <div class="overlay-layer" data-slot="overlay"></div>
       </main>
       ${showSettings && html`<${Settings} settings=${settings} themes=${themes.themes}
-        deletedThemes=${themes.deleted} characters=${characters} onClose=${() => { setShowSettings(false); reloadSpending(); }}
+        deletedThemes=${themes.deleted} characters=${characters} onClose=${() => { setShowSettings(false); reloadSpending(); loadPlugins(); }}
         onChanged=${refresh} onError=${onError} />`}
-      ${showMembers && shown && html`<${Members} chat=${chat.chat} characters=${characters} settings=${settings}
+      ${showMembers && shown && html`<${Members} chat=${chat.chat} characters=${characters} settings=${settings} generators=${plugins.generators}
         onClose=${() => setShowMembers(false)} onError=${onError}
-        onChanged=${() => { refresh(); chat.refreshInfo(); }} onEditCharacter=${setEditingCharacter} />`}
+        onChanged=${() => { refresh(); chat.refreshInfo(); loadMembers(); }}
+        onAnswer=${(id) => { setShowMembers(false); chat.continue("assistant", id); }}
+        onEditCharacter=${setEditingCharacter} />`}
       ${editingCharacter !== undefined && html`<${CharacterEditor} characterId=${editingCharacter}
         settings=${settings} onClose=${() => setEditingCharacter(undefined)} onError=${onError}
         onSaved=${() => { setEditingCharacter(undefined); refresh(); }} />`}
@@ -352,6 +443,9 @@ function App() {
           setNotesOpen((o) => ({ ...o, [notesFor.message.id]: on }));
         }} />`}
       ${promptOf && html`<${PromptView} message=${promptOf} onClose=${() => setPromptOf(null)} onError=${onError} />`}
+      ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} onError=${onError}
+        onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
+      ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
       ${toast && html`<div class="toast" data-slot="toast" role="alert" onClick=${() => setToast("")}>${toast}</div>`}
     </div>
   `;

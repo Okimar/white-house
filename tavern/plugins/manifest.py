@@ -1,0 +1,258 @@
+"""plugin.json and the plugin's files: what is allowed, the hash the user approves, zip reading.
+
+A plugin is a folder:
+    plugin.json   {"id", "name", "version", "author", "description", "homepage",
+                   "server": "server.py",   Python file with `def setup(api)` (optional)
+                   "web": "web.js",         ES module, `export default function setup(t)` (optional)
+                   "style": "style.css",    added to the page while the plugin is on (optional)
+                   "uses": ["commands", "models", ...],   what it says it does, shown before enabling
+                   "settings": [{"key", "label", "type": bool|number|text|choice, "default",
+                                 "choices": [[value, label]], "min", "max", "help"}]}
+The hash covers every file (names and contents), so any change asks for approval again.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import re
+import zipfile
+from pathlib import Path
+from typing import Any
+
+from tavern.errors import AppError
+
+MANIFEST = "plugin.json"
+ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
+USES = ("commands", "messages", "storage", "models", "generator", "events", "ui", "network")
+FIELD_TYPES = ("bool", "number", "text", "choice")
+EXTENSIONS = frozenset({
+    ".py", ".js", ".mjs", ".css", ".json", ".md", ".txt", ".toml",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".woff", ".woff2", ".ttf",
+})
+# Served to the browser at /plugins/{id}/...: never the Python part.
+WEB_EXTENSIONS = EXTENSIONS - {".py", ".toml", ".md", ".txt"}
+MAX_FILE_BYTES = 5 * 1024 * 1024
+MAX_PLUGIN_BYTES = 20 * 1024 * 1024
+MAX_FILES = 500
+MAX_DEPTH = 8
+JUNK = frozenset({"__pycache__", "__MACOSX", ".git", ".github", "node_modules"})
+
+
+class PluginError(AppError):
+    code = "plugin_invalid"
+
+
+def safe_relpath(rel: str) -> str:
+    """A path inside a plugin ('server.py', 'web/icons/die.svg'). Rejects traversal and odd files."""
+    rel = rel.replace("\\", "/")
+    parts = rel.split("/")
+    if (not rel or len(rel) > 240 or len(parts) > MAX_DEPTH or ":" in rel
+            or any(p in ("", ".", "..") or p.startswith(".") for p in parts)):
+        raise PluginError(f"Недопустимый путь файла в дополнении: {rel!r}")
+    suffix = Path(parts[-1]).suffix.lower()
+    if suffix not in EXTENSIONS:
+        raise PluginError(f"Такой файл не может быть в дополнении: {parts[-1]!r}")
+    return rel
+
+
+def _junk(rel: str) -> bool:
+    """OS and tool leftovers (.DS_Store, __pycache__, .git). Traversal ("..") is not junk: it fails."""
+    parts = rel.replace("\\", "/").split("/")
+    return any(p in JUNK or (p.startswith(".") and p not in (".", "..")) for p in parts) or rel.endswith(".pyc")
+
+
+def plugin_files(folder: Path) -> dict[str, Path]:
+    """Relative path -> file, for every file that belongs to the plugin (junk skipped)."""
+    files: dict[str, Path] = {}
+    for path in sorted(folder.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(folder).as_posix()
+        if _junk(rel):
+            continue
+        try:
+            files[safe_relpath(rel)] = path
+        except PluginError:
+            continue
+    return files
+
+
+def files_hash(folder: Path) -> str:
+    digest = hashlib.sha256()
+    for rel, path in plugin_files(folder).items():
+        digest.update(rel.encode() + b"\0" + hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def _text(raw: dict[str, Any], key: str, limit: int) -> str:
+    value = raw.get(key, "")
+    return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def _field(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict) or not isinstance(raw.get("key"), str) or not raw["key"]:
+        raise PluginError("plugin.json: у каждой настройки нужен key")
+    kind = raw.get("type", "text")
+    if kind not in FIELD_TYPES:
+        raise PluginError(f"plugin.json: тип настройки {kind!r} неизвестен ({', '.join(FIELD_TYPES)})")
+    out: dict[str, Any] = {"key": raw["key"][:64], "label": _text(raw, "label", 200) or raw["key"],
+                           "type": kind, "help": _text(raw, "help", 500)}
+    if kind == "choice":
+        choices = raw.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise PluginError(f"plugin.json: у настройки {out['key']!r} нет choices")
+        out["choices"] = [[str(c[0]), str(c[1])] if isinstance(c, list) and len(c) == 2 else [str(c), str(c)]
+                          for c in choices]
+    if kind == "number":
+        for bound in ("min", "max"):
+            if isinstance(raw.get(bound), (int, float)) and not isinstance(raw.get(bound), bool):
+                out[bound] = raw[bound]
+    default = raw.get("default")
+    try:
+        out["default"] = coerce(out, default) if default is not None else _empty(kind, out)
+    except PluginError:
+        out["default"] = _empty(kind, out)
+    return out
+
+
+def _empty(kind: str, field: dict[str, Any]) -> Any:
+    return {"bool": False, "number": 0, "text": ""}.get(kind, field.get("choices", [[""]])[0][0])
+
+
+def coerce(field: dict[str, Any], value: Any) -> Any:
+    kind = field["type"]
+    if kind == "bool":
+        if not isinstance(value, bool):
+            raise PluginError(f"{field['label']}: да или нет")
+        return value
+    if kind == "number":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise PluginError(f"{field['label']}: нужно число")
+        if "min" in field and value < field["min"] or "max" in field and value > field["max"]:
+            raise PluginError(f"{field['label']}: от {field.get('min', '…')} до {field.get('max', '…')}")
+        return value
+    if not isinstance(value, str):
+        raise PluginError(f"{field['label']}: нужен текст")
+    if kind == "choice" and value not in [c[0] for c in field["choices"]]:
+        raise PluginError(f"{field['label']}: нет такого варианта")
+    return value[:5000]
+
+
+def check_settings(fields: list[dict[str, Any]], raw: Any, current: dict[str, Any]) -> dict[str, Any]:
+    """Saved settings after applying `raw` (a partial object) to `current`."""
+    if not isinstance(raw, dict):
+        raise PluginError("Настройки дополнения: нужен объект")
+    known = {f["key"]: f for f in fields}
+    out = {k: v for k, v in current.items() if k in known}
+    for key, value in raw.items():
+        if key not in known:
+            raise PluginError(f"У дополнения нет настройки {key!r}")
+        out[key] = coerce(known[key], value)
+    return out
+
+
+def with_defaults(fields: list[dict[str, Any]], saved: dict[str, Any]) -> dict[str, Any]:
+    return {f["key"]: saved.get(f["key"], f["default"]) for f in fields}
+
+
+def normalize(raw: Any, *, folder_id: str | None = None) -> dict[str, Any]:
+    """A clean manifest. `folder_id`: the folder name, which must match the id (when given)."""
+    if not isinstance(raw, dict):
+        raise PluginError("plugin.json должен быть объектом")
+    plugin_id = raw.get("id")
+    if not isinstance(plugin_id, str) or not ID_RE.match(plugin_id):
+        raise PluginError("plugin.json: id — латинские буквы, цифры, «-» и «_» (до 48 знаков)")
+    if folder_id is not None and plugin_id != folder_id:
+        raise PluginError(f"plugin.json: id {plugin_id!r} не совпадает с папкой {folder_id!r}")
+    out: dict[str, Any] = {
+        "id": plugin_id,
+        "name": _text(raw, "name", 80) or plugin_id,
+        "version": _text(raw, "version", 40) or "0",
+        "author": _text(raw, "author", 120),
+        "description": _text(raw, "description", 2000),
+        "homepage": _text(raw, "homepage", 300),
+    }
+    for key, suffixes in (("server", (".py",)), ("web", (".js", ".mjs")), ("style", (".css",))):
+        value = raw.get(key)
+        if value in (None, ""):
+            out[key] = ""
+            continue
+        if not isinstance(value, str) or not value.lower().endswith(suffixes):
+            raise PluginError(f"plugin.json: {key} — путь к файлу {'/'.join(suffixes)}")
+        out[key] = safe_relpath(value)
+    uses = raw.get("uses", [])
+    out["uses"] = [u for u in USES if isinstance(uses, list) and u in uses]
+    fields = raw.get("settings", [])
+    if not isinstance(fields, list):
+        raise PluginError("plugin.json: settings — список")
+    out["settings"] = [_field(f) for f in fields[:50]]
+    if len({f["key"] for f in out["settings"]}) != len(out["settings"]):
+        raise PluginError("plugin.json: ключи настроек повторяются")
+    return out
+
+
+def read_manifest(folder: Path) -> dict[str, Any]:
+    try:
+        raw = json.loads((folder / MANIFEST).read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise PluginError(f"Не читается plugin.json: {exc}") from None
+    except ValueError as exc:
+        raise PluginError(f"plugin.json — не JSON: {exc}") from None
+    manifest = normalize(raw, folder_id=folder.name)
+    for key in ("server", "web", "style"):
+        if manifest[key] and not (folder / manifest[key]).is_file():
+            raise PluginError(f"plugin.json называет {key} {manifest[key]!r}, но файла нет")
+    return manifest
+
+
+def read_zip(blob: bytes, *, subdir: str = "") -> tuple[dict[str, Any], dict[str, bytes]]:
+    """(manifest, relative path -> bytes) from a zip. The plugin may sit in a folder of the zip (a
+    GitHub archive: "repo-sha/plugin.json"); `subdir` picks one inside it ("plugins/dice")."""
+    if len(blob) > MAX_PLUGIN_BYTES:
+        raise PluginError("Файл дополнения слишком большой (до 20 МБ)", code="plugin_too_large")
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(blob))
+    except zipfile.BadZipFile:
+        raise PluginError("Это не дополнение: ожидался zip-архив") from None
+    with archive:
+        entries = [i for i in archive.infolist() if not i.is_dir() and not _junk(i.filename)]
+        names = [i.filename.replace("\\", "/") for i in entries]
+        manifests = sorted((n for n in names if n == MANIFEST or n.endswith("/" + MANIFEST)),
+                           key=lambda n: n.count("/"))
+        subdir = subdir.strip("/")
+        if subdir:
+            manifests = [n for n in manifests if n[: -len(MANIFEST)].rstrip("/").endswith(subdir)]
+        if not manifests:
+            raise PluginError("В архиве нет plugin.json" + (f" в папке {subdir!r}" if subdir else ""))
+        prefix = manifests[0][: -len(MANIFEST)]
+        chosen = [(i, n[len(prefix):]) for i, n in zip(entries, names) if n.startswith(prefix)]
+        if len(chosen) > MAX_FILES:
+            raise PluginError(f"В дополнении слишком много файлов (до {MAX_FILES})")
+        files: dict[str, bytes] = {}
+        total = 0
+        for info, rel in chosen:
+            try:
+                rel = safe_relpath(rel)
+            except PluginError:
+                if rel.lower().endswith((".py", ".js", ".mjs", ".css", ".json")):
+                    raise
+                continue  # a licence picture or a build file: not part of the plugin
+            with archive.open(info) as fh:  # sizes in the zip directory can lie: read with a cap
+                data = fh.read(MAX_FILE_BYTES + 1)
+            if len(data) > MAX_FILE_BYTES:
+                raise PluginError(f"Файл {rel!r} слишком большой (до 5 МБ)", code="plugin_too_large")
+            total += len(data)
+            if total > MAX_PLUGIN_BYTES:
+                raise PluginError("Дополнение слишком большое (до 20 МБ)", code="plugin_too_large")
+            files[rel] = data
+    try:
+        raw = json.loads(files[MANIFEST])
+    except ValueError as exc:
+        raise PluginError(f"plugin.json — не JSON: {exc}") from None
+    manifest = normalize(raw)
+    for key in ("server", "web", "style"):
+        if manifest[key] and manifest[key] not in files:
+            raise PluginError(f"plugin.json называет {key} {manifest[key]!r}, но файла нет")
+    return manifest, files

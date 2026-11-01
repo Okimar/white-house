@@ -10,6 +10,7 @@ import asyncio
 import base64
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from tavern.context import AppContext
@@ -20,7 +21,7 @@ from tavern.core.llm import LLMClient
 from tavern.core.prompt import substitute
 from tavern.core.runs import Run
 from tavern.providers.params import request_params
-from tavern.services import cast, character_tree, lorebooks, parallel, spending
+from tavern.services import cast, character_tree, lorebooks, parallel, speakers, spending
 from tavern.services import notes as note_service
 from tavern.services import presets as preset_service
 from tavern.errors import AppError, Conflict, NotFound, TavernError
@@ -89,7 +90,8 @@ def create_chat(ctx: AppContext, character_id: str | None, title: str | None = N
         ]
         if opening:
             message = ctx.chats.add_message(
-                chat["id"], role="assistant", content=opening[0], name=character["name"]
+                chat["id"], role="assistant", content=opening[0], name=character["name"],
+                character_id=character["id"],
             )
             for alternative in opening[1:]:
                 ctx.chats.add_swipe(message["id"], alternative)
@@ -117,12 +119,16 @@ def make_budget(ctx: AppContext) -> RunBudget:
 
 
 def start_send(
-    ctx: AppContext, chat_id: str, text: str, reply_role: str = "assistant", images: list[str] | None = None
-) -> Run:
+    ctx: AppContext, chat_id: str, text: str, reply_role: str = "assistant", images: list[str] | None = None,
+    speaker: str | None = None,
+) -> Run | None:
     """Append the user's message and an empty reply, then generate the reply in the background.
 
     `reply_role` is who the generated reply is saved as (the chat's "model writes as" choice).
     `images` are picture names from the library, shown with the message and sent to the model.
+    `speaker`: the character who answers ("ответь ты"); default: the chat's order decides
+    (services/speakers.py). With two or more characters and the order "manual" only the message is
+    saved: None.
     """
     text = text.strip()
     images = list(dict.fromkeys(images or []))
@@ -135,9 +141,26 @@ def start_send(
     _check_role(reply_role)
     chat = ctx.chats.get_chat(chat_id)
     _ensure_idle(ctx, chat_id)
+    waits = (reply_role == "assistant" and not speaker and speakers.get_settings(chat)["order"] == "manual"
+             and speakers.several(ctx.members.list(chat_id)))
+    if waits:  # the user picks who answers
+        message = ctx.chats.add_message(
+            chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id))
+        if images:
+            ctx.chats.update_swipe_meta(message["id"], 0, {"images": images})
+        return None
     connection = resolve_connection(ctx, chat)
+    if _round_wanted(ctx, chat, reply_role, speaker):  # everyone answers at once
+        warning = spending.guard(ctx)
+        user_message = ctx.chats.add_message(
+            chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id))
+        if images:
+            ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images})
+            user_message = ctx.chats.get_message(user_message["id"])
+        return _start_turn(ctx, chat, connection, replies=1, user_message=user_message, warning=warning)
+    pending = {"role": "user", "content": text, "name": user_name(ctx, chat_id), "character_id": None}
+    speaker, ask = _pick(ctx, chat, reply_role, speaker, [*ctx.chats.active_path(chat_id), pending])
     warning = spending.guard(ctx)
-    character = ctx.characters.get(chat["character_id"]) if chat["character_id"] else None
 
     user_message = ctx.chats.add_message(
         chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id)
@@ -145,33 +168,95 @@ def start_send(
     if images:
         ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images})
         user_message = ctx.chats.get_message(user_message["id"])
+    character_id, name = _author(ctx, chat, reply_role, speaker, ask)
     reply = ctx.chats.add_message(
-        chat_id, role=reply_role, content="", parent_id=user_message["id"],
-        name=_name_for(ctx, chat, reply_role),
+        chat_id, role=reply_role, content="", parent_id=user_message["id"], name=name, character_id=character_id,
     )
-    return _launch(ctx, chat, connection, character, reply, swipe_idx=0, new_swipe=False,
+    return _launch(ctx, chat, connection, reply, swipe_idx=0, new_swipe=False,
                    user_message=user_message, instruction=_instruction_for(reply_role), allow_parallel=True,
-                   warning=warning)
+                   warning=warning, ask_speaker=ask)
 
 
-def start_continue(ctx: AppContext, chat_id: str, role: str = "assistant") -> Run:
+def start_continue(ctx: AppContext, chat_id: str, role: str = "assistant", speaker: str | None = None) -> Run:
     """Generate the next message after the current leaf, saved with `role`, without a user turn.
 
-    role="user" is impersonation: the model writes the user's next message.
+    role="user" is impersonation: the model writes the user's next message. `speaker`: the
+    character who writes it ("ответь ты"); default: the chat's order ("manual" acts as natural).
     """
     _check_role(role)
     chat = ctx.chats.get_chat(chat_id)
     _ensure_idle(ctx, chat_id)
     connection = resolve_connection(ctx, chat)
-    character = ctx.characters.get(chat["character_id"]) if chat["character_id"] else None
-    if chat["leaf_id"] is None and role != "user":
+    if chat["leaf_id"] is None and role != "user" and not speaker:
         raise Conflict("Nothing to continue", code="nothing_to_continue")
+    if _round_wanted(ctx, chat, role, speaker):
+        return _start_turn(ctx, chat, connection, replies=1, warning=spending.guard(ctx))
+    speaker, ask = _pick(ctx, chat, role, speaker, ctx.chats.active_path(chat_id))
     warning = spending.guard(ctx)
+    character_id, name = _author(ctx, chat, role, speaker, ask)
     reply = ctx.chats.add_message(
-        chat_id, role=role, content="", parent_id=chat["leaf_id"], name=_name_for(ctx, chat, role),
+        chat_id, role=role, content="", parent_id=chat["leaf_id"], name=name, character_id=character_id,
     )
-    return _launch(ctx, chat, connection, character, reply, swipe_idx=0, new_swipe=False,
-                   user_message=None, instruction=_instruction_for(role), warning=warning)
+    return _launch(ctx, chat, connection, reply, swipe_idx=0, new_swipe=False,
+                   user_message=None, instruction=_instruction_for(role), warning=warning, ask_speaker=ask)
+
+
+def _round_wanted(ctx: AppContext, chat: dict[str, Any], role: str, speaker: str | None) -> bool:
+    """The chat's order is "all", nobody was asked by name and two or more may speak."""
+    return (role == "assistant" and not speaker and speakers.get_settings(chat)["order"] == "all"
+            and len(speakers.may_speak(ctx.members.list(chat["id"]))) > 1)
+
+
+def start_talk(ctx: AppContext, chat_id: str, count: int | None = None) -> Run:
+    """«Пусть поговорят»: the characters answer one another by the chat's order, without the user,
+    until `count` replies (default: the chat's talk_limit), Stop, an error or the spending limit.
+    With the order "all" every step is a round of everyone at once."""
+    chat = ctx.chats.get_chat(chat_id)
+    _ensure_idle(ctx, chat_id)
+    connection = resolve_connection(ctx, chat)
+    if count is not None and not 1 <= count <= speakers.MAX_TALK:
+        raise AppError(f"How many replies: 1..{speakers.MAX_TALK}", code="bad_count")
+    if not speakers.may_speak(ctx.members.list(chat_id)):
+        raise speakers.nobody()
+    warning = spending.guard(ctx)
+    count = count or speakers.get_settings(chat)["talk_limit"]
+    return _start_turn(ctx, chat, connection, replies=count, warning=warning)
+
+
+def _pick(
+    ctx: AppContext, chat: dict[str, Any], role: str, speaker: str | None, history: list[dict[str, Any]]
+) -> tuple[str | None, bool]:
+    """Who writes an assistant reply: (character id, None = the chat's main one; ask the model
+    first). Raises before anything is written when every character of the chat is muted."""
+    if role != "assistant":
+        return None, False
+    if speaker:
+        speakers.require(ctx, chat["id"], speaker)
+        return speaker, False
+    members = ctx.members.list(chat["id"])
+    if not speakers.several(members):
+        return None, False
+    if not speakers.may_speak(members):
+        raise speakers.nobody()
+    settings = speakers.get_settings(chat)
+    if settings["order"] == "model":
+        return None, True
+    return speakers.choose(settings, members, history), False
+
+
+def _author(
+    ctx: AppContext, chat: dict[str, Any], role: str, speaker: str | None, ask: bool = False
+) -> tuple[str | None, str]:
+    """(character_id, name) stored with a new message; empty while the model is still choosing."""
+    if role != "assistant":
+        return None, _name_for(ctx, chat, role)
+    character_id = None if ask else (speaker or chat["character_id"])
+    if not character_id:
+        return None, ""
+    try:
+        return character_id, ctx.characters.get(character_id)["name"]
+    except NotFound:
+        return None, ""
 
 
 def start_impersonate(ctx: AppContext, chat_id: str) -> Run:
@@ -192,8 +277,9 @@ def add_message(ctx: AppContext, chat_id: str, text: str, role: str) -> dict[str
     _check_role(role)
     chat = ctx.chats.get_chat(chat_id)
     _ensure_idle(ctx, chat_id)
+    character_id, name = _author(ctx, chat, role, None)
     return ctx.chats.add_message(
-        chat_id, role=role, content=text, parent_id=chat["leaf_id"], name=_name_for(ctx, chat, role)
+        chat_id, role=role, content=text, parent_id=chat["leaf_id"], name=name, character_id=character_id
     )
 
 
@@ -235,8 +321,8 @@ def set_roles(
         targets += [i for i in dict.fromkeys(ids or []) if i not in targets]
     if not targets:
         raise AppError("No messages selected", code="nothing_selected")
-    name = _name_for(ctx, chat, role)
-    return ctx.chats.set_roles(chat_id, {message_id: (role, name) for message_id in targets})
+    character_id, name = _author(ctx, chat, role, None)
+    return ctx.chats.set_roles(chat_id, {message_id: (role, name, character_id) for message_id in targets})
 
 
 def _check_role(role: str) -> None:
@@ -266,11 +352,10 @@ def start_regenerate(ctx: AppContext, chat_id: str) -> Run:
     if last["role"] not in REGENERABLE_ROLES:
         raise Conflict("The last message is not a reply", code="nothing_to_regenerate")
     connection = resolve_connection(ctx, chat)
-    character = ctx.characters.get(chat["character_id"]) if chat["character_id"] else None
     warning = spending.guard(ctx)
     swipe_idx = ctx.chats.add_swipe(last["id"], "")
     last = ctx.chats.get_message(last["id"])
-    return _launch(ctx, chat, connection, character, last, swipe_idx=swipe_idx, new_swipe=True,
+    return _launch(ctx, chat, connection, last, swipe_idx=swipe_idx, new_swipe=True,
                    user_message=None, instruction=_instruction_for(last["role"]), allow_parallel=True,
                    warning=warning)
 
@@ -335,16 +420,46 @@ def _launch(
     ctx: AppContext,
     chat: dict[str, Any],
     connection: dict[str, Any],
-    character: dict[str, Any] | None,
+    reply: dict[str, Any],
+    **options: Any,
+) -> Run:
+    """Generate `reply` in the background: a run of one reply (see `_writer` for the options)."""
+    body, discard = _writer(ctx, chat, connection, reply, **options)
+    try:
+        return ctx.runs.start(chat["id"], make_budget(ctx), body)
+    except BaseException:
+        discard()
+        raise
+
+
+Body = Callable[[Run], Awaitable["dict[str, Any] | None"]]
+
+
+def _writer(
+    ctx: AppContext,
+    chat: dict[str, Any],
+    connection: dict[str, Any],
     reply: dict[str, Any],
     *,
-    swipe_idx: int,
-    new_swipe: bool,
-    user_message: dict[str, Any] | None,
+    swipe_idx: int = 0,
+    new_swipe: bool = False,
+    user_message: dict[str, Any] | None = None,
     instruction: str = "",
     allow_parallel: bool = False,
     warning: str = "",
-) -> Run:
+    ask_speaker: bool = False,
+    final: bool = True,
+    skip_ids: frozenset[str] = frozenset(),
+    keep_empty: bool = False,
+) -> tuple[Body, Callable[[], None]]:
+    """(body, discard) that write `reply` inside a run. It is written by its character_id (the
+    chat's main character when empty); with `ask_speaker` the model first chooses who that is.
+
+    `final`: this reply is the whole run (events start, delta, done | stopped | error). Otherwise
+    it is one of several in a turn (stage 7б): start, delta, then reply_done or reply_error; the
+    turn ends the run. The body returns the saved message, or None. `skip_ids`: messages left out
+    of the history (the other replies of an all-at-once round). `keep_empty`: an empty reply is
+    left for the caller to remove (the round re-links its replies first)."""
     chat_id = chat["id"]
     params = dict(connection["params"])
     preset = preset_service.resolve(ctx, chat)
@@ -398,10 +513,21 @@ def _launch(
         if text.strip():
             ctx.chats.set_content(reply["id"], text, swipe_idx=swipe_idx)
             return True
-        discard()
+        if not keep_empty:
+            discard()
         return False
 
-    async def body(run: Run) -> None:
+    def report_failure(error: dict[str, Any]) -> None:
+        if final:
+            run_ref[0].emit("error", error=error, message=snapshot())
+        else:
+            run_ref[0].emit("reply_error", id=reply["id"], error=error)
+
+    run_ref: list[Run] = []
+
+    async def body(run: Run) -> dict[str, Any] | None:
+        run_ref[:] = [run]
+        nonlocal reply
         provider = ctx.providers.create(connection)
         parts: list[str] = []
         job: GenerationJob | None = None
@@ -434,9 +560,33 @@ def _launch(
                             meter=spending.meter(ctx, connection, chat_id=chat_id, message_id=reply["id"],
                                                  tally=tally))
             history = [
-                m for m in ctx.chats.active_path(chat_id) if m["id"] != reply["id"]
+                m for m in ctx.chats.active_path(chat_id) if m["id"] != reply["id"] and m["id"] not in skip_ids
             ]
-            members = cast.prompt_members(ctx, ctx.chats.get_chat(chat_id))
+            current = ctx.chats.get_chat(chat_id)
+            rows = ctx.members.list(chat_id)
+            settings = speakers.get_settings(current)
+            if ask_speaker:
+                chosen_id = None
+                try:
+                    chosen_id = await speakers.ask_model(
+                        llm.fork(meter=spending.meter(ctx, connection, chat_id=chat_id, message_id=reply["id"],
+                                                      purpose="speaker", tally=tally)), rows, history)
+                except TavernError as exc:  # not fatal: the natural order decides instead
+                    run.trace("speaker_choice_failed", error=str(exc))
+                chosen_id = chosen_id or speakers.choose(settings, rows, history)
+                name = next((m["name"] for m in rows if m["character_id"] == chosen_id), "")
+                ctx.chats.set_speaker(reply["id"], chosen_id, name)
+                reply = snapshot() or reply
+            character = None
+            speaker = reply.get("character_id") if reply["role"] == "assistant" else None
+            for character_id in (speaker, current["character_id"]):
+                try:
+                    character = ctx.characters.get(character_id) if character_id else None
+                except NotFound:
+                    character = None
+                if character:
+                    break
+            members = cast.prompt_members(ctx, current, character["id"] if character else None)
             chosen = await character_tree.select_for_chat(ctx, chat, members, history)
             for member in members:
                 member.blocks = chosen.get(member.character_id, [])
@@ -452,20 +602,29 @@ def _launch(
                 notes=note_service.for_reply(ctx, chat_id, [m.character_id for m in members], history),
                 lore=lore.found, lore_dropped=lore.dropped,
                 load_image=lambda name: load_image(ctx, name),
+                several=speakers.several(rows),
+                scene=speakers.scene(rows, character["id"] if character else None, settings["others"])
+                if speakers.several(rows) else [],
             )
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,
                                 max_context_tokens=max_context, instruction=instruction,
                                 prompt_input=prompt_input)
-            job.on_reasoning = lambda text: run.emit("reasoning", text=text)
+            job.on_reasoning = lambda text: run.emit("reasoning", id=reply["id"], text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
             if warning:
                 run.emit("spend_warning", text=warning)
+            allow = allow_parallel and final
             await ctx.events.emit("chat.before_generate", job=job)
             generator = ctx.generators.get(generator_id)
+            owner = ctx.generators.owner_of(generator.id)
+            if owner:  # a plugin writes this reply: its requests obey its access rules and count as its own
+                job.llm = llm.fork(meter=spending.meter(ctx, connection, chat_id=chat_id, message_id=reply["id"],
+                                                        purpose=f"plugin:{owner}", tally=tally),
+                                   gate=ctx.plugins.gate_for(owner, chat_id=chat_id))
             plan = parallel.get_settings(ctx)
             results: list[parallel.Result] = []
-            if allow_parallel and plan["enabled"] and isinstance(generator, DefaultGenerator):
+            if allow and plan["enabled"] and isinstance(generator, DefaultGenerator):
                 extras = parallel.extra_targets(ctx, connection, plan, overrides=preset["data"]["params"])
                 for target in extras:
                     tallies[target.label] = spending.Tally()
@@ -474,7 +633,7 @@ def _launch(
             if not extras:
                 async for delta in generator.generate(job):
                     parts.append(delta)
-                    run.emit("delta", text=delta)
+                    run.emit("delta", id=reply["id"], text=delta)
             else:
                 messages = await job.build_messages()
                 if plan["mode"] != "first":
@@ -487,7 +646,7 @@ def _launch(
                     async for label, event in parallel.race(streams):
                         if event.kind == "text":
                             parts.append(event.text)
-                            run.emit("delta", text=event.text)
+                            run.emit("delta", id=reply["id"], text=event.text)
                         elif event.kind == "reasoning":
                             job.think(event.text)
                         via_label = label
@@ -501,31 +660,242 @@ def _launch(
                 if failed:
                     run.emit("variants_failed", failed=failed)
             if not finish(text):
-                run.emit("error", error={"code": "empty_reply",
-                                         "message": "The model returned an empty reply"},
-                         message=snapshot())
-                return
+                report_failure({"code": "empty_reply", "message": "The model returned an empty reply"})
+                return None
             message = snapshot()
-            run.emit("done", message=message, budget=run.budget.snapshot(),
-                     pick=bool(results) and plan["mode"] == "pick")
+            if final:
+                run.emit("done", message=message, budget=run.budget.snapshot(),
+                         pick=bool(results) and plan["mode"] == "pick")
+            else:
+                run.emit("reply_done", message=message)
             await ctx.events.emit("message.received", message=message, chat=chat)
+            return message
         except asyncio.CancelledError:
             finish("".join(parts))
-            run.emit("stopped", message=snapshot())
+            if final:
+                run.emit("stopped", message=snapshot())
             raise
         except Exception as exc:  # noqa: BLE001 - reported to the client below
             if not isinstance(exc, TavernError):
                 log.exception("Generation failed in chat %s", chat_id)
-            finish("".join(parts))
-            run.emit("error", error=_error_dict(exc), message=snapshot())
+            saved = finish("".join(parts))
+            report_failure(_error_dict(exc))
             await ctx.events.emit("generation.failed", chat_id=chat_id, error=exc)
+            return snapshot() if saved and not final else None
         finally:
             await provider.aclose()
             for target in extras:
                 await target.provider.aclose()
 
+    return body, discard
+
+
+# --- turns of several replies (stage 7б) -----------------------------------------------------
+
+
+def _start_turn(
+    ctx: AppContext, chat: dict[str, Any], connection: dict[str, Any], *, replies: int,
+    user_message: dict[str, Any] | None = None, warning: str = "",
+) -> Run:
+    """A run that writes several replies: one after another by the chat's order, or rounds of
+    everyone at once (order "all"), until `replies` are written. Events: turn_start
+    {user_message}, then per reply start / delta {id} / reply_done | reply_error, then
+    done | stopped | error with reload (the client reloads the newest page: a round may reorder)."""
+    chat_id = chat["id"]
+
+    async def body(run: Run) -> None:
+        run.emit("turn_start", run_id=run.id, user_message=user_message)
+        if warning:
+            run.emit("spend_warning", text=warning)
+        written: list[dict[str, Any]] = []
+        attempts = 0  # replies of characters (the narrator's scene does not count)
+        warned = {warning}
+        try:
+            while attempts < replies:
+                current = ctx.chats.get_chat(chat_id)
+                rows = ctx.members.list(chat_id)
+                settings = speakers.get_settings(current)
+                if not speakers.may_speak(rows):
+                    break
+                if settings["order"] == "all" and len(speakers.may_speak(rows)) > 1:
+                    got = await _round(ctx, run, current, connection, rows, settings)
+                else:
+                    got = await _one(ctx, run, current, connection, rows, settings)
+                written += got
+                attempts += max(1, sum(m["role"] == "assistant" for m in got))
+                if not got or attempts >= replies:
+                    break
+                more = spending.guard(ctx)  # the stop setting raises: the turn ends with an error
+                if more not in warned:
+                    run.emit("spend_warning", text=more)
+                    warned.add(more)
+            run.emit("done", messages=written, reload=True, budget=run.budget.snapshot())
+        except asyncio.CancelledError:
+            run.emit("stopped", reload=True)
+            raise
+        except Exception as exc:  # noqa: BLE001 - reported to the client
+            if not isinstance(exc, TavernError):
+                log.exception("A turn failed in chat %s", chat_id)
+            run.emit("error", error=_error_dict(exc), reload=True)
+
+    return ctx.runs.start(chat_id, make_budget(ctx), body)
+
+
+async def _one(
+    ctx: AppContext, run: Run, chat: dict[str, Any], connection: dict[str, Any], rows: list[dict[str, Any]],
+    settings: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """The next reply by the chat's order ("manual" acts as natural)."""
+    ask = settings["order"] == "model" and len(speakers.may_speak(rows)) > 1
+    speaker = None if ask else speakers.choose(settings, rows, ctx.chats.active_path(chat["id"]))
+    character_id, name = _author(ctx, chat, "assistant", speaker, ask)
+    reply = ctx.chats.add_message(chat["id"], role="assistant", content="", parent_id=chat["leaf_id"],
+                                  name=name, character_id=character_id)
+    body, _ = _writer(ctx, chat, connection, reply, final=False, ask_speaker=ask)
+    message = await body(run)
+    return [message] if message else []
+
+
+async def _round(
+    ctx: AppContext, run: Run, chat: dict[str, Any], connection: dict[str, Any], rows: list[dict[str, Any]],
+    settings: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Everyone who may speak answers at once, each seeing the chat up to the round. Then the
+    replies are put in order (or joined into one message) and the narrator may sum them up."""
+    parent = chat["leaf_id"]
+    replies: list[dict[str, Any]] = []
+    for member in speakers.may_speak(rows):
+        replies.append(ctx.chats.add_message(
+            chat["id"], role="assistant", content="", parent_id=replies[-1]["id"] if replies else parent,
+            name=member["name"], character_id=member["character_id"]))
+    skip = frozenset(r["id"] for r in replies)
+    finished: list[str] = []
+
+    async def write(reply: dict[str, Any]) -> None:
+        body, _ = _writer(ctx, chat, connection, reply, final=False, skip_ids=skip, keep_empty=True)
+        if await body(run):
+            finished.append(reply["id"])
+
+    tasks = [asyncio.create_task(write(r)) for r in replies]
     try:
-        return ctx.runs.start(chat_id, make_budget(ctx), body)
-    except BaseException:
-        discard()
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        written = _arrange(ctx, chat["id"], parent, [r["id"] for r in replies], finished, settings["together"])
+    if written and settings["narrator"]["enabled"]:
+        told = await _narrate(ctx, run, ctx.chats.get_chat(chat["id"]), connection, rows, settings, written)
+        if told:
+            written.append(told)
+    return written
+
+
+def _arrange(
+    ctx: AppContext, chat_id: str, parent: str | None, ids: list[str], finished: list[str], together: str,
+) -> list[dict[str, Any]]:
+    """Order the replies of a round ("finished" / "list") or join them ("one"); drop empty ones."""
+    by_id = {i: ctx.chats.get_message(i) for i in ids}
+    kept = [i for i in ids if by_id[i]["content"].strip()]
+    order = [i for i in finished if i in kept] + [i for i in kept if i not in finished] if together == "finished" else kept
+    drop = [i for i in ids if i not in kept]
+    if together == "one" and len(order) > 1:
+        first = order[0]
+        ctx.chats.set_content(first, "\n\n".join(f"{by_id[i]['name']}: {by_id[i]['content']}" for i in order))
+        ctx.chats.set_speaker(first, None, ", ".join(by_id[i]["name"] for i in order))
+        ctx.chats.set_extra(first, {"together": True})
+        usage = _sum_usage([by_id[i]["swipe_meta"].get("usage") for i in order])
+        if usage:
+            ctx.chats.update_swipe_meta(first, 0, {"usage": usage, "reasoning": ""})
+        drop += order[1:]
+        order = [first]
+    ctx.chats.rechain(chat_id, parent, order, drop)
+    return [ctx.chats.get_message(i) for i in order]
+
+
+def _sum_usage(parts: list[dict[str, Any] | None]) -> dict[str, Any] | None:
+    found = [u for u in parts if u]
+    if not found:
+        return None
+    costs = [u["cost"] for u in found if u.get("cost") is not None]
+    return {"prompt_tokens": sum(u["prompt_tokens"] for u in found),
+            "completion_tokens": sum(u["completion_tokens"] for u in found),
+            "cost": round(sum(costs), 8) if costs else None,
+            "unpriced": any(u.get("unpriced") for u in found), "estimated": any(u.get("estimated") for u in found),
+            "requests": sum(u.get("requests", 0) for u in found)}
+
+
+async def _narrate(
+    ctx: AppContext, run: Run, chat: dict[str, Any], connection: dict[str, Any], rows: list[dict[str, Any]],
+    settings: dict[str, Any], round_: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """The narrator turns the round into one scene: a system message under its name, written by
+    its own connection and model when set (else the chat's)."""
+    narrator = settings["narrator"]
+    target = connection
+    if narrator["connection_id"]:
+        try:
+            target = ctx.connections.get(narrator["connection_id"])
+        except NotFound:
+            run.emit("spend_warning", text="Подключение рассказчика удалено: он пишет через подключение чата")
+    model = narrator["model"] or target["model"]
+    round_ids = {m["id"] for m in round_}
+    history = [m for m in ctx.chats.active_path(chat["id"]) if m["id"] not in round_ids]
+    preset = preset_service.resolve(ctx, chat)
+    instruction = substitute(preset["data"]["prompts"]["narrator"], char=narrator["name"],
+                             user=user_name(ctx, chat["id"]))
+    prompt = speakers.narrator_prompt(instruction, rows, history, round_)
+    message = ctx.chats.add_message(chat["id"], role="system", content="", parent_id=chat["leaf_id"],
+                                    name=narrator["name"])
+    params = dict(target["params"])
+    params.pop("max_context_tokens", None)
+    tally = spending.Tally()
+    provider = ctx.providers.create(target)
+    llm = LLMClient(provider, model=model, budget=run.budget, trace=run.trace,
+                    defaults=request_params(target["kind"], params),
+                    meter=spending.meter(ctx, target, chat_id=chat["id"], message_id=message["id"],
+                                         purpose="narrator", tally=tally))
+    run.emit("start", run_id=run.id, message=message, user_message=None)
+    parts: list[str] = []
+
+    def save() -> bool:
+        text = "".join(parts)
+        if not text.strip():
+            ctx.chats.delete_message(message["id"])
+            return False
+        ctx.chats.set_content(message["id"], text)
+        if tally.requests:
+            ctx.chats.update_swipe_meta(message["id"], 0, {"usage": tally.as_meta()})
+        try:
+            entries = [{"role": m.role, "text": m.content, "source": "prompt:narrator", "label": narrator["name"],
+                        "kind": "prompt", "msg": i} for i, m in enumerate(prompt)]
+            ctx.prompt_log.record(chat["id"], message["id"], 0, entries, {
+                "preset_id": preset["id"], "preset_name": preset["name"], "connection_id": target["id"],
+                "connection_name": target["name"], "model": model, "params": {}, "tokens": 0, "dropped": {},
+                "max_context_tokens": 0})
+        except Exception:  # noqa: BLE001 - the scene itself is saved; the archive is secondary
+            log.exception("Could not archive the narrator's prompt")
+        return True
+
+    try:
+        async for event in llm.stream(prompt):
+            if event.kind == "text":
+                parts.append(event.text)
+                run.emit("delta", id=message["id"], text=event.text)
+    except asyncio.CancelledError:
+        save()
         raise
+    except Exception as exc:  # noqa: BLE001 - the round is kept; only the scene failed
+        if not isinstance(exc, TavernError):
+            log.exception("The narrator failed in chat %s", chat["id"])
+        save()
+        run.emit("reply_error", id=message["id"], error=_error_dict(exc))
+        return None
+    finally:
+        await provider.aclose()
+    if not save():
+        run.emit("reply_error", id=message["id"], error={"code": "empty_reply", "message": "Рассказчик ничего не написал"})
+        return None
+    told = ctx.chats.get_message(message["id"])
+    run.emit("reply_done", message=told)
+    return told

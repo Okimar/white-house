@@ -57,9 +57,12 @@ async def test_members_can_be_added_changed_and_removed(client, ctx, fake_llm):
     bad = await client.put(f"/api/chats/{chat_id}/members/{bob['id']}", json={"importance": 11})
     assert bad.json()["error"]["code"] == "bad_member"
 
-    await finish(ctx, await client.post(f"/api/chats/{chat_id}/send", json={"text": "hi"}))
+    # Two characters: with full cards Bob's goes at its depth even while Ann speaks.
+    await client.put(f"/api/chats/{chat_id}/speakers", json={"others": "full"})
+    await finish(ctx, await client.post(f"/api/chats/{chat_id}/send", json={"text": "hi", "speaker": ann["id"]}))
     contents = [m["content"] for m in fake_llm.requests[-1]["messages"]]
-    assert "Bob the smith." in contents[-2] and contents[-1] == "hi"
+    assert "Bob the smith." in contents[-3] and contents[-2] == "hi"
+    assert contents[-1] == "[Write the next reply only as Ann. Do not write for the other characters or User.]"
 
     # making the main character "me" moves the main role to Bob
     changed = await client.put(f"/api/chats/{chat_id}/members/{ann['id']}", json={"is_me": True})

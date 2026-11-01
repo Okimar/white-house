@@ -59,6 +59,8 @@ def _add_serve_args(parser: argparse.ArgumentParser) -> None:
         help="run on a temporary copy of the data directory; real data is never modified",
     )
     parser.add_argument("--keep-sandbox", action="store_true", help="do not delete the sandbox")
+    parser.add_argument("--no-plugins", action="store_true",
+                        help="start without plugins (when one of them breaks the start)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -126,8 +128,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
         overrides = {"host": args.host, "port": args.port}
         if args.no_browser:
             overrides["open_browser"] = False
-        ctx = open_context(paths, server_overrides=overrides, sandbox=args.sandbox)
+        ctx = open_context(paths, server_overrides=overrides, sandbox=args.sandbox,
+                           load_plugins=not args.no_plugins)
         setup_logging(ctx.config.log_level, paths.logs / "tavern.log")
+        ctx.plugins.start()
         app = create_app(ctx)
         server_cfg = ctx.config.server
         config = uvicorn.Config(

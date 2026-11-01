@@ -6,7 +6,9 @@ every event emitted so far, so reconnecting shows the full state.
 
 Event dicts always have "type". Types used by the core:
   start    {run_id, user_message?, message}      run accepted, messages exist in the database
-  delta    {text}                                 piece of the reply
+  delta    {id?, text}                            piece of the reply (id: which one, in a turn)
+  turn_start {run_id, user_message?}              a turn of several replies began (stage 7б)
+  reply_done / reply_error {message} / {id, error}  one reply of a turn finished / failed
   trace    {kind, ...}                            progress for plugin panels (agent steps, etc.)
   done     {message, usage}                       finished normally
   stopped  {message}                              cancelled by the user; partial text was kept
@@ -127,6 +129,10 @@ class RunManager:
 
     def active(self, chat_id: str) -> Run | None:
         return self._active.get(chat_id)
+
+    def running(self) -> list[str]:
+        """Keys of the runs going on now (chat ids, "assistant:<id>")."""
+        return list(self._active)
 
     def get(self, run_id: str) -> Run | None:
         for run in self._active.values():
