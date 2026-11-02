@@ -159,6 +159,25 @@ def _kind(value: Any) -> str:
     return type(value).__name__
 
 
+def free_form(schema: Any) -> bool:
+    """Does the schema hold an object that names none of its fields ({"type": "object"} alone)?
+
+    A native JSON-schema mode keeps only listed fields: Gemini returns such an object empty
+    (tool arguments came back as {}). Callers ask for plain JSON instead and check the schema
+    themselves (LLMClient.generate_json)."""
+    if isinstance(schema, list):
+        return any(free_form(s) for s in schema)
+    if not isinstance(schema, dict):
+        return False
+    types = schema.get("type")
+    if (types == "object" or (isinstance(types, list) and "object" in types))             and not schema.get("properties") and not schema.get("required")             and schema.get("additionalProperties") is not False:
+        return True
+    for key in ("properties", "$defs", "definitions"):
+        if isinstance(schema.get(key), dict) and any(free_form(s) for s in schema[key].values()):
+            return True
+    return any(free_form(schema.get(key)) for key in ("items", "additionalProperties", "anyOf", "oneOf", "allOf"))
+
+
 def instruction(schema: dict[str, Any] | None) -> str:
     """The request in words: for backends without a JSON mode, and a reminder for all the others."""
     text = "Answer with one JSON value only: no comments, no code fences, no text around it."

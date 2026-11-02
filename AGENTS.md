@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done; 10а (the assistant's engine for weak models: questions, plan, items with the task pinned, a checklist critic, a model per role, live test stand) done**.
 
 ## Commands
 
@@ -24,6 +24,7 @@ Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–
 | Copies of the whole data folder | `python -m tavern backup create|list|restore NAME` |
 | Check / repair the data folder | `python -m tavern doctor [--fix]` |
 | Fake LLM for manual testing | `python -m tavern.devtools.fake_llm --port 5001` |
+| Live run of an assistant scenario (real model, sandbox copy, report in `.bench/`) | `python -m tavern.devtools.assistant_bench lorebook [--roles planner=MODEL,...]` |
 | Fake Google Drive for manual testing | `python -m tavern.devtools.fake_gdrive --port 5002`, then run with `TAVERN_GDRIVE_URL=http://127.0.0.1:5002` |
 
 Use the virtualenv interpreter: `.venv/bin/python` (Windows: `.venv\Scripts\python.exe`).
@@ -59,6 +60,8 @@ tavern/                 Python package (backend)
                         old versions stay exact; read-only version history per source
   util/                 atomic file writes, data-dir lock
   devtools/fake_llm.py  scriptable OpenAI-compatible fake server for tests
+  devtools/assistant_bench.py  live test stand: scenarios in devtools/bench/*.json run against the real model in a
+                        sandbox copy; report.md with the plan, critic, timings, spending per role and every made book
   devtools/fake_gdrive.py  fake Google sign-in + Drive (tests: transport(); manual: --port 5002 and
                         TAVERN_GDRIVE_URL=http://127.0.0.1:5002)
   api/                  HTTP routes (chats + SSE, characters + settings, connections, themes,
@@ -105,8 +108,13 @@ tavern/                 Python package (backend)
                         api/plugins.py; storage/repos/plugins.py (plugins, plugin_data); ADR 0009
   builtin_plugins/      dice (/roll), translate (Google Translate, no model), thoughts (tree of thoughts:
                         a reply writer; thinkers in parallel, rounds, thoughts in swipe_meta; ADR 0011)
-  services/assistant.py the assistant over the chat (stage 8б): conversations, the step loop (JSON form
-                        via generate_json, any model), confirmations, own spending limits, undo;
+  services/assistant.py the assistant over the chat (stage 8б): settings (roles, critic, progress), conversations,
+                        requests (answers, «Давай», messages into the running plan), own spending limits, undo,
+                        «Что я о вас знаю» (assistant_memory);
+  services/assistant_engine.py  how a request is worked on (10а): small ones by the step loop (JSON form via
+                        generate_json, any model), big work as a task on the conversation: questions → plan →
+                        items (writer, task pinned in every call) → critic (read-only, no conversation) → report;
+                        a model per role (planner, writer, critic, small); ADR 0013;
                         services/assistant_tools.py (tools over the same services as the UI);
                         services/assistant_app.py (app_call: the page's own requests in process, closed
                         routes, read_chat, theme tools, show); storage/changelog.py (rows a request

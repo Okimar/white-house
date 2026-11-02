@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from tavern.core.llm import LLMClient, StructuredOutputError
-from tavern.core.structured import problems
+from tavern.core.structured import free_form, problems
 from tavern.devtools.fake_llm import FakeLLM
 from tavern.providers.anthropic import AnthropicProvider, _tool_answer
 from tavern.providers.base import ChatMessage
@@ -65,6 +65,22 @@ async def test_the_model_is_told_what_did_not_fit_and_tries_again():
     assert "JSON Schema" in first["messages"][-1]["content"]  # said in words as well
     assert second["messages"][-2] == {"role": "assistant", "content": '{"name": "Аня"}'}
     assert "$.age: required" in second["messages"][-1]["content"]
+
+
+async def test_free_form_objects_go_as_plain_json_mode_and_are_checked_here():
+    # Regression (stage 10а, live Gemini): under a native schema it returned tool arguments as {}.
+    actions = {"type": "object", "properties": {"actions": {"type": "array", "items": {
+        "type": "object", "properties": {"tool": {"type": "string"}, "args": {"type": "object"}},
+        "required": ["tool"]}}}, "required": ["actions"]}
+    assert free_form(actions) and free_form({"anyOf": [{"type": "object"}]})
+    assert not free_form(PERSON) and not free_form({"type": "object", "additionalProperties": False})
+    fake = FakeLLM()
+    fake.queue('{"actions": "no"}', '{"actions": [{"tool": "make", "args": {"name": "Test"}}]}')
+    value = await openai(fake).generate_json(USER, schema=actions)
+    assert value["actions"][0]["args"] == {"name": "Test"}
+    assert [r["response_format"] for r in fake.requests] == [{"type": "json_object"}] * 2
+    assert "JSON Schema" in fake.requests[0]["messages"][-1]["content"]
+    assert "$.actions: must be array" in fake.requests[1]["messages"][-1]["content"]
 
 
 async def test_gives_up_after_the_retries():

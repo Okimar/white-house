@@ -1,4 +1,5 @@
-"""The assistant's conversations, their messages and the journal of its actions (stage 8б)."""
+"""The assistant's conversations, their messages, the journal of its actions (stage 8б), the task a
+conversation works on and «Что я о вас знаю» (stage 10а)."""
 
 from __future__ import annotations
 
@@ -13,6 +14,12 @@ from tavern.util.ids import new_id, now_iso
 def _message(row: Any) -> dict[str, Any]:
     out = dict(row)
     out["data"] = json.loads(out["data"])
+    return out
+
+
+def _chat(row: Any) -> dict[str, Any]:
+    out = dict(row)
+    out["task"] = json.loads(out.get("task") or "{}")
     return out
 
 
@@ -32,13 +39,13 @@ class AssistantRepo:
     # --- conversations ------------------------------------------------------------------------
 
     def chats(self) -> list[dict[str, Any]]:
-        return [dict(r) for r in self.db.fetchall("SELECT * FROM assistant_chats ORDER BY updated_at DESC, id")]
+        return [_chat(r) for r in self.db.fetchall("SELECT * FROM assistant_chats ORDER BY updated_at DESC, id")]
 
     def chat(self, chat_id: str) -> dict[str, Any]:
         row = self.db.fetchone("SELECT * FROM assistant_chats WHERE id = ?", (chat_id,))
         if row is None:
             raise NotFound("Беседа с помощником не найдена")
-        return dict(row)
+        return _chat(row)
 
     def create_chat(self, title: str = "") -> dict[str, Any]:
         chat_id, now = new_id(), now_iso()
@@ -53,6 +60,13 @@ class AssistantRepo:
 
     def touch(self, chat_id: str) -> None:
         self.db.execute("UPDATE assistant_chats SET updated_at = ? WHERE id = ?", (now_iso(), chat_id))
+
+    def task(self, chat_id: str) -> dict[str, Any]:
+        return self.chat(chat_id)["task"]
+
+    def set_task(self, chat_id: str, task: dict[str, Any]) -> None:
+        self.db.execute("UPDATE assistant_chats SET task = ? WHERE id = ?",
+                        (json.dumps(task, ensure_ascii=False), chat_id))
 
     def delete_chat(self, chat_id: str) -> None:
         self.chat(chat_id)
@@ -101,3 +115,28 @@ class AssistantRepo:
 
     def set_status(self, action_id: int, status: str) -> None:
         self.db.execute("UPDATE assistant_actions SET status = ? WHERE id = ?", (status, action_id))
+
+    # --- «Что я о вас знаю» ---------------------------------------------------------------------
+
+    def memory(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.db.fetchall("SELECT * FROM assistant_memory ORDER BY id")]
+
+    def remember(self, text: str, chat_id: str | None = None) -> dict[str, Any]:
+        cursor = self.db.execute("INSERT INTO assistant_memory (text, chat_id, created_at) VALUES (?, ?, ?)",
+                                 (text, chat_id, now_iso()))
+        return self.fact(int(cursor.lastrowid or 0))
+
+    def fact(self, fact_id: int) -> dict[str, Any]:
+        row = self.db.fetchone("SELECT * FROM assistant_memory WHERE id = ?", (fact_id,))
+        if row is None:
+            raise NotFound("Такой записи в памяти помощника нет")
+        return dict(row)
+
+    def edit_fact(self, fact_id: int, text: str) -> dict[str, Any]:
+        self.fact(fact_id)
+        self.db.execute("UPDATE assistant_memory SET text = ? WHERE id = ?", (text, fact_id))
+        return self.fact(fact_id)
+
+    def forget(self, fact_id: int) -> None:
+        self.fact(fact_id)
+        self.db.execute("DELETE FROM assistant_memory WHERE id = ?", (fact_id,))

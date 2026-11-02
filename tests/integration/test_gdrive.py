@@ -193,7 +193,7 @@ def test_a_sandbox_never_sees_the_real_sign_in(data_paths):
 
 
 async def test_the_guide_is_one_text_for_the_tab_and_the_assistant(client, ctx):
-    from tavern.services.assistant import SYSTEM
+    from tavern.services.assistant_engine import SYSTEM
     from tavern.services.assistant_app import drive_guide
     from tavern.services.assistant_tools import Env
 

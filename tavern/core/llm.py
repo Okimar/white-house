@@ -153,8 +153,8 @@ class LLMClient:
     ) -> Any:
         """Ask for JSON and return the parsed value, checked against `schema` when one is given.
 
-        The provider's JSON mode is used (`json_schema` with a schema, else `json_object`); Claude
-        gets it as a forced tool, Gemini as responseJsonSchema. The request is also said in words,
+        The provider's JSON mode is used (`json_schema` with a schema whose objects all list their fields,
+        else `json_object`); Claude gets it as a forced tool, Gemini as responseJsonSchema. The request is also said in words,
         so backends without a JSON mode (text completion, small local models, proxies) understand
         it too; one that rejects the mode is asked again without it. The first JSON value in the
         reply is taken (code fences and prose around it are tolerated). When the value is not valid
@@ -162,8 +162,11 @@ class LLMClient:
         and asked again, up to `retries` more times. Then StructuredOutputError is raised.
         Every attempt is a paid request charged to the budget.
         """
+        # A schema with free-form objects (tool arguments) goes as plain JSON mode: native schema modes
+        # drop the fields it does not list. The schema is still said in words and checked here.
         fmt: dict[str, Any] = (
-            {"type": "json_schema", "name": "response", "schema": schema} if schema else {"type": "json_object"}
+            {"type": "json_schema", "name": "response", "schema": schema}
+            if schema and not structured.free_form(schema) else {"type": "json_object"}
         )
         history = _with_note(messages, structured.instruction(schema))
         native = True

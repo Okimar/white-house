@@ -19,3 +19,6 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Live test stand reports (python -m tavern.devtools.assistant_bench)
+/.bench/

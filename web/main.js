@@ -35,6 +35,8 @@ function App() {
   const [backupWarningHidden, setBackupWarningHidden] = useState(false);
   const [menu, setMenu] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
+  const [assistantConv, setAssistantConv] = useState(""); // a conversation to open (from the 🪄 mark)
+  const [assistantState, setAssistantState] = useState({ running: [], waiting: [] });
   const pluginUi = usePluginUi(); // side panels of plugins
   const assistantRef = useRef({ changed() {}, show() {} }); // the event stream outlives renders: it calls the newest
   const [toast, setToast] = useState("");
@@ -75,6 +77,8 @@ function App() {
   useEffect(() => {
     loadPlugins();
     loadBackupStatus();
+    const loadAssistantState = () => api.get("/assistant/state").then(setAssistantState).catch(() => {});
+    loadAssistantState();
     const source = new EventSource("/api/events");
     source.onmessage = (message) => {
       const event = JSON.parse(message.data);
@@ -84,6 +88,7 @@ function App() {
       else if (event.type === "plugin") pluginNotice(event);
       else if (event.type === "assistant_changed") assistantRef.current.changed();
       else if (event.type === "assistant_show") assistantRef.current.show(event);
+      else if (event.type === "assistant_state") loadAssistantState();
       else if (event.type === "backups") { loadBackupStatus(); window.dispatchEvent(new Event("tavern:backups")); }
       else if (event.type === "restored") location.reload();
     };
@@ -375,6 +380,12 @@ function App() {
           ${shown && html`<form class="search" onSubmit=${search}>
             <input name="query" placeholder="Поиск" aria-label="Поиск по чату" />
           </form>`}
+          ${(assistantState.waiting.length > 0 || assistantState.running.length > 0) && html`<button
+            class=${"assistant-mark" + (assistantState.waiting.length ? " waiting" : "")} data-slot="assistant-mark"
+            title="Открыть помощника" onClick=${() => {
+              setAssistantConv(assistantState.waiting[0] || assistantState.running[0]);
+              setShowAssistant(true);
+            }}>${assistantState.waiting.length ? "🪄 ждёт вас" : "🪄 работает"}</button>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
           ${shown && html`<${ProfileSwitch} key=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
           ${shown && html`<${PanelButtons} panels=${pluginUi.panels} />`}
@@ -469,7 +480,7 @@ function App() {
           setNotesOpen((o) => ({ ...o, [notesFor.message.id]: on }));
         }} />`}
       ${promptOf && html`<${PromptView} message=${promptOf} onClose=${() => setPromptOf(null)} onError=${onError} />`}
-      ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} onError=${onError}
+      ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} openConv=${assistantConv} onError=${onError}
         onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
       ${toast && html`<div class="toast" data-slot="toast" role="alert" onClick=${() => setToast("")}>${toast}</div>`}
