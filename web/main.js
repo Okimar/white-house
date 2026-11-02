@@ -481,6 +481,7 @@ function App() {
         }} />`}
       ${promptOf && html`<${PromptView} message=${promptOf} onClose=${() => setPromptOf(null)} onError=${onError} />`}
       ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} openConv=${assistantConv} onError=${onError}
+        onOpenSkills=${() => setShowSettings("skills")}
         onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
       ${toast && html`<div class="toast" data-slot="toast" role="alert" onClick=${() => setToast("")}>${toast}</div>`}

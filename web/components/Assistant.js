@@ -8,6 +8,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api, followRun } from "../core/api.js";
 import { money } from "../core/spending.js";
+import { OPEN_SKILL_KEY } from "./Skills.js";
 
 const POS_KEY = "tavern.assistant.pos";
 const CHAT_KEY = "tavern.assistant.chat";
@@ -55,7 +56,7 @@ function Memory({ memory, onChange, onError }) {
   </div>`;
 }
 
-function AssistantSettings({ overview, onSaved, onMemory, onError }) {
+function AssistantSettings({ overview, onSaved, onMemory, onOpenSkills, onError }) {
   const s = overview.settings;
   const cur = overview.money.currency.code || "$";
   const [models, setModels] = useState([]);
@@ -112,6 +113,7 @@ function AssistantSettings({ overview, onSaved, onMemory, onError }) {
     <p class="muted">${`Потрачено сегодня: ${money(overview.spent.day.cost, overview.money)} (${overview.spent.day.requests} запр.), ` +
       `за месяц: ${money(overview.spent.month.cost, overview.money)}. 0 — без лимита; общие лимиты тоже действуют.`}</p>
     <${Memory} memory=${overview.memory || []} onChange=${onMemory} onError=${onError} />
+    <button class="link" onClick=${() => onOpenSkills(null)}>📖 Инструкции помощника…</button>
   </div>`;
 }
 
@@ -199,7 +201,7 @@ function timeline(messages, actions) {
   return items.sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : x.order - y.order));
 }
 
-export function Assistant({ chatId, openConv, onClose, onChanged, onError }) {
+export function Assistant({ chatId, openConv, onClose, onChanged, onOpenSkills, onError }) {
   const [overview, setOverview] = useState(null);
   const [convId, setConvId] = useState(openConv || stored(CHAT_KEY, ""));
   const [data, setData] = useState(null);
@@ -334,6 +336,10 @@ export function Assistant({ chatId, openConv, onClose, onChanged, onError }) {
     window.addEventListener("pointerup", up);
   };
 
+  const openSkill = (skillId) => {
+    try { if (skillId) localStorage.setItem(OPEN_SKILL_KEY, skillId); } catch { /* opens the tab without it */ }
+    onOpenSkills();
+  };
   const full = (overview?.settings.progress || "full") === "full";
   const task = data?.task || {};
   const memoryIds = new Set((overview?.memory || []).map((f) => f.id));
@@ -355,6 +361,10 @@ export function Assistant({ chatId, openConv, onClose, onChanged, onError }) {
     if (kind === "plan") {
       return html`<${PlanCard} key=${key} message=${m} task=${task} running=${Boolean(runId)}
         active=${livePlan?.id === m.id} onGo=${go} onDrop=${drop} />`;
+    }
+    if (kind === "skill") {
+      return html`<div key=${key} class="assistant-line" data-slot="assistant-skill">
+        <button class="link" title="Открыть инструкцию" onClick=${() => openSkill(m.data.skill_id)}>${m.text}</button></div>`;
     }
     if (kind === "progress") return html`<${Line} key=${key} icon="▸" text=${m.text} detail=${full ? m.data.detail : ""} />`;
     if (kind === "step") return full && m.text ? html`<div key=${key} class="assistant-step" data-slot="assistant-step">· ${m.text}</div>` : null;
@@ -398,7 +408,7 @@ export function Assistant({ chatId, openConv, onClose, onChanged, onError }) {
     </div>
     ${!folded && html`
       ${showSettings && overview && html`<${AssistantSettings} overview=${overview} onError=${onError}
-        onSaved=${(s) => setOverview({ ...overview, settings: s })} onMemory=${loadOverview} />`}
+        onSaved=${(s) => setOverview({ ...overview, settings: s })} onMemory=${loadOverview} onOpenSkills=${openSkill} />`}
       <div class="assistant-body" data-slot="assistant-body">
         ${items.length === 0 && html`<p class="muted">Помощник умеет всё, что и вы на этой странице. Например:
           «сделай персонажа — лесную ведьму», «напиши лорбук про город и включи его в этом чате»,

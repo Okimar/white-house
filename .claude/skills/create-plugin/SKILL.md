@@ -83,6 +83,14 @@ part (an action), not from the browser. Message objects: `id`, `role`, `content`
 `name`, `character_id`, `swipe_meta`, `extra`. Restyle through `style.css` and the `data-plugin`
 attribute on your buttons and lines (slots in the make-theme skill).
 
+## Skills for the assistant
+
+A plugin can teach the 🪄 assistant a kind of work: put English Markdown files in `skills/` of the
+plugin folder, each with a header (`name`, `title`, `description` = when to use it, `audience:
+assistant`) and optional parts `## Plan`, `## Write`, `## Check` (lines `- …` there are extra checks
+for the critic). They are on while the plugin is active and show in Settings → «Инструкции» under
+«Из дополнений». See `tavern/services/skills.py` for the format.
+
 ## Tests
 
 - Pure logic: load the module by path (see `load_builtin` in `tests/unit/test_plugins.py`).

@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done; 10а (the assistant's engine for weak models: questions, plan, items with the task pinned, a checklist critic, a model per role, live test stand) done**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done; 10а (the assistant's engine for weak models: questions, plan, items with the task pinned, a checklist critic, a model per role, live test stand) and 10б (skills inside the app: «Инструкции» tab, parts per role, checks for the critic) done**.
 
 ## Commands
 
@@ -126,6 +126,12 @@ tavern/                 Python package (backend)
                         params (every setting: type, range, kinds, sent or Tavern's own), catalog
                         (known services with ready addresses), fallback (steps when a connection fails
                         before writing: other model / connection / key, refusal phrases, empty reply)
+  services/skills.py    skills (10б): instructions the assistant reads for a kind of work; built-in files in
+                        tavern/skills/*.md (English, header name/title/description/audience, parts ## Plan /
+                        ## Write / ## Check for planner / writer / critic), the user's own and copies (table
+                        `skills`, storage/repos/skills.py; a copy of a built-in replaces it), plugins' skills/*.md,
+                        the programmer's .claude/skills (read-only, audience programmer unless marked both);
+                        api/skills.py; the engine picks one (small role) and shows «📖 Инструкция: …»
   services/profiles.py  connection profiles: snapshot of connection, model, settings, preset; apply
   services/parallel.py  several requests at once: settings, extra targets, collect/gather (also for
                         plugins and agents), race (first writer wins)

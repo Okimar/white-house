@@ -18,6 +18,7 @@ from tavern.api import backups as backups_api
 from tavern.api import chats as chats_api
 from tavern.api import characters as characters_api
 from tavern.api import connections as connections_api
+from tavern.api import skills as skills_api
 from tavern.api import templates as templates_api
 from tavern.api import profiles as profiles_api
 from tavern.api import spending as spending_api
@@ -90,6 +91,7 @@ def api_routes() -> list[Route]:
         *characters_api.routes,
         *connections_api.routes,
         *templates_api.routes,
+        *skills_api.routes,
         *profiles_api.routes,
         *spending_api.routes,
         *assistant_api.routes,

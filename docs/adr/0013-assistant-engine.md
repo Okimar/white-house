@@ -44,6 +44,20 @@ progress shown in full or as short lines.
   a sandbox copy of the owner's data, reports with the full text of what was made. Quality is judged
   on what was written, compared with a reference Claude writes by the same instructions.
 
+## Addendum: skills inside the app (stage 10б, 2026-11-02)
+
+- A skill is English Markdown with a header (name, title, description, audience). Parts `## Plan`,
+  `## Write`, `## Check` go only to the planner, the writer and (as extra checklist lines) the critic,
+  so a weak model reads only what its step needs. Text before the first part goes to all.
+- Built-in skills are files in `tavern/skills/` (read-only); the user's own live in the table `skills`
+  (migration 0017) so copies of the data carry them; a copy of a built-in replaces it while it is on.
+  Plugins bring `skills/*.md`; the programmer's `.claude/skills` are listed read-only and reach the
+  assistant only when marked `audience: both`.
+- For big work the small role picks the skill from a one-line-per-skill catalog before the questions;
+  small requests see the catalog and call `read_skill`. Either way the conversation shows
+  «📖 Инструкция: …», which opens the skill in the tab. No fitting skill: the general rules apply.
+- The assistant cannot change skills (`/skills` writes are closed to `app_call`).
+
 ## Consequences
 
 - Big work costs more calls (questions, plan, an item loop each, critic rounds, report); role models

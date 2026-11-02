@@ -8,12 +8,13 @@ import { Presets } from "./Presets.js";
 import { LorebookSettings } from "./Lorebooks.js";
 import { Connections } from "./Connections.js";
 import { Templates } from "./Templates.js";
+import { Skills } from "./Skills.js";
 import { SpendingSettings } from "./Spending.js";
 import { Plugins } from "./Plugins.js";
 import { BackupsTab } from "./Backups.js";
 
 const TABS = [["main", "Основное"], ["connections", "Подключения"], ["templates", "Шаблоны"], ["spending", "Расход"], ["prompt", "Промпт"],
-  ["lore", "Лорбуки"], ["look", "Оформление"], ["pictures", "Картинки"], ["plugins", "Дополнения"], ["backups", "Копии"]];
+  ["lore", "Лорбуки"], ["look", "Оформление"], ["pictures", "Картинки"], ["plugins", "Дополнения"], ["skills", "Инструкции"], ["backups", "Копии"]];
 
 export function Settings({ settings, themes, deletedThemes, characters, initialTab, onClose, onChanged, onError }) {
   const [tab, setTab] = useState(initialTab || "main");
@@ -92,6 +93,7 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
         ${tab === "connections" && html`<${Connections} onChanged=${onChanged} onError=${onError} />`}
         ${tab === "templates" && html`<${Templates} onError=${onError} />`}
+        ${tab === "skills" && html`<${Skills} onError=${onError} />`}
         ${tab === "spending" && html`<${SpendingSettings} onError=${onError} />`}
         ${tab === "plugins" && html`<${Plugins} onError=${onError} />`}
         ${tab === "backups" && html`<${BackupsTab} onError=${onError} />`}

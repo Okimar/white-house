@@ -26,6 +26,7 @@ from tavern.storage.db import Database
 from tavern.storage.repos.characters import CharacterRepo
 from tavern.storage.repos.chats import ChatRepo
 from tavern.storage.repos.connections import ConnectionRepo
+from tavern.storage.repos.skills import SkillRepo
 from tavern.storage.repos.templates import TemplateRepo
 from tavern.storage.prompt_log import PromptLog
 from tavern.storage.repos.assistant import AssistantRepo
@@ -57,6 +58,7 @@ class AppContext:
     chats: ChatRepo
     connections: ConnectionRepo
     templates: TemplateRepo
+    skills: SkillRepo
     settings: SettingsRepo
     themes: ThemeStore
     assets: AssetStore
@@ -128,6 +130,7 @@ def open_context(
         chats=ChatRepo(db),
         connections=ConnectionRepo(db),
         templates=TemplateRepo(db),
+        skills=SkillRepo(db),
         settings=SettingsRepo(db),
         themes=ThemeStore(BUILTIN_THEMES_DIR, paths.themes),
         assets=AssetStore(paths.assets),

@@ -42,6 +42,7 @@ CLOSED_WRITES = (
     (re.compile(r"^/plugins(?!/command$|/[^/]+/actions/)"), "installing and switching plugins is closed to the assistant"),
     (re.compile(r"^/themes"), "use the theme tools (make_theme, write_theme_file, set_theme)"),
     (re.compile(r"^/assets"), "pictures are files: the assistant cannot add or delete them"),
+    (re.compile(r"^/skills"), "the assistant reads skills (read_skill) but never changes its own instructions"),
 )
 ASK_FIRST = re.compile(r"/(delete-by-numbers)$")
 

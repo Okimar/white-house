@@ -52,6 +52,7 @@ from tavern.errors import NotFound, TavernError
 from tavern.providers.base import ChatMessage
 from tavern.services import assistant
 from tavern.services import assistant_tools as tools
+from tavern.services import skills as skill_service
 from tavern.services import spending
 from tavern.services.chat import _error_dict
 from tavern.util.ids import new_id
@@ -67,7 +68,7 @@ ROLES = ("planner", "writer", "critic", "small")
 
 # Tools the critic may use: it reads, it never changes anything.
 READ_ONLY = frozenset({"list_characters", "read_character", "list_bubbles", "read_bubble", "list_lorebooks",
-                       "app_routes", "read_chat", "list_themes", "read_theme_file"})
+                       "app_routes", "read_chat", "list_themes", "read_theme_file", "read_skill"})
 
 # --- forms ------------------------------------------------------------------------------------
 
@@ -133,6 +134,7 @@ FOLD_SCHEMA: dict[str, Any] = {
     "required": ["note"],
 }
 REPORT_SCHEMA: dict[str, Any] = {"type": "object", "properties": {"say": {"type": "string"}}, "required": ["say"]}
+CHOOSE_SCHEMA: dict[str, Any] = {"type": "object", "properties": {"skill": {"type": "string"}}, "required": ["skill"]}
 
 # --- what the models read ---------------------------------------------------------------------
 
@@ -176,7 +178,7 @@ sign-in itself is the user's: you cannot enter the pass or sign in for them.
 
 Tools:
 {tools}
-
+{skills}
 {memory}{place}"""
 
 QUESTIONS = """You are the planner of Tavern's assistant (Tavern is a roleplay chat app). The user asked \
@@ -278,6 +280,12 @@ Only real problems, not matters of taste. Never praise.
 
 Tools (read only):
 {tools}"""
+
+CHOOSE = """Pick the skill (an instruction for a kind of work) that fits the user's request below, from the list.
+Answer with one JSON object {"skill": "name"}; {"skill": ""} if none fits.
+
+Skills:
+"""
 
 CHECKS = [
     "Every plan item is really done: its part exists in the made text (see the FACTS too).",
@@ -644,8 +652,11 @@ async def small(ctx: AppContext, models: Models, conversation_id: str, chat_id: 
     repo = ctx.assistant_repo
     settings = models.settings
     env = tools.Env(ctx, chat_id)
+    listed = skill_service.catalog(ctx)
+    skills_text = (f"\nSkills (instructions for kinds of work; before such work or a question about it, read the "
+                   f"one that fits with read_skill):\n{listed}\n") if listed else ""
     system = SYSTEM.format(tools=tools.describe(), place=_place(ctx, chat_id), max_actions=MAX_ACTIONS,
-                           honesty=HONESTY, memory=_memory(ctx))
+                           honesty=HONESTY, memory=_memory(ctx), skills=skills_text)
     llm = models.client()
     for step in range(settings["max_steps"]):
         run.emit("thinking", step=step + 1)
@@ -667,6 +678,11 @@ async def small(ctx: AppContext, models: Models, conversation_id: str, chat_id: 
         if not actions:
             return
         results = [await act(ctx, env, conversation_id, run, item) for item in actions]
+        for result in results:
+            if result.get("tool") == "read_skill" and isinstance(result.get("result"), dict):
+                read = result["result"]
+                _say(ctx, run, conversation_id, f"📖 Инструкция: {read['title']}",
+                     {"kind": "skill", "skill_id": read["id"], "name": read["name"]})
         run.emit("message", message=repo.add_message(conversation_id, "tool", "", {"results": results}))
     note = (f"Я сделал {settings['max_steps']} шагов — это предел на одну просьбу. "
             "Напишите «продолжай», если нужно ещё.")
@@ -688,11 +704,34 @@ def _recent(ctx: AppContext, conversation_id: str, limit: int = 6000) -> str:
     return "\n".join(lines)[-limit:]
 
 
+def _skill_block(ctx: AppContext, task: dict[str, Any], role: str) -> str:
+    """The task's skill as one role reads it, or ""."""
+    skill = skill_service.find(ctx, task.get("skill"))
+    text = skill_service.part(skill, role) if skill else ""
+    return f"\n\nSKILL «{skill['name']}» (follow it):\n{text}\n" if text else ""
+
+
+async def choose_skill(ctx: AppContext, models: Models, conversation_id: str, run: Run,
+                       task: dict[str, Any]) -> None:
+    """Pick the skill for the task (the small role) and show it as a line."""
+    listed = skill_service.catalog(ctx)
+    if not listed or "skill" in task:
+        return
+    value = await models.client("small").generate_json(
+        [ChatMessage("system", CHOOSE + listed), ChatMessage("user", task["request"])], schema=CHOOSE_SCHEMA)
+    skill = skill_service.find(ctx, value.get("skill"))
+    task["skill"] = skill["name"] if skill else ""
+    if skill:
+        _say(ctx, run, conversation_id, f"📖 Инструкция: {skill['title']}",
+             {"kind": "skill", "skill_id": skill["id"], "name": skill["name"]})
+
+
 async def questions(ctx: AppContext, models: Models, conversation_id: str, chat_id: str | None, run: Run,
                     task: dict[str, Any]) -> None:
     run.emit("thinking", step=1, phase="questions")
+    await choose_skill(ctx, models, conversation_id, run, task)
     system = QUESTIONS.format(max_questions=MAX_QUESTIONS - 1, honesty=HONESTY, memory=_memory(ctx),
-                              place=_place(ctx, chat_id))
+                              place=_place(ctx, chat_id)) + _skill_block(ctx, task, "planner")
     user = f"The user's request:\n{task['request']}\n\nThe conversation so far:\n{_recent(ctx, conversation_id)}"
     value = await models.client("planner").generate_json(
         [ChatMessage("system", system), ChatMessage("user", user)], schema=QUESTIONS_SCHEMA)
@@ -720,10 +759,12 @@ async def plan(ctx: AppContext, models: Models, conversation_id: str, chat_id: s
                task: dict[str, Any], words: str = "") -> bool:
     """Make (or remake) the plan. Returns True when the user's words approved it as it is."""
     run.emit("thinking", step=1, phase="plan")
+    await choose_skill(ctx, models, conversation_id, run, task)
     if not task.get("language"):
         default = language_question(task["request"])["options"][0]
         task["language"] = task.get("answers", {}).get("language") or default
-    system = PLAN.format(honesty=HONESTY, memory=_memory(ctx), place=_place(ctx, chat_id))
+    system = PLAN.format(honesty=HONESTY, memory=_memory(ctx), place=_place(ctx, chat_id)) + \
+        _skill_block(ctx, task, "planner")
     parts = [f"The user's request:\n{task['request']}"]
     if task.get("questions"):
         parts.append(f"Questions and answers:\n{_qa_text(task)}")
@@ -805,7 +846,8 @@ async def _writer_loop(ctx: AppContext, models: Models, conversation_id: str, ch
     a plain hint; the third time the item stops: a weak model does not get out of such a loop alone."""
     env = tools.Env(ctx, chat_id)
     system = WRITER.format(max_actions=MAX_ACTIONS, language=task.get("language", ""), honesty=HONESTY,
-                           tools=tools.describe(), memory=_memory(ctx), place=_place(ctx, chat_id))
+                           tools=tools.describe(), memory=_memory(ctx), place=_place(ctx, chat_id)) + \
+        _skill_block(ctx, task, "writer")
     head = f"{pinned(task, item['id'])}\n\nCURRENT ITEM {item['id']}: {item['title']}\n{item.get('detail', '')}"
     steps: list[ChatMessage] = [ChatMessage("user", head)]
     reminder = (f"Reminder: only item {item['id']} ({item['title']}); content in {task.get('language', '')}; "
@@ -1006,6 +1048,8 @@ async def _critic(ctx: AppContext, models: Models, conversation_id: str, chat_id
     read_tools = "\n".join(line for line in tools.describe().splitlines()
                            if line[2:].split(":")[0] in READ_ONLY | {"app_call"})
     checks = [c.format(language=task.get("language", "")) for c in CHECKS]
+    skill = skill_service.find(ctx, task.get("skill"))
+    checks += skill_service.checks(skill) if skill else []
     system = CRITIC.format(checklist="\n".join(f"{n}. {c}" for n, c in enumerate(checks, 1)), tools=read_tools)
     steps = [ChatMessage("user", f"{pinned(task)}\n\n{_facts(ctx, conversation_id, task)}\n\n"
                                  f"WHAT WAS CHANGED (the journal):\n{_made(ctx, conversation_id, task)}\n\n"
@@ -1086,6 +1130,23 @@ async def report(ctx: AppContext, models: Models, conversation_id: str, run: Run
     _say(ctx, run, conversation_id, str(value.get("say") or "").strip() or "Готово.",
          {"kind": "report", "task": task["no"], "open_issues": task.get("open_issues", [])})
     save(ctx, run, conversation_id, task)
+
+
+# --- the read_skill tool ---------------------------------------------------------------------
+
+
+async def _read_skill(env: tools.Env, args: dict[str, Any]) -> tools.Outcome:
+    skill = skill_service.find(env.ctx, args.get("name"))
+    if skill is None:
+        names = ", ".join(s["name"] for s in skill_service.for_assistant(env.ctx)) or "none"
+        raise tools.ToolError(f"No skill {args.get('name')!r}. Skills: {names}")
+    return tools.Outcome({"id": skill["id"], "name": skill["name"], "title": skill["title"],
+                          "text": skill_service.part(skill, "writer")})
+
+
+tools.TOOLS["read_skill"] = tools.Tool(
+    "read_skill", "Read a skill: the instruction for a kind of work (see the list of skills).",
+    {"name": "skill name"}, _read_skill, required=("name",))
 
 
 # --- one run ----------------------------------------------------------------------------------
