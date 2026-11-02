@@ -22,6 +22,7 @@ import { pluginNotice, setPluginEnv, syncPlugins, usePluginUi } from "./core/plu
 import { PanelButtons, Panels } from "./components/PluginTree.js";
 import { PluginAsks } from "./components/Plugins.js";
 import { Assistant } from "./components/Assistant.js";
+import { BackupWarning } from "./components/Backups.js";
 
 function App() {
   const [characters, setCharacters] = useState([]);
@@ -29,7 +30,9 @@ function App() {
   const [chatId, setChatId] = useState(() => localStorage.getItem("tavern.chat") || null);
   const [settings, setSettings] = useState({});
   const [themes, setThemes] = useState({ themes: [], deleted: [] });
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(false); // true, or the tab to open
+  const [backupStatus, setBackupStatus] = useState(null);
+  const [backupWarningHidden, setBackupWarningHidden] = useState(false);
   const [menu, setMenu] = useState(false);
   const [showAssistant, setShowAssistant] = useState(false);
   const pluginUi = usePluginUi(); // side panels of plugins
@@ -68,8 +71,10 @@ function App() {
     setAsks(d.asks);
     syncPlugins(d.plugins);
   }).catch((e) => onError(e.message));
+  const loadBackupStatus = () => api.get("/backups/status").then(setBackupStatus).catch(() => {});
   useEffect(() => {
     loadPlugins();
+    loadBackupStatus();
     const source = new EventSource("/api/events");
     source.onmessage = (message) => {
       const event = JSON.parse(message.data);
@@ -79,8 +84,22 @@ function App() {
       else if (event.type === "plugin") pluginNotice(event);
       else if (event.type === "assistant_changed") assistantRef.current.changed();
       else if (event.type === "assistant_show") assistantRef.current.show(event);
+      else if (event.type === "backups") { loadBackupStatus(); window.dispatchEvent(new Event("tavern:backups")); }
+      else if (event.type === "restored") location.reload();
     };
     return () => source.close();
+  }, []);
+  // Google sends the browser back here after «Войти через Google» (stage 9б): hand the address to the
+  // server, clean it from the address bar and show the «Копии» tab.
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    if (!q.get("state") || !(q.get("code") || q.get("error"))) return;
+    const address = location.href;
+    history.replaceState(null, "", location.pathname);
+    setShowSettings("backups");
+    api.post("/backups/gdrive/finish", { address })
+      .then(() => onError("✓ Google Диск подключён"))
+      .catch((e) => onError(e.message));
   }, []);
   // "/roll 2d6": a plugin's command. Unknown commands are sent as ordinary text.
   const runCommand = async (text) => {
@@ -339,6 +358,8 @@ function App() {
     <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"}>
       ${SAFE_MODE && html`<div class="safe-banner" role="status">Безопасный режим: темы и окна дополнений выключены.
         <a href="/">Выйти</a></div>`}
+      ${!backupWarningHidden && html`<${BackupWarning} status=${backupStatus}
+        onOpen=${() => setShowSettings("backups")} onClose=${() => setBackupWarningHidden(true)} />`}
       <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} open=${menu}
         onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
         onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat}
@@ -422,6 +443,7 @@ function App() {
       </main>
       ${shown && html`<${Panels} panels=${pluginUi.panels} />`}
       ${showSettings && html`<${Settings} settings=${settings} themes=${themes.themes}
+        initialTab=${typeof showSettings === "string" ? showSettings : undefined}
         deletedThemes=${themes.deleted} characters=${characters} onClose=${() => { setShowSettings(false); reloadSpending(); loadPlugins(); }}
         onChanged=${refresh} onError=${onError} />`}
       ${showMembers && shown && html`<${Members} chat=${chat.chat} characters=${characters} settings=${settings} generators=${plugins.generators}

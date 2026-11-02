@@ -10,7 +10,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body
+from tavern.api.util import BadRequest, attachment, copy_before, ctx_of, field, json_body
 from tavern.errors import NotFound
 from tavern.formats.cards import card_to_png, decode_png_card, encode_card, parse_card
 from tavern.formats.media import media_type, sniff_image
@@ -37,6 +37,7 @@ async def create_character(request: Request) -> JSONResponse:
 
 async def import_character_png(request: Request) -> JSONResponse:
     blob = await request.body()
+    await copy_before(request, "import-character")
     if len(blob) > 10 * 1024 * 1024:
         raise BadRequest("PNG card is too large", code="card_too_large")
     spec, data = decode_png_card(blob)
@@ -122,6 +123,8 @@ async def restore_version(request: Request) -> JSONResponse:
 
 
 async def delete_character(request: Request) -> JSONResponse:
+    ctx_of(request).characters.get(request.path_params["id"])
+    await copy_before(request, "delete-character")
     ctx_of(request).characters.delete(request.path_params["id"])
     return JSONResponse({"ok": True})
 

@@ -12,7 +12,7 @@ from starlette.routing import Route
 
 from tavern.api import blocks as blocks_api
 from tavern.api import characters as characters_api
-from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body, read_body
+from tavern.api.util import BadRequest, attachment, copy_before, ctx_of, field, json_body, read_body
 from tavern.services import lorebooks
 
 MAX_FILE = 20 * 1024 * 1024
@@ -32,6 +32,7 @@ async def import_book(request: Request) -> JSONResponse:
     """Body: the file's bytes (SillyTavern world .json, a card's book, or our export). `?name=` is
     the file name, used when the file has no name inside."""
     blob = await read_body(request, MAX_FILE)
+    await copy_before(request, "import-lorebook")
     try:
         data = json.loads(blob.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -52,6 +53,8 @@ async def update_book(request: Request) -> JSONResponse:
 
 
 async def delete_book(request: Request) -> JSONResponse:
+    ctx_of(request).lorebooks.get(request.path_params["id"])
+    await copy_before(request, "delete-lorebook")
     await lorebooks.delete_book(ctx_of(request), request.path_params["id"])
     return JSONResponse({"ok": True})
 

@@ -24,7 +24,7 @@ def test_check_creates_and_verifies_data_dir(run, data_paths):
 def test_backup_create_list_restore(run):
     run("check")
     code, name = run("backup", "create", "--reason", "test")
-    assert code == 0 and name.strip().endswith("-test.sqlite3")
+    assert code == 0 and name.strip().endswith("-manual-test.zip")
     code, listing = run("backup", "list")
     assert name.strip() in listing
     code, out = run("backup", "restore", name.strip())
@@ -35,7 +35,16 @@ def test_backup_restore_unknown_name_fails_cleanly(run, caplog):
     run("check")
     code, _ = run("backup", "restore", "../../etc/passwd")
     assert code == 1
-    assert "Not a backup name" in caplog.text
+    assert "Нет такой копии" in caplog.text
+
+
+def test_doctor_reports_and_fixes_leftovers(run, data_paths):
+    run("check")
+    (data_paths.root / ".backup-tmp" / "stale").mkdir(parents=True)
+    code, out = run("doctor")
+    assert code == 0 and "Остатки прерванных операций" in out and "--fix" in out
+    code, out = run("doctor", "--fix")
+    assert code == 0 and not (data_paths.root / ".backup-tmp" / "stale").exists()
 
 
 def test_token_is_stable_until_rotated(run):

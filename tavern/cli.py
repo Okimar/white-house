@@ -34,13 +34,16 @@ def build_parser() -> argparse.ArgumentParser:
     serve = sub.add_parser("serve", help="start the server (default)")
     _add_serve_args(serve)
 
-    backup = sub.add_parser("backup", help="database snapshots")
+    backup = sub.add_parser("backup", help="copies of the whole data folder (without API keys)")
     backup_sub = backup.add_subparsers(dest="backup_command", required=True)
-    create = backup_sub.add_parser("create", help="take a snapshot now")
+    create = backup_sub.add_parser("create", help="take a copy now")
     create.add_argument("--reason", default="manual")
-    backup_sub.add_parser("list", help="list snapshots, newest first")
-    restore = backup_sub.add_parser("restore", help="replace the database with a snapshot")
-    restore.add_argument("name", help="snapshot file name from `backup list`")
+    backup_sub.add_parser("list", help="list copies, newest first")
+    restore = backup_sub.add_parser("restore", help="put a copy back (server stopped)")
+    restore.add_argument("name", help="copy file name from `backup list`")
+
+    doctor = sub.add_parser("doctor", help="check the data folder")
+    doctor.add_argument("--fix", action="store_true", help="repair what can be repaired safely (after a copy)")
 
     token = sub.add_parser("token", help="network access token")
     token.add_argument("--rotate", action="store_true", help="generate a new token")
@@ -82,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_token(args)
         if args.command == "check":
             return cmd_check(args)
+        if args.command == "doctor":
+            return cmd_doctor(args)
         return cmd_serve(args)
     except TavernError as exc:
         log.error("%s", exc)
@@ -132,6 +137,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
                            load_plugins=not args.no_plugins)
         setup_logging(ctx.config.log_level, paths.logs / "tavern.log")
         ctx.plugins.start()
+        if not args.sandbox:  # a sandbox is thrown away: copies of it would only fill the real disk
+            ctx.backups.start_scheduler()
+        ctx.gdrive.start()  # a sandbox has its own sign-in (none until made there): safe to run
         app = create_app(ctx)
         server_cfg = ctx.config.server
         config = uvicorn.Config(
@@ -206,27 +214,62 @@ def open_url(url: str) -> None:
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
-    from tavern.config import load_config
-    from tavern.storage.backup import create_backup, list_backups, prune_backups, restore_backup
+    """Whole-data copies (stage 9). Listing and taking a copy work while the server runs."""
+    from tavern.context import open_context
     from tavern.util.lock import DirLock
 
     paths = DataPaths(args.data_dir.resolve())
-    if args.backup_command == "list":
-        items = list_backups(paths.backups)
-        if not items:
-            print("No backups.")
-        for item in items:
-            print(f"{item.name}  {item.size / 1024:.0f} KiB")
+    if args.backup_command in ("list", "create"):
+        ctx = open_context(paths, load_plugins=False)
+        try:
+            if args.backup_command == "list":
+                items = ctx.backups.list()
+                if not items:
+                    print("No backups.")
+                for item in items:
+                    print(f"{item['name']}  {item['size'] / 1024:.0f} KiB")
+            else:
+                made = ctx.backups.create("manual", args.reason if args.reason != "manual" else "", force=True)
+                assert made is not None
+                print(made["name"])
+                if made["warning"]:
+                    log.warning("%s", made["warning"])
+        finally:
+            ctx.close()
         return 0
-    if args.backup_command == "create":
-        target = create_backup(paths.db, paths.backups, args.reason)
-        prune_backups(paths.backups, load_config(paths.config, create=False).backups.keep)
-        print(target.name)
-        return 0
-    with DirLock(paths.lock):  # restore only while the server is stopped
-        safety = restore_backup(paths.db, paths.backups, args.name)
-    print(f"Restored {args.name}." + (f" Previous state saved as {safety.name}." if safety else ""))
+    with DirLock(paths.lock):  # restore only while the server is stopped (the page restores live)
+        ctx = open_context(paths, load_plugins=False)
+        try:
+            done = ctx.backups.restore(args.name)
+        finally:
+            ctx.close()
+    print(f"Restored {args.name}." + (f" Previous state saved as {done['safety']}." if done["safety"] else ""))
     return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Check the data folder; `--fix` repairs what has a safe repair (after a copy)."""
+    from tavern.context import open_context
+    from tavern.services import doctor
+    from tavern.util.lock import DirLock
+
+    paths = DataPaths(args.data_dir.resolve())
+    with DirLock(paths.lock):
+        ctx = open_context(paths, load_plugins=False)
+        try:
+            findings = doctor.full(ctx)
+            if args.fix:
+                findings = doctor.fix(ctx, [f["id"] for f in findings if f["fix"]])["findings"]
+        finally:
+            ctx.close()
+    marks = {"error": "✗", "warn": "!", "info": "·"}
+    for f in findings:
+        print(f"{marks[f['level']]} {f['title']}" + (f" — {f['detail']}" if f["detail"] else ""))
+    if not findings:
+        print("✓ Всё в порядке")
+    elif not args.fix and any(f["fix"] for f in findings):
+        print("Исправить: tavern doctor --fix")
+    return 1 if any(f["level"] == "error" for f in findings) else 0
 
 
 def cmd_token(args: argparse.Namespace) -> int:

@@ -38,6 +38,7 @@ SECRET_WORDS = re.compile(r"^(api_?key|key|keys|secret|token|password|proxy|prox
 ALWAYS_CLOSED = re.compile(r"^/(assistant|events|runs/|plugins/asks)")
 CLOSED_WRITES = (
     (re.compile(r"^/connections/[^/]+/keys"), "API keys are closed to the assistant"),
+    (re.compile(r"^/backups/gdrive"), "the Google Drive sign-in and app pass are closed to the assistant"),
     (re.compile(r"^/plugins(?!/command$|/[^/]+/actions/)"), "installing and switching plugins is closed to the assistant"),
     (re.compile(r"^/themes"), "use the theme tools (make_theme, write_theme_file, set_theme)"),
     (re.compile(r"^/assets"), "pictures are files: the assistant cannot add or delete them"),
@@ -376,6 +377,12 @@ def undo_themes(ctx: Any, items: list[dict[str, Any]]) -> None:
 # --- the page ---------------------------------------------------------------------------------
 
 
+async def drive_guide(env: Env, args: dict[str, Any]) -> Outcome:
+    from tavern.services.gdrive import guide_text
+
+    return Outcome({"guide": guide_text(), "note": "give this text to the user word for word"})
+
+
 async def show(env: Env, args: dict[str, Any]) -> Outcome:
     if args.get("chat_id"):
         env.ctx.chats.get_chat(str(args["chat_id"]))
@@ -413,6 +420,8 @@ TOOLS = (
          {"theme_id": "optional, default the one that is on", "path": "theme.css ...", "content": "whole file"},
          write_theme_file, required=("content",)),
     Tool("set_theme", "Switch to another theme.", {"theme_id": "theme id"}, set_theme, required=("theme_id",)),
+    Tool("drive_guide", "How to connect copies on Google Drive (the app pass, Client ID, Google Cloud). "
+         "Give its text to the user as is.", {}, drive_guide),
     Tool("show", "Open a chat or a character's card on the page so the user sees the result.",
          {"chat_id": "or", "character_id": "one of the two"}, show),
 )

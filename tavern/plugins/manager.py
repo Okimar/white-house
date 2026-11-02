@@ -5,7 +5,9 @@ user's in data/plugins/<id>/. A new plugin is off. Turning on a plugin that is n
 `approve=True` (the UI shows what it says it does and the full-access warning first); the hash of
 its files is remembered, and different files later (an update, a hand edit) switch it off again
 until approved. A crash in `setup()` leaves the plugin off with the error shown beside it; the
-rest of Tavern runs on. `--no-plugins` starts with no server parts at all; `/?safe` in the browser
+rest of Tavern runs on (at startup it is also switched off, so the next start does not try again).
+Replacing a user plugin keeps the old folder in data/plugins/.versions/<id>/ (the last
+VERSIONS_KEEP); `rollback()` puts one back, still approved if its files are the ones approved then. `--no-plugins` starts with no server parts at all; `/?safe` in the browser
 also skips their web parts.
 
 Model access (the owner's rules, docs/adr/0009-plugins.md), checked by `gate_for()` before every
@@ -18,9 +20,11 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
+import json
 import logging
 import shutil
 import sys
+from datetime import datetime, timezone
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +47,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 ASK_TIMEOUT = 120.0
+VERSIONS_KEEP = 3
+VERSIONS_DIR = ".versions"
 ACCESS_DEFAULTS: dict[str, Any] = {"models": False, "ask": False, "day": 0.0, "month": 0.0, "per_reply": 0}
 
 
@@ -162,6 +168,7 @@ class PluginManager:
             "access": {**ACCESS_DEFAULTS, **row.get("access", {})},
             "commands": sorted(n for n, (owner, _, _) in self.commands.items() if owner == item.id),
             "data_count": self.ctx.plugin_repo.data_count(item.id),
+            "versions": 0 if item.builtin else len(self._version_ids(item.id)),
             "spent": {"day": self.ctx.spending.purpose(purpose, day=day),
                       "month": self.ctx.spending.purpose(purpose, month=day[:7])},
             "currency_rate": spending.rate(spending.get_settings(self.ctx)),
@@ -203,7 +210,10 @@ class PluginManager:
                 self.ctx.plugin_repo.save(item.id, enabled=False)
                 self.errors[item.id] = "Файлы дополнения изменились после включения. Включите снова, чтобы подтвердить."
                 continue
-            self._load(item)
+            if not self._load(item):
+                self.ctx.plugin_repo.save(item.id, enabled=False)
+                self.errors[item.id] = "Выключено само: " + self.errors.get(item.id, "упало при запуске")
+                self.ctx.notices.emit("plugins")
 
     def enable(self, plugin_id: str, *, approve: bool = False) -> dict[str, Any]:
         item = self._get(plugin_id)
@@ -299,11 +309,86 @@ class PluginManager:
             raise Conflict(f"Дополнение «{old.get('name', plugin_id)}» уже установлено. Заменить?",
                            code="plugin_exists", details={"id": plugin_id, "version": old.get("version", ""),
                                                           "new_version": manifest["version"]})
+        if existing is not None:
+            self.ctx.backups.before("plugin-update")
+            self._save_version(existing)
         self._unload(plugin_id)
         self.errors.pop(plugin_id, None)
         install.write_folder(self.user_dir, plugin_id, files)
         self.ctx.plugin_repo.save(plugin_id, enabled=False, approved_hash="",
                                   source=source or {"kind": "file"})
+        self.ctx.notices.emit("plugins")
+        return self.get(plugin_id)
+
+    # -- versions ------------------------------------------------------------------------------
+
+    def _versions_root(self, plugin_id: str) -> Path:
+        return self.user_dir / VERSIONS_DIR / plugin_id
+
+    def _save_version(self, item: Found) -> None:
+        """Keep the plugin's current folder and its approval before it is replaced."""
+        if item.builtin:
+            return
+        row = self.ctx.plugin_repo.get(item.id) or {}
+        root = self._versions_root(item.id)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+        shutil.copytree(item.folder, root / stamp, ignore=shutil.ignore_patterns("__pycache__"))
+        meta = {"version": (item.manifest or {}).get("version", ""), "saved_at": datetime.now(timezone.utc).isoformat(),
+                "approved_hash": row.get("approved_hash", ""), "enabled": bool(row.get("enabled")),
+                "source": row.get("source") or {"kind": "folder"}}
+        (root / f"{stamp}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        for old in self._version_ids(item.id)[VERSIONS_KEEP:]:
+            shutil.rmtree(root / old, ignore_errors=True)
+            (root / f"{old}.json").unlink(missing_ok=True)
+
+    def _version_ids(self, plugin_id: str) -> list[str]:
+        root = self._versions_root(plugin_id)
+        if not root.is_dir():
+            return []
+        return sorted((p.name for p in root.iterdir() if p.is_dir() and (root / f"{p.name}.json").is_file()),
+                      reverse=True)
+
+    def versions(self, plugin_id: str) -> list[dict[str, Any]]:
+        """Earlier versions of a user plugin, newest first."""
+        root = self._versions_root(plugin_id)
+        out = []
+        for stamp in self._version_ids(plugin_id):
+            meta = json.loads((root / f"{stamp}.json").read_text(encoding="utf-8"))
+            out.append({"id": stamp, "version": meta.get("version", ""), "saved_at": meta.get("saved_at", ""),
+                        "approved": bool(meta.get("approved_hash"))})
+        return out
+
+    def rollback(self, plugin_id: str, version_id: str = "") -> dict[str, Any]:
+        """Put an earlier version back (the newest one by default). The current one is kept too."""
+        item = self.discover().get(plugin_id)
+        if item is None:
+            raise NotFound(f"Дополнение {plugin_id!r} не найдено")
+        ids = self._version_ids(plugin_id)
+        if not ids:
+            raise Conflict("Прошлых версий нет", code="no_versions")
+        version_id = version_id or ids[0]
+        if version_id not in ids:
+            raise NotFound("Нет такой версии")
+        root = self._versions_root(plugin_id)
+        meta = json.loads((root / f"{version_id}.json").read_text(encoding="utf-8"))
+        files = {p.relative_to(root / version_id).as_posix(): p.read_bytes()
+                 for p in (root / version_id).rglob("*") if p.is_file()}
+        self.ctx.backups.before("plugin-rollback")
+        self._save_version(item)
+        shutil.rmtree(root / version_id, ignore_errors=True)
+        (root / f"{version_id}.json").unlink(missing_ok=True)
+        self._unload(plugin_id)
+        self.errors.pop(plugin_id, None)
+        folder = install.write_folder(self.user_dir, plugin_id, files)
+        approved = meta.get("approved_hash", "")
+        still_approved = bool(approved) and approved == files_hash(folder)
+        self.ctx.plugin_repo.save(plugin_id, approved_hash=approved if still_approved else "",
+                                  enabled=bool(meta.get("enabled")) and still_approved,
+                                  source=meta.get("source") or {"kind": "folder"})
+        if meta.get("enabled") and still_approved:
+            restored = self.discover()[plugin_id]
+            if restored.manifest is None or not self._load(restored):
+                self.ctx.plugin_repo.save(plugin_id, enabled=False)
         self.ctx.notices.emit("plugins")
         return self.get(plugin_id)
 
@@ -344,6 +429,7 @@ class PluginManager:
         self._unload(plugin_id)
         self.errors.pop(plugin_id, None)
         shutil.rmtree(item.folder)
+        shutil.rmtree(self._versions_root(plugin_id), ignore_errors=True)
         self.ctx.plugin_repo.delete(plugin_id, data=data)
         self.ctx.notices.emit("plugins")
 

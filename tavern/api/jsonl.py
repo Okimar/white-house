@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, attachment, ctx_of
+from tavern.api.util import BadRequest, attachment, copy_before, ctx_of
 from tavern.errors import AppError, NotFound
 from tavern.formats.jsonl import export_chat_jsonl, import_chat_jsonl
 from tavern.services import notes as note_service
@@ -37,6 +37,7 @@ async def export_chat(request: Request) -> PlainTextResponse:
 
 
 async def import_chat(request: Request) -> JSONResponse:
+    await copy_before(request, "import-chat")
     try:
         imported = import_chat_jsonl((await request.body()).decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as exc:

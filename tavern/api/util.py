@@ -6,6 +6,7 @@ import json
 from typing import Any
 from urllib.parse import quote
 
+import anyio
 from starlette.requests import Request
 
 from tavern.context import AppContext
@@ -18,6 +19,11 @@ class BadRequest(AppError):
 
 def ctx_of(request: Request) -> AppContext:
     return request.app.state.ctx
+
+
+async def copy_before(request: Request, reason: str) -> None:
+    """A backup before a risky action (stage 9), off the event loop. Never blocks the action."""
+    await anyio.to_thread.run_sync(ctx_of(request).backups.before, reason)
 
 
 async def json_body(request: Request) -> dict[str, Any]:

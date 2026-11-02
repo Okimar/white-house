@@ -14,6 +14,7 @@ from starlette.staticfiles import StaticFiles
 
 from tavern import __version__
 from tavern.api import assets as assets_api
+from tavern.api import backups as backups_api
 from tavern.api import chats as chats_api
 from tavern.api import characters as characters_api
 from tavern.api import connections as connections_api
@@ -100,6 +101,7 @@ def api_routes() -> list[Route]:
         *lorebooks_api.routes,
         *notes_api.routes,
         *plugins_api.routes,
+        *backups_api.routes,
         *chats_api.routes,
         # Must stay last: unknown /api paths get JSON 404 instead of falling through to static files.
         Route("/{path:path}", api_not_found, methods=["GET", "POST", "PUT", "PATCH", "DELETE"]),

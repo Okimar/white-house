@@ -1,5 +1,5 @@
 """Plugins: list, turn on (with approval) and off, settings, model access, install from a file or a
-GitHub link, updates, delete; chat commands, the plugins' own actions, the "may it?" questions and
+GitHub link, updates, earlier versions and rollback, delete; chat commands, the plugins' own actions, the "may it?" questions and
 the app-wide event stream (`GET /events`). Logic lives in plugins/manager.py.
 """
 
@@ -82,6 +82,16 @@ async def update(request: Request) -> JSONResponse:
     return JSONResponse(await ctx_of(request).plugins.update(request.path_params["id"]))
 
 
+async def versions(request: Request) -> JSONResponse:
+    return JSONResponse({"versions": ctx_of(request).plugins.versions(request.path_params["id"])})
+
+
+async def rollback(request: Request) -> JSONResponse:
+    body = await json_body(request)
+    return JSONResponse(ctx_of(request).plugins.rollback(
+        request.path_params["id"], field(body, "version", str, default="")))
+
+
 async def action(request: Request) -> JSONResponse:
     """The plugin's web part calls its server part: body = payload, answer = {"result": ...}."""
     result = await ctx_of(request).plugins.call_action(
@@ -135,5 +145,7 @@ routes = [
     Route("/plugins/{id}/access", save_access, methods=["PUT"]),
     Route("/plugins/{id}/update", check_update, methods=["GET"]),
     Route("/plugins/{id}/update", update, methods=["POST"]),
+    Route("/plugins/{id}/versions", versions, methods=["GET"]),
+    Route("/plugins/{id}/rollback", rollback, methods=["POST"]),
     Route("/plugins/{id}/actions/{name}", action, methods=["POST"]),
 ]

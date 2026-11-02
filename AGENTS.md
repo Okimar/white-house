@@ -9,7 +9,7 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done**.
 
 ## Commands
 
@@ -21,8 +21,10 @@ Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–
 | All tests | `python -m pytest` |
 | Fast tests only | `python -m pytest tests/unit` |
 | Health check of a data dir | `python -m tavern check` |
-| Snapshots | `python -m tavern backup create|list|restore NAME` |
+| Copies of the whole data folder | `python -m tavern backup create|list|restore NAME` |
+| Check / repair the data folder | `python -m tavern doctor [--fix]` |
 | Fake LLM for manual testing | `python -m tavern.devtools.fake_llm --port 5001` |
+| Fake Google Drive for manual testing | `python -m tavern.devtools.fake_gdrive --port 5002`, then run with `TAVERN_GDRIVE_URL=http://127.0.0.1:5002` |
 
 Use the virtualenv interpreter: `.venv/bin/python` (Windows: `.venv\Scripts\python.exe`).
 
@@ -39,10 +41,17 @@ tavern/                 Python package (backend)
   sandbox.py            --sandbox: temp copy of the data dir
   errors.py             TavernError (user-facing) / AppError (HTTP JSON errors)
   logs.py               stderr + rotating data/logs/tavern.log
-  paths.py              every filesystem path is derived here
+  paths.py              every filesystem path is derived here (the own backup folder is the one exception)
   storage/db.py         SQLite wrapper, transactions, migration runner
   storage/migrations/   NNNN_name.sql, applied in order, one transaction each
-  storage/backup.py     snapshots via SQLite backup API, restore, prune
+  storage/backup.py     database snapshots (before migrations) and whole-data archives (zip: db + assets,
+                        themes, plugins; never secrets), fingerprint, safe extract
+  services/backups.py   copies: settings, kinds and keep counts, own folder, scheduler thread, before(reason)
+                        for risky routes (api/util.copy_before), live restore with rollback; ADR 0012
+  services/gdrive.py    copies on Google Drive (9б): the user's own OAuth client, sign-in (PKCE, loopback
+                        redirect or a pasted address), worker sending every new copy (resumable, retried),
+                        list / download / restore; secrets under `gdrive`, state in data/gdrive.json
+  services/doctor.py    checks (quick at startup, full) and safe fixes after a copy; api/backups.py
   storage/themes.py     theme folders (built-in web/themes, user data/themes): validate, import/export
                         as one .tavern-theme zip, version history (.versions/) for undo
   storage/assets.py     image library in data/assets (type decided by content, never overwrites)
@@ -50,6 +59,8 @@ tavern/                 Python package (backend)
                         old versions stay exact; read-only version history per source
   util/                 atomic file writes, data-dir lock
   devtools/fake_llm.py  scriptable OpenAI-compatible fake server for tests
+  devtools/fake_gdrive.py  fake Google sign-in + Drive (tests: transport(); manual: --port 5002 and
+                        TAVERN_GDRIVE_URL=http://127.0.0.1:5002)
   api/                  HTTP routes (chats + SSE, characters + settings, connections, themes,
                         assets); static.py serves /themes/{id}/{path} and /assets/{name}; thin, no logic
   services/chat.py      use cases: create chat, send, continue, impersonate, regenerate, stop

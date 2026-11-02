@@ -1,6 +1,6 @@
 // Settings tab "Дополнения": installed plugins with their switch, what each says it does, its
 // settings, model access (allowed at all, its own limits, ask each time) and spending; install from
-// a file or a GitHub link, check for updates, delete. A plugin that is not built in is switched on
+// a file or a GitHub link, check for updates, go back to the previous version, delete. A plugin that is not built in is switched on
 // only after the full-access warning (ApproveDialog). `PluginAsks` is the "may it call a model?"
 // window shown over the app while a plugin waits for an answer.
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
@@ -146,6 +146,10 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
     const data = plugin.data_count > 0 && confirm(`Удалить и его данные в чатах (записей: ${plugin.data_count})?`);
     run(() => api.del(`/plugins/${plugin.id}${data ? "?data=1" : ""}`));
   };
+  const rollback = () => {
+    if (!confirm(`Вернуть прошлую версию «${plugin.name}»? Нынешняя сохранится, к ней можно будет вернуться так же.`)) return;
+    run(() => api.post(`/plugins/${plugin.id}/rollback`, {}));
+  };
   const github = plugin.source.kind === "github";
   return html`<li class="plugin-card" data-slot="plugin-card" data-plugin=${plugin.id}
     data-enabled=${plugin.enabled ? "true" : "false"}>
@@ -176,6 +180,8 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
           ? html`<button class="primary" disabled=${busy} onClick=${doUpdate}>Обновить</button>
               <span class="muted">После обновления дополнение выключится до вашего подтверждения.</span>`
           : html`<span class="muted">Новее нет.</span>`)}
+        ${plugin.versions > 0 && html`<button disabled=${busy} onClick=${rollback}
+          title=${`Сохранено прошлых версий: ${plugin.versions}`}>Вернуть прошлую версию</button>`}
         <span class="spacer"></span>
         ${!plugin.builtin && html`<button class="danger" disabled=${busy} onClick=${remove}>Удалить</button>`}
       </div>

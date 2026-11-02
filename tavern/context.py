@@ -18,6 +18,8 @@ from tavern.paths import BUILTIN_PLUGINS_DIR, BUILTIN_THEMES_DIR, DataPaths
 from tavern.plugins.manager import PluginManager
 from tavern.providers.registry import ProviderRegistry
 from tavern.secret_store import SecretStore
+from tavern.services.backups import BackupService
+from tavern.services.gdrive import DriveService
 from tavern.storage.assets import AssetStore
 from tavern.storage.backup import create_backup, prune_backups
 from tavern.storage.db import Database
@@ -70,9 +72,15 @@ class AppContext:
     assistant_repo: AssistantRepo
     notices: Notices
     plugins: PluginManager = None  # type: ignore[assignment]  # set right after construction
+    backups: BackupService = None  # type: ignore[assignment]  # set right after construction
+    gdrive: DriveService = None  # type: ignore[assignment]  # set right after construction
     sandbox: bool = False
 
     def close(self) -> None:
+        if self.backups is not None:
+            self.backups.stop_scheduler()
+        if self.gdrive is not None:
+            self.gdrive.stop()
         if self.plugins is not None:
             self.plugins.stop()
         self.db.close()
@@ -137,6 +145,8 @@ def open_context(
         sandbox=sandbox,
     )
     ctx.plugins = PluginManager(ctx, BUILTIN_PLUGINS_DIR, paths.plugins, load_server=load_plugins)
+    ctx.backups = BackupService(ctx)
+    ctx.gdrive = DriveService(ctx)
 
     def resolve_template(template_id: str, model: str) -> dict:
         from tavern.services.templates import resolve  # services import the context module

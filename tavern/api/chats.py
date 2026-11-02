@@ -10,7 +10,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, ctx_of, field, json_body
+from tavern.api.util import BadRequest, copy_before, ctx_of, field, json_body
 from tavern.errors import NotFound
 from tavern.services import chat as chat_service
 from tavern.services import speakers
@@ -118,6 +118,7 @@ async def delete_chat(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     chat_id = request.path_params["id"]
     ctx.chats.get_chat(chat_id)
+    await copy_before(request, "delete-chat")
     ctx.runs.stop(chat_id)
     ctx.chats.delete_chat(chat_id)
     ctx.prompt_log.collect_garbage()  # texts only this chat's prompts used
