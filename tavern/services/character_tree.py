@@ -14,6 +14,7 @@ Settings used (global, Settings → "Промпт"):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -43,6 +44,23 @@ KEYWORD_PROMPT = (
     "Title: {title}\n\nText:\n{content}"
 )
 KEYWORD_AVOID = "\n\nThese are already taken, do not repeat them or their other word forms: {words}"
+LAYER_PROMPT = (
+    "This is one bubble of a roleplay character card or world book. It sits at «{path}» and goes to "
+    "the story model only when its keywords come up in the chat; its parent does not bring it along.\n"
+    "1. keywords: 5 to 12 words and short phrases a person would actually write in a story chat when "
+    "this exact topic comes up: names, things, places and actions from the text, synonyms, Russian and "
+    "English forms where they fit. No general words that come up anywhere (magic, world, person, story).\n"
+    "2. title: keep the current title, word for word, if it names this topic clearly. If it is generic "
+    "(Описание, Разное, Запись 3, Details, a number), write a short clear one, 1 to 4 words, in the "
+    "language of the text.\n\n"
+    "Current title: {title}\n\nText:\n{content}"
+)
+LAYER_SCHEMA = {
+    "type": "object",
+    "properties": {"title": {"type": "string"}, "keywords": {"type": "array", "items": {"type": "string"}}},
+    "required": ["title", "keywords"],
+}
+LAYER_CALLS_AT_ONCE = 4
 
 
 def retrieval_settings(ctx: AppContext) -> dict[str, Any]:
@@ -392,6 +410,82 @@ async def suggest_keywords(ctx: AppContext, block_id: str, avoid: list[str] | No
             seen.add(key)
             words.append(word)
     return words[:MAX_KEYWORDS]
+
+
+def bare_layers(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Green sub-bubbles that are in use but have no keywords of their own. Since stage 10в a parent
+    does not bring them along, so only their title or meaning can find them (the doctor's check)."""
+    by_id = {b["id"]: b for b in blocks}
+
+    def in_use(block: dict[str, Any]) -> bool:
+        seen: set[str] = set()
+        while block is not None and block["id"] not in seen:
+            if block["mode"] == "off" or block["detached"]:
+                return False
+            seen.add(block["id"])
+            block = by_id.get(block["parent_id"])
+        return True
+
+    return [b for b in blocks if b["mode"] == "search" and b["parent_id"] in by_id and not b["keywords"]
+            and b["content"].strip() and in_use(b)]
+
+
+async def fill_layers(ctx: AppContext, owner_id: str) -> dict[str, Any]:
+    """The doctor's fix for `bare_layers`: the chat model writes each one keywords and, when the title
+    is too general, a clear title (each change is a history step); then vectors, if meaning search is
+    set up. Never switches a bubble to «Всегда». Returns {keywords, titles, failed, vectors}, where
+    vectors is the number made or None when there is no connection for them."""
+    from tavern.services.chat import resolve_connection  # chat imports this module
+
+    owner = owner_of(ctx, owner_id)
+    blocks = ctx.blocks.list(owner_id)
+    paths = block_paths(blocks, owner["name"])
+    todo = bare_layers(blocks)
+    result: dict[str, Any] = {"keywords": 0, "titles": 0, "failed": 0, "vectors": None}
+    if not todo:
+        return result
+    connection = resolve_connection(ctx, {"meta": {}})
+    provider = ctx.providers.create(connection)
+    gate = asyncio.Semaphore(LAYER_CALLS_AT_ONCE)
+
+    async def ask(block: dict[str, Any]) -> dict[str, Any] | None:
+        llm = LLMClient(provider, model=connection["model"],
+                        meter=spending.meter(ctx, connection, purpose="keywords"))
+        prompt = LAYER_PROMPT.format(path=paths[block["id"]], title=block["title"],
+                                     content=block["content"][:6000])
+        async with gate:
+            try:
+                return await llm.generate_json([ChatMessage("user", prompt)], schema=LAYER_SCHEMA)
+            except ProviderError:
+                log.warning("Keywords for bubble %s failed", block["id"], exc_info=True)
+                return None
+
+    try:
+        answers = await asyncio.gather(*(ask(b) for b in todo))
+    finally:
+        await provider.aclose()
+    for block, answer in zip(todo, answers):
+        title = str((answer or {}).get("title") or "").strip()[:MAX_TITLE] or block["title"]
+        seen = {_word_key(title)}
+        words = []
+        for item in (answer or {}).get("keywords") or []:
+            word = str(item).strip() if isinstance(item, (str, int, float)) else ""
+            key = _word_key(word)
+            if word and key and key not in seen:
+                seen.add(key)
+                words.append(word)
+        if not words:
+            result["failed"] += 1
+            continue
+        changes: dict[str, Any] = {"keywords": words[:MAX_KEYWORDS]}
+        if title != block["title"]:
+            changes["title"] = title
+            result["titles"] += 1
+        await update_block(ctx, block["id"], changes)
+        result["keywords"] += 1
+    if result["keywords"] and embedding_connection(ctx) is not None:
+        result["vectors"] = await vectorize(ctx, [owner_id])
+    return result
 
 
 # --- meaning vectors --------------------------------------------------------------------------

@@ -186,3 +186,52 @@ def test_doctor_finds_lost_pictures_and_old_copies_and_fixes_with_a_copy(ctx, mo
     later = datetime.now(timezone.utc) + timedelta(days=3)
     monkeypatch.setattr(doctor, "datetime", type("Clock", (), {"now": staticmethod(lambda tz=None: later)}))
     assert "дн." in {f["id"]: f for f in doctor.full(ctx)}["copy_age"]["title"]
+
+
+async def bubbles_without_keywords(client):
+    """Ann with a green «Школа» holding one bare green sub-bubble; the rest must not be found."""
+    ann = (await client.post("/api/characters", json={"name": "Ann"})).json()
+    conn = (await client.post("/api/connections", json={"name": "fake", "base_url": "http://llm/v1",
+                                                        "model": "m"})).json()
+    await client.put("/api/settings", json={"active_connection": conn["id"]})
+
+    async def add(**fields):
+        return (await client.post(f"/api/characters/{ann['id']}/blocks", json=fields)).json()
+
+    school = await add(title="Школа", content="Академия.", keywords=["академия"])
+    bare = await add(title="Описание", content="Ночью колдовать нельзя.", parent_id=school["id"])
+    await add(title="Устав", content="Клятва.", parent_id=school["id"], mode="always")
+    secret = await add(title="Тайна", content="x", parent_id=school["id"], mode="off")
+    await add(title="Под тайной", content="y", parent_id=secret["id"])  # off above: never goes anyway
+    await add(title="Сверху", content="z")  # not nested: its parent rule did not change
+    return ann, conn, bare
+
+
+async def test_doctor_gives_bare_sub_bubbles_keywords_and_a_clear_title(client, ctx, fake_llm):
+    ann, conn, bare = await bubbles_without_keywords(client)
+    findings = {f["id"]: f for f in (await client.get("/api/doctor")).json()["findings"]}
+    layers = findings[f"layers:{ann['id']}"]
+    assert layers["fix"] and layers["title"].endswith(": 1") and "«Описание»" in layers["detail"]
+
+    await client.put("/api/settings", json={"embedding_connection": conn["id"]})
+    fake_llm.queue('{"title": "Ночной запрет", "keywords": ["ночью", "колдовать", "запрет", "Ночной запрет"]}')
+    done = (await client.post("/api/doctor/fix", json={"ids": [layers["id"]]})).json()
+    assert done["fixed"] == [layers["id"]] and names(ctx)  # a copy was taken first
+    assert done["notes"] == ["«Ann»: ключевые слова получили 1, новых названий 1, векторов 4."]  # every green one lacking a vector
+    block = ctx.blocks.get(bare["id"])
+    assert block["mode"] == "search"  # never switched to «Всегда»
+    assert block["title"] == "Ночной запрет" and block["keywords"] == ["ночью", "колдовать", "запрет"]
+    assert "Описание" in fake_llm.requests[-1]["messages"][-1]["content"]
+    assert not any(f["id"].startswith("layers:") for f in done["findings"])
+    assert ctx.history.last_step(ann["id"])["what"] == "«Описание»: изменён"  # one undo step
+
+
+async def test_doctor_without_meaning_search_says_vectors_wait(client, ctx, fake_llm):
+    ann, _, bare = await bubbles_without_keywords(client)
+    fake_llm.queue('{"title": "Описание", "keywords": ["ночь"]}')
+    done = (await client.post("/api/doctor/fix", json={"ids": [f"layers:{ann['id']}"]})).json()
+    assert "векторы не сделаны" in done["notes"][0] and "названий" not in done["notes"][0]
+    assert ctx.blocks.get(bare["id"])["title"] == "Описание"
+
+    # the command line leaves them for the page
+    assert doctor.fix(ctx, [f"layers:{ann['id']}"])["later"] == []  # already fixed

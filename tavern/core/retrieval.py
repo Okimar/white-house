@@ -6,10 +6,13 @@ scores from vectors.
 
 Rules (owner's decisions, see docs/ROADMAP.md, stage 4б):
 - a block that is off, or under an off block, never goes;
-- 'always' (blue) blocks always go, each on its own;
+- 'always' (blue) blocks always go, each on its own, unless they sit under a green one;
 - a 'search' (green) block is found by its keywords or title (Russian endings are ignored, so
   "волосы" finds "волосами"), by meaning (vector score >= threshold), or because it was found
-  less than `sticky` replies ago; a found block brings its whole subtree (the group) along;
+  less than `sticky` replies ago;
+- layers (stage 10в): a found block brings its blue sub-bubbles along (and theirs, while they stay
+  blue); a blue bubble under a green one goes only with it; a green sub-bubble waits for its own
+  words, so a deep detail costs nothing until it comes up;
 - every block carries its path ("Аня › Внешность › Волосы") so the model knows what it is;
 - green blocks share a token budget; fresh keyword hits win over meaning, meaning over sticky.
 
@@ -18,7 +21,7 @@ After the owner's review (migration 0007):
 - a blue bubble with `every` = N skips N replies between sendings (0 = every reply);
 - a green bubble with `chance` < 100 rolls when found; a failed roll keeps it out for its
   "stays N replies" too (so regenerating cannot force it in), sticky 0 = a new roll every time;
-- a link between two bubbles pulls the other end along (with its sub-bubbles, not its parents),
+- a link between two bubbles pulls the other end along (with its blue sub-bubbles, not its parents),
   one step only; the pulled bubble rolls its own chance.
 
 Finer rules (stage 5, `block["rules"]`, all optional; shown under «Ещё»):
@@ -226,8 +229,9 @@ def select_blocks(
 
     order: list[str] = []  # tree order of usable blocks (not off, not under off)
     paths: dict[str, str] = {}
+    layered: set[str] = set()  # blocks under a green one: they go only when it is found
 
-    def walk(parent: str | None, prefix: str | None) -> None:
+    def walk(parent: str | None, prefix: str | None, under_green: bool) -> None:
         for block in children.get(parent, []):
             if block["mode"] == "off" or block.get("detached"):
                 continue
@@ -235,18 +239,22 @@ def select_blocks(
             path = f"{start}{PATH_SEPARATOR}{block['title']}"
             paths[block["id"]] = path
             order.append(block["id"])
-            walk(block["id"], path)
+            if under_green:
+                layered.add(block["id"])
+            walk(block["id"], path, under_green or block["mode"] == "search")
 
-    walk(None, None)
+    walk(None, None, False)
     rank = {block_id: i for i, block_id in enumerate(order)}
 
     def rules(block_id: str) -> dict[str, Any]:
         return by_id[block_id].get("rules") or {}
 
     def subtree(block_id: str) -> list[str]:
+        """The block and its blue sub-bubbles, down while they stay blue: green ones wait for their
+        own words (layers, stage 10в)."""
         result = [block_id]
         for child in children.get(block_id, []):
-            if child["id"] in paths:
+            if child["id"] in paths and child["mode"] == "always":
                 result.extend(subtree(child["id"]))
         return result
 
@@ -323,8 +331,8 @@ def select_blocks(
 
     for block_id in order:
         block = by_id[block_id]
-        if block["mode"] == "always" and (generation - 1) % (block.get("every", 0) + 1) == 0 \
-                and allowed(block_id):
+        if block["mode"] == "always" and block_id not in layered \
+                and (generation - 1) % (block.get("every", 0) + 1) == 0 and allowed(block_id):
             if by_order:
                 if block_id not in chosen:
                     take(block_id, "always")

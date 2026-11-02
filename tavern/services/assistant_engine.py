@@ -297,7 +297,9 @@ CHECKS = [
     "Lorebook entries and bubbles (skip if there are none): titles are clear; keywords are specific to the "
     "entry, never common words that would fire all the time (\"world\", \"war\", \"magic\", \"мир\", "
     "\"война\") and come in several word forms; \"always\" only for what must always be known; a long "
-    "entry is split into sub-bubbles so finding it does not bring everything at once.",
+    "entry is split into sub-bubbles so finding it does not bring everything at once; a sub-bubble set to "
+    "\"search\" has its own keywords (its parent does not bring it), one that must come with its parent is "
+    "\"always\".",
 ]
 
 FOLD = """You keep the plan of Tavern's assistant up to date. While the work was going on, the user \

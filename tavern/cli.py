@@ -258,8 +258,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ctx = open_context(paths, load_plugins=False)
         try:
             findings = doctor.full(ctx)
+            later: list[str] = []
             if args.fix:
-                findings = doctor.fix(ctx, [f["id"] for f in findings if f["fix"]])["findings"]
+                done = doctor.fix(ctx, [f["id"] for f in findings if f["fix"]])
+                findings, later = done["findings"], done["later"]
         finally:
             ctx.close()
     marks = {"error": "✗", "warn": "!", "info": "·"}
@@ -269,6 +271,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         print("✓ Всё в порядке")
     elif not args.fix and any(f["fix"] for f in findings):
         print("Исправить: tavern doctor --fix")
+    if later:
+        print("Пузыри без ключевых слов исправляет модель: «Настройки → Копии» → «Исправить» на странице")
     return 1 if any(f["level"] == "error" for f in findings) else 0
 
 

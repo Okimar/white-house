@@ -117,7 +117,7 @@ async def doctor_fix(request: Request) -> JSONResponse:
     ids = field(body, "ids", list)
     if not all(isinstance(i, str) for i in ids):
         raise BadRequest("ids: список строк")
-    return JSONResponse(await anyio.to_thread.run_sync(doctor.fix, ctx_of(request), ids))
+    return JSONResponse(await doctor.fix_all(ctx_of(request), ids))
 
 
 routes = [

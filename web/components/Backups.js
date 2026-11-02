@@ -49,26 +49,33 @@ export function BackupWarning({ status, onOpen, onClose }) {
 
 function Doctor({ onError }) {
   const [findings, setFindings] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [notes, setNotes] = useState([]);
   const check = async () => {
-    setBusy(true);
-    try { setFindings((await api.get("/doctor")).findings); } catch (e) { onError(e.message); } finally { setBusy(false); }
+    setBusy("check");
+    setNotes([]);
+    try { setFindings((await api.get("/doctor")).findings); } catch (e) { onError(e.message); } finally { setBusy(""); }
   };
   const fix = async () => {
-    setBusy(true);
+    setBusy("fix");
     try {
       const done = await api.post("/doctor/fix", { ids: findings.filter((f) => f.fix).map((f) => f.id) });
       setFindings(done.findings);
-    } catch (e) { onError(e.message); } finally { setBusy(false); }
+      setNotes(done.notes || []);
+    } catch (e) { onError(e.message); } finally { setBusy(""); }
   };
   const fixable = findings && findings.some((f) => f.fix);
+  const byModel = findings && findings.some((f) => f.fix && f.id.startsWith("layers:"));
   return html`<section class="doctor stack" data-slot="doctor">
     <h3>Проверка данных</h3>
     <div class="row">
-      <button disabled=${busy} onClick=${check}>${busy ? "Проверяю…" : "Проверить"}</button>
-      ${fixable && html`<button class="primary" disabled=${busy} onClick=${fix}
-        title="Сначала делается копия">Исправить</button>`}
+      <button disabled=${!!busy} onClick=${check}>${busy === "check" ? "Проверяю…" : "Проверить"}</button>
+      ${fixable && html`<button class="primary" disabled=${!!busy} onClick=${fix}
+        title="Сначала делается копия">${busy === "fix" ? (byModel ? "Модель пишет ключевые слова…" : "Исправляю…") : "Исправить"}</button>`}
     </div>
+    ${notes.length > 0 && html`<ul class="list doctor-notes" role="status">
+      ${notes.map((n, i) => html`<li key=${i}>${n}</li>`)}
+    </ul>`}
     ${findings && !findings.length && html`<p>✓ Всё в порядке.</p>`}
     ${findings && findings.length > 0 && html`<ul class="list doctor-list">
       ${findings.map((f) => html`<li key=${f.id} data-level=${f.level}>

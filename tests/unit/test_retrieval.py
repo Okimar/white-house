@@ -41,12 +41,40 @@ def test_blue_always_green_by_keyword_off_never():
     assert "spell" not in found  # under an off block
 
 
-def test_keyword_hit_brings_the_group_and_a_path():
-    found, selection = pick(scan_text="Расскажи про детство")
-    assert found["past"] == "keyword" and found["village"] == "group"
-    village = next(f for f in selection.found if f.block["id"] == "village")
-    assert village.path == "Аня › Прошлое › Деревня"
-    assert selection.fresh_hits == ["past"]
+LAYERS = [
+    block("school", "Школа магии", "Старая академия.", keywords=["академия"]),
+    block("rules", "Устав", "Нельзя колдовать ночью.", parent="school", mode="always"),
+    block("oath", "Клятва", "Даётся при входе.", parent="rules", mode="always"),
+    block("tower", "Башня", "Там живёт ректор.", parent="rules", keywords=["башня"]),
+    block("seal", "Печать", "Над дверью башни.", parent="tower", mode="always"),
+]
+
+
+def test_a_found_bubble_brings_only_its_blue_layers_and_a_path():
+    found, selection = pick_from(LAYERS, "Расскажи про академию")
+    assert found == {"school": "keyword", "rules": "group", "oath": "group"}  # not the tower
+    oath = next(f for f in selection.found if f.block["id"] == "oath")
+    assert oath.path == "Аня › Школа магии › Устав › Клятва"
+    assert selection.fresh_hits == ["school"]
+
+
+def test_a_green_layer_waits_for_its_own_words():
+    found, _ = pick_from(LAYERS, "академия, и там башня")
+    assert found["tower"] == "keyword" and found["seal"] == "group"
+    found, _ = pick_from(LAYERS, "просто башня")  # found alone, the parent stays out
+    assert found == {"tower": "keyword", "seal": "group"}
+
+
+def test_a_blue_bubble_under_a_green_one_goes_only_with_it():
+    found, _ = pick_from(LAYERS, "ничего")
+    assert found == {}
+    found, _ = pick(scan_text="ничего")  # blue under blue still goes every time
+    assert found == {"look": "always"}
+
+
+def pick_from(tree, text, **kw):
+    selection = select_blocks(tree, owner_name="Аня", scan_text=text, **kw)
+    return {f.block["id"]: f.reason for f in selection.found}, selection
 
 
 def test_meaning_and_sticky():
@@ -120,12 +148,14 @@ def test_a_link_pulls_only_the_linked_bubble_or_its_branch():
         block("fingers1", "Пальцы", "Кольцо на безымянном.", parent="hands", keywords=["кольцо"]),
         block("legs", "Ноги", "Длинные."),
         block("fingers2", "Пальцы", "Короткие пальцы ног.", parent="legs"),
-        block("nail", "Ногти", "Красный лак.", parent="fingers2"),
+        block("nail", "Ногти", "Красный лак.", parent="fingers2", mode="always"),
+        block("toe", "Мизинец", "Сломан.", parent="fingers2"),
     ]
     selection = select_blocks(tree, owner_name="Аня", scan_text="надеваю кольцо",
                               links=[("fingers1", "fingers2")])
     found = {f.block["id"]: f.reason for f in selection.found}
-    assert found == {"fingers1": "keyword", "fingers2": "link", "nail": "group"}  # not all the legs
+    # not all the legs, and the green toe waits for its own words
+    assert found == {"fingers1": "keyword", "fingers2": "link", "nail": "group"}
     assert next(f.path for f in selection.found if f.block["id"] == "fingers2") == "Аня › Ноги › Пальцы"
 
 

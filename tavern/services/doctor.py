@@ -5,6 +5,10 @@ startup (cheap checks only; the page shows them as a warning), `full()` from the
 `tavern doctor`. `fix(ids)` takes a copy first and repairs only what has a safe repair:
 leftover temporary files, rows that point at deleted rows, a broken active theme, no fresh copy.
 A damaged database is never "fixed" in place: the answer is a copy.
+
+Green sub-bubbles without keywords (stage 10в: a parent no longer brings them) need the model:
+`fix_all(ids)` runs `fix` and then has the chat model write their keywords (and a clear title)
+after the same copy. The page uses it; `tavern doctor --fix` leaves them for the page.
 """
 
 from __future__ import annotations
@@ -16,6 +20,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
+import anyio
+
+from tavern.errors import NotFound, TavernError
+from tavern.services import character_tree
 from tavern.services.backups import BackupError, leftovers
 
 if TYPE_CHECKING:
@@ -58,7 +66,7 @@ def full(ctx: AppContext) -> list[dict[str, Any]]:
         tables = sorted({r[0] for r in broken})
         out.append(_finding("links", "warn", f"Строк со ссылкой на удалённое: {len(broken)}",
                             "Таблицы: " + ", ".join(tables) + ". «Исправить» удалит эти строки.", fix=True))
-    out += _assets(ctx) + _themes(ctx) + _plugins(ctx) + _space(ctx) + _folder(ctx) + _copies(ctx)
+    out += _assets(ctx) + _themes(ctx) + _plugins(ctx) + _space(ctx) + _folder(ctx) + _copies(ctx) + _layers(ctx)
     junk = leftovers(ctx.paths.root, ctx.backups.folders())
     if junk:
         out.append(_finding("leftovers", "info", f"Остатки прерванных операций: {len(junk)}",
@@ -144,12 +152,73 @@ def _copies(ctx: AppContext) -> list[dict[str, Any]]:
     return out
 
 
+def _owner_name(ctx: AppContext, owner_id: str) -> str | None:
+    try:
+        return character_tree.owner_of(ctx, owner_id)["name"]
+    except NotFound:
+        return None
+
+
+def _layers(ctx: AppContext) -> list[dict[str, Any]]:
+    owners = [r[0] for r in ctx.db.fetchall(
+        "SELECT DISTINCT owner_id FROM character_blocks WHERE mode = 'search' AND parent_id IS NOT NULL "
+        "AND keywords = '[]' ORDER BY owner_id")]
+    out = []
+    for owner_id, blocks in ctx.blocks.for_owners(owners).items():
+        bare = character_tree.bare_layers(blocks)
+        name = _owner_name(ctx, owner_id)
+        if not bare or name is None:
+            continue
+        titles = ", ".join(f"«{b['title']}»" for b in bare[:5]) + ("…" if len(bare) > 5 else "")
+        out.append(_finding(
+            f"layers:{owner_id}", "warn", f"«{name}»: вложенных «По теме» без ключевых слов: {len(bare)}",
+            f"{titles}. Родитель их больше не приносит, они найдутся только по названию или смыслу. "
+            "«Исправить» попросит модель написать им ключевые слова (и понятное название, если оно "
+            "слишком общее) и сделает векторы для поиска по смыслу.", fix=True))
+    return out
+
+
+def _layers_note(name: str, done: dict[str, Any]) -> str:
+    parts = [f"«{name}»: ключевые слова получили {done['keywords']}"]
+    if done["titles"]:
+        parts.append(f"новых названий {done['titles']}")
+    if done["failed"]:
+        parts.append(f"модель не ответила для {done['failed']}")
+    if done["vectors"] is None and done["keywords"]:
+        parts.append("векторы не сделаны: выберите подключение для поиска по смыслу в «Настройки → Промпт»")
+    elif done["vectors"]:
+        parts.append(f"векторов {done['vectors']}")
+    return ", ".join(parts) + "."
+
+
+async def fix_all(ctx: AppContext, ids: list[str]) -> dict[str, Any]:
+    """`fix` off the event loop, then the bubbles that need the model. Returns {fixed, findings,
+    notes}: a line per character or lorebook on what the model did."""
+    result = await anyio.to_thread.run_sync(fix, ctx, ids)
+    notes = []
+    for finding_id in result.pop("later"):
+        owner_id = finding_id.split(":", 1)[1]
+        name = _owner_name(ctx, owner_id) or owner_id
+        try:
+            done = await character_tree.fill_layers(ctx, owner_id)
+        except TavernError as exc:
+            notes.append(f"«{name}»: не исправлено. {exc}")
+            continue
+        notes.append(_layers_note(name, done))
+        if done["keywords"]:
+            result["fixed"].append(finding_id)
+    if notes:
+        result["findings"] = await anyio.to_thread.run_sync(full, ctx)
+    return {**result, "notes": notes}
+
+
 def fix(ctx: AppContext, ids: list[str]) -> dict[str, Any]:
-    """Repair the chosen findings that have a safe repair. A copy is taken first."""
+    """Repair the chosen findings that have a safe repair. A copy is taken first. Bubbles that need
+    the model are only listed under `later` (see fix_all)."""
     found = {f["id"]: f for f in full(ctx) if f["fix"]}
     chosen = [i for i in ids if i in found]
     if not chosen:
-        return {"fixed": [], "findings": full(ctx)}
+        return {"fixed": [], "findings": full(ctx), "later": []}
     try:
         ctx.backups.create("risky", "doctor-fix", force=True)
         copied = True
@@ -157,8 +226,11 @@ def fix(ctx: AppContext, ids: list[str]) -> dict[str, Any]:
         if set(chosen) - {"leftovers", "copy_error", "copy_age"}:
             raise BackupError(f"Не исправляю без копии. {exc.message}") from exc
         copied = False
-    fixed = []
+    fixed, later = [], []
     for finding_id in chosen:
+        if finding_id.startswith("layers:"):
+            later.append(finding_id)
+            continue
         if finding_id == "leftovers":
             for path in leftovers(ctx.paths.root, ctx.backups.folders()):
                 if path.is_dir():
@@ -176,4 +248,4 @@ def fix(ctx: AppContext, ids: list[str]) -> dict[str, Any]:
         fixed.append(finding_id)
         log.info("Doctor fixed %s", finding_id)
     ctx.notices.emit("backups")
-    return {"fixed": fixed, "findings": full(ctx)}
+    return {"fixed": fixed, "findings": full(ctx), "later": later}

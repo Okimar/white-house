@@ -310,7 +310,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
     Tool("read_bubble", "One bubble in full.", {"id": "bubble id"}, read_bubble, required=("id",)),
     Tool("create_bubble", "Add a bubble to a character, or an entry to a lorebook.",
          {"owner_id": "character id or lorebook id", "title": "short title", "content": "the text",
-          "mode": "always (always sent) | search (sent when keywords appear, default) | off",
+          "mode": "always (always sent; under a search bubble: sent whenever that one is) | search (sent when its own keywords appear, default; a parent never brings it) | off",
           "keywords": "list of words that wake it", "parent_id": "optional parent bubble id"},
          create_bubble, required=("owner_id", "title")),
     Tool("update_bubble", "Change a bubble.",

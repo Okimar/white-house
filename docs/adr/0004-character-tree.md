@@ -18,7 +18,7 @@ bubbles that stays smooth with thousands of them, on a phone.
    replies". The card in `characters.data` stays the root, so card formats are unchanged.
 2. **Selection** (`core/retrieval.py`, pure): blue always; green by keywords and title with
    Russian endings ignored (`/regex/` allowed), by meaning over a threshold, or sticky. A found
-   block brings its subtree; each block carries its path. Green blocks share a token budget:
+   block brings its blue sub-bubbles (layers, below); each block carries its path. Green blocks share a token budget:
    keyword hits first, then meaning, then sticky. The service runs it before assembly; the
    assembler puts blocks next to the member's card or at their own depth, and the archive
    records them as `block:<id>` (versions viewable).
@@ -50,7 +50,7 @@ bubbles that stays smooth with thousands of them, on a phone.
   panel; numbers never repeat, free bubbles have none. Replaces the ▲▼ buttons.
 - **Chance** (green) and **every** (blue). A failed roll is stored in `chat_block_hits.missed` and
   holds for the bubble's sticky replies, so regenerating cannot force a detail in.
-- **Links** (`block_links`, a < b): one step, both ways; the pulled bubble brings its sub-bubbles,
+- **Links** (`block_links`, a < b): one step, both ways; the pulled bubble brings its blue sub-bubbles,
   never its parents ("тянуть минимум"), and rolls its own chance.
 - **Spaces**: opening a bubble shows its subtree with the previous space behind as one frozen,
   blurred layer; only two layers are ever drawn, so depth costs nothing.
@@ -60,3 +60,22 @@ bubbles that stays smooth with thousands of them, on a phone.
 - **Full tree in the card**: export adds `data.extensions.tavern_tree` (blocks with parents,
   links); import prefers it over the flat `character_book`, so nothing is lost between Tavern
   instances while SillyTavern keeps working with the flat book.
+
+## Layers (stage 10в)
+
+Before, a found green bubble brought its whole subtree, so a deep tree cost as much as a flat
+entry and the detail inside could not wait for its topic. Now:
+
+- a found bubble brings only its blue («Всегда») sub-bubbles, and theirs while they stay blue;
+- a green («По теме») sub-bubble waits for its own keywords or meaning, found or not found
+  regardless of its parent; a deep bubble gets its context through 🔗 links, which the
+  assistant draws itself;
+- a blue bubble under a green one goes only with it (blue means "always, when the parent goes");
+  blue at the top, or under blue only, goes every reply as before.
+
+The rule is the same for everyone at once, old trees included. Green sub-bubbles without keywords
+can now be found only by title or meaning, so the doctor lists them per character / lorebook
+(`character_tree.bare_layers`). Its fix never switches them to blue: after the usual copy the chat
+model writes each its keywords and, when the title is too general, a clear title (each a history
+step), then vectors are made if meaning search is set up (`fill_layers`, `doctor.fix_all`). The
+command line leaves this fix to the page, since it needs the model.
