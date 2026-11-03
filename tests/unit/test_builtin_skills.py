@@ -30,3 +30,14 @@ def test_the_lorebook_skill_carries_the_owners_rules():
         assert rule in writer
     assert "text RPG" in skills.part(skill, "planner")
     assert any("try_phrase" in check for check in skills.checks(skill))
+
+
+def test_the_character_skill_carries_the_owners_rules_and_asks_twice():
+    _, body = skills.parse((SHIPPED / "characters.md").read_text(encoding="utf-8"))
+    skill = {"name": "characters", "body": body}
+    assert skills.asks_more(skill) and "SECOND ROUND" in skills.part(skill, "more")
+    writer = skills.part(skill, "writer")
+    for rule in ("description", "alternate_greetings", "trigger → reaction", "1500 words", "try_phrase"):
+        assert rule in writer
+    assert "FIRST ROUND" in skills.part(skill, "planner") and "SECOND ROUND" not in skills.part(skill, "planner")
+    assert any("{{user}}" in check for check in skills.checks(skill))

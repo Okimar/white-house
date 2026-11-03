@@ -156,3 +156,68 @@ async def test_small_requests_read_a_skill_with_a_line_and_cannot_change_skills(
     assert "Nest details under their parent." in results and "never changes its own instructions" in results
     assert any(m["text"] == "📖 Инструкция: Лорбуки" for m in state["messages"])
     assert skills.find(ctx, "lorebooks") is not None  # still on
+
+
+async def test_a_skill_with_more_questions_asks_a_second_round_before_the_plan(client, ctx, fake_llm, tmp_path,
+                                                                                monkeypatch):
+    # Stage 10д: characters need up to 10 questions, asked in two rounds; the second round reads the
+    # first answers and the skill's "More questions" part; the language answer is kept.
+    folder = tmp_path / "skills2"
+    folder.mkdir()
+    (folder / "characters.md").write_text(
+        "---\nname: characters\ndescription: Making a character\n---\nVoice first.\n## Plan\nAsk who they are."
+        "\n## More questions\nAsk about the armour.\n## Write\nWrite the card.\n", encoding="utf-8")
+    monkeypatch.setattr(skills, "BUILTIN_DIR", folder)
+    _, body = skills.parse((folder / "characters.md").read_text(encoding="utf-8"))
+    assert skills.asks_more({"body": body}) and not skills.asks_more({"body": LORE})
+    assert skills.part({"body": body}, "more") == "Voice first.\nAsk about the armour."
+    assert "armour" not in skills.part({"body": body}, "planner")
+
+    await setup(client)
+    conv = (await client.post("/api/assistant/chats")).json()["id"]
+    fake_llm.queue(J(say="", actions=[], big=True), J(skill="characters"),
+                   J(say="Первые:", questions=[{"text": "Кто он?", "options": ["Наёмник", "Жрица"], "default": 0}]))
+    state = await wait(client, ctx, conv, await client.post(f"/api/assistant/chats/{conv}/send",
+                                                            json={"text": "Сделай персонажа"}))
+    assert [q["id"] for q in state["task"]["questions"]] == ["q1", "language"]
+
+    fake_llm.queue(J(say="Ещё:", questions=[{"text": "Какая броня?", "options": ["Мат", "Молчание"], "default": 1}]))
+    state = await wait(client, ctx, conv, await client.post(f"/api/assistant/chats/{conv}/answers",
+                                                            json={"answers": {"q1": "Жрица", "language": "English"}}))
+    task = state["task"]
+    assert task["phase"] == "questions" and [q["id"] for q in task["questions"]] == ["q1"]  # no language again
+    assert task["earlier"] == [{"text": "Кто он?", "answer": "Жрица"}] and task["language"] == "English"
+    second = sent(fake_llm, 3)
+    assert "SECOND ROUND" in second and "Ask about the armour." in second and "Кто он? → Жрица" in second
+    assert state["messages"][-1]["data"]["kind"] == "questions"
+
+    fake_llm.queue(J(say="План", goal="g", decisions=["d"], items=[{"title": "Карточка"}]))
+    state = await wait(client, ctx, conv, await client.post(f"/api/assistant/chats/{conv}/answers",
+                                                            json={"answers": {}}))
+    assert state["task"]["phase"] == "plan" and state["task"]["language"] == "English"
+    planned = sent(fake_llm, 4)
+    assert "Кто он? → Жрица" in planned and "Какая броня? → Молчание" in planned and "SECOND ROUND" not in planned
+
+
+async def test_questions_see_the_named_card_and_the_language_the_request_asks_for(client, ctx, fake_llm):
+    # Stage 10д: "improve the card of Lydia, keep it in English" — the planner has no tools, so Tavern
+    # hands it Lydia's card; the language question defaults to the language the request names.
+    from tavern.services import assistant_engine
+
+    assert assistant_engine.language_question("Улучши Лидию, язык оставь английский")["options"][0] == "English"
+    assert assistant_engine.language_question("Make her, but in Russian")["options"][0] == "Русский"
+    assert assistant_engine.language_question("Сделай ведьму")["options"][0] == "Русский"
+
+    await setup(client)
+    await client.post("/api/characters", json={"name": "Lydia Neraia", "description": "Airship captain, shy."})
+    conv = (await client.post("/api/assistant/chats")).json()["id"]
+    fake_llm.queue(J(say="", actions=[], big=True),
+                   J(say="Вопрос:", questions=[{"text": "Форма?", "options": ["Обычная", "Досье"], "default": 0}]))
+    await wait(client, ctx, conv, await client.post(f"/api/assistant/chats/{conv}/send",
+                                                    json={"text": "Улучши карточку Lydia Neraia"}))
+    asked = sent(fake_llm, 1)
+    assert "EXISTING CHARACTER «Lydia Neraia»" in asked and "Airship captain, shy." in asked
+    task = (await client.get(f"/api/assistant/chats/{conv}")).json()["task"]
+    assert "Airship captain, shy." in task["before"]  # kept as it was before the work
+    assert "THE CARDS AS THEY WERE BEFORE" in assistant_engine.pinned(task)
+    assert "THE CARDS AS THEY WERE" not in assistant_engine.pinned({"request": "x", "before": ""})

@@ -267,7 +267,8 @@ def start(ctx: AppContext, conversation_id: str, text: Any = "", chat_id: Any = 
             else:
                 chosen[question["id"]] = question["options"][question.get("default", 0)]
         task["answers"] = chosen
-        task["language"] = chosen.get("language", "")
+        if "language" in chosen:  # the second round of questions has no language question
+            task["language"] = chosen["language"]
         text, go = _answers_text(task, chosen), True
     elif go:
         if task.get("phase") != "plan" or running is not None:

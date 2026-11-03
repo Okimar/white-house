@@ -12,6 +12,8 @@ A skill is Markdown with a small header:
     ## Plan    – only the planner reads this part (questions, plan)
     ## Write   – only the writer reads this part (doing the items)
     ## Check   – lines starting with "- " become extra checks for the critic
+    ## More questions – the planner asks a second round of questions after the first answers,
+                 reading the common text plus this part
 
 Sources, by id:
 - `builtin:<name>`  files in tavern/skills/ (read-only; a copy replaces one for the assistant)
@@ -38,7 +40,7 @@ OFF_KEY = "skills_off"
 AUDIENCES = ("assistant", "programmer", "both")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 MAX_BODY = 60_000
-ROLE_PARTS = {"plan": "planner", "write": "writer", "check": "critic"}
+ROLE_PARTS = {"plan": "planner", "write": "writer", "check": "critic", "more questions": "more"}
 
 
 def parse(text: str) -> tuple[dict[str, str], str]:
@@ -154,14 +156,20 @@ def part(skill: dict[str, Any], role: str) -> str:
     parts: dict[str, list[str]] = {}
     current = common
     for line in skill["body"].splitlines():
-        heading = re.match(r"^##\s+(Plan|Write|Check)\s*$", line.strip(), re.IGNORECASE)
+        heading = re.match(r"^##\s+(Plan|Write|Check|More questions)\s*$", line.strip(), re.IGNORECASE)
         if heading:
-            current = parts.setdefault(ROLE_PARTS[heading.group(1).lower()], [])
+            current = parts.setdefault(ROLE_PARTS[" ".join(heading.group(1).lower().split())], [])
             continue
         current.append(line)
     if not parts:
         return skill["body"].strip()
     return "\n".join([*common, *parts.get(role, [])]).strip()
+
+
+def asks_more(skill: dict[str, Any]) -> bool:
+    """Whether the skill wants a second round of questions (it has a "## More questions" part)."""
+    return any(re.match(r"^##\s+More\s+questions\s*$", line.strip(), re.IGNORECASE)
+               for line in skill["body"].splitlines())
 
 
 def checks(skill: dict[str, Any]) -> list[str]:
