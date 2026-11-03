@@ -318,3 +318,24 @@ async def test_the_user_can_hide_a_message_from_the_model(client, ctx, fake_llm)
     sent = await client.post(f"/api/chats/{chat['id']}/send", json={"text": "привет"})
     await asyncio.wait([ctx.runs.get(sent.json()["run_id"]).task], timeout=10)
     assert "секретная реплика" not in sent_text(fake_llm)
+
+
+async def test_a_trial_phrase_shows_what_a_reply_would_bring(client, ctx):
+    from tavern.services import assistant_tools, character_tree, lorebooks
+
+    book = await lorebooks.create_book(ctx, {"name": "Город"})
+    port = await character_tree.create_block(ctx, book["id"], {
+        "title": "Порт", "content": "Порт пахнет рыбой", "mode": "search", "keywords": ["порт"], "chance": 10})
+    await character_tree.create_block(ctx, book["id"], {
+        "title": "Таможня", "content": "Пошлина — десятина", "mode": "always", "parent_id": port["id"]})
+    await character_tree.create_block(ctx, book["id"], {
+        "title": "Контрабанда", "content": "Ночью у третьего пирса", "mode": "search",
+        "keywords": ["контрабанд"], "parent_id": port["id"]})
+
+    env = assistant_tools.Env(ctx)
+    out = (await assistant_tools.get("try_phrase").run(env, {"owner_id": book["id"], "text": "Идём в порту"})).result
+    assert [f["title"] for f in out["found"]] == ["Порт", "Таможня"]  # the chance of 10% always passes here
+    assert out["not_found"] == ["Контрабанда"]
+    deeper = await assistant_tools.get("try_phrase").run(env, {"owner_id": book["id"], "text": "в порту контрабандисты"})
+    assert "Контрабанда" in [f["title"] for f in deeper.result["found"]]
+    assert deeper.what == ""  # nothing changed, nothing journaled

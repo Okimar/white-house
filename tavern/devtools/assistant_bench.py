@@ -159,6 +159,10 @@ def report_md(scenario: dict[str, Any], settings: dict[str, Any], result: dict[s
             errors = [f"{r.get('tool')}: {r['error']}" for r in data.get("results", []) if "error" in r]
             if errors:
                 out.append("> ⚠ ошибки инструментов: " + "; ".join(errors))
+            for r in data.get("results", []):
+                if r.get("tool") == "try_phrase" and isinstance(r.get("result"), dict):
+                    found = ", ".join(f["title"] for f in r["result"]["found"]) or "ничего"
+                    out.append(f"  🧪 «{r['result']['text']}» → {found}")
         elif message["role"] == "user":
             out += ["", f"**Вы:** {message['text']}", ""]
         elif kind == "questions":

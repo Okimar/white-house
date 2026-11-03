@@ -33,6 +33,15 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+@pytest.fixture(autouse=True)
+def no_builtin_skills(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests script the fake model's replies; a built-in skill would add the "pick a skill" request.
+    Tests about skills point BUILTIN_DIR at their own folder."""
+    from tavern.services import skills
+
+    monkeypatch.setattr(skills, "BUILTIN_DIR", tmp_path / "no-builtin-skills")
+
+
 @pytest.fixture
 def data_paths(tmp_path: Path) -> DataPaths:
     return DataPaths(tmp_path / "data")

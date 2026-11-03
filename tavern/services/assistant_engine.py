@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tavern.context import AppContext
-from tavern.core.llm import LLMClient
+from tavern.core.llm import LLMClient, StructuredOutputError
 from tavern.core.runs import Run
 from tavern.errors import NotFound, TavernError
 from tavern.providers.base import ChatMessage
@@ -64,10 +64,12 @@ MAX_HISTORY = 80_000  # characters of the conversation sent to the model (small 
 MAX_RESULTS = 30_000  # characters of one step's results
 MAX_ITEMS = 24  # plan items, sub-items included
 MAX_QUESTIONS = 5  # the language question included
+MAX_ISSUES = 8  # critic's issues handed to one fix item: more swamp a weak writer
 ROLES = ("planner", "writer", "critic", "small")
 
 # Tools the critic may use: it reads, it never changes anything.
-READ_ONLY = frozenset({"list_characters", "read_character", "list_bubbles", "read_bubble", "list_lorebooks",
+READ_ONLY = frozenset({"list_characters", "read_character", "list_bubbles", "read_bubble", "try_phrase",
+                       "list_lorebooks",
                        "app_routes", "read_chat", "list_themes", "read_theme_file", "read_skill"})
 
 # --- forms ------------------------------------------------------------------------------------
@@ -93,7 +95,7 @@ STEP_SCHEMA: dict[str, Any] = {
 WRITER_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {"say": {"type": "string"}, "actions": _ACTIONS, "add_items": _ITEMS},
-    "required": ["say", "actions"],
+    "required": ["actions"],  # "say" is only a line for the user: a step without it is still a step
 }
 QUESTIONS_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -323,6 +325,8 @@ Answer with one JSON object {"say": "..."}.
 work as done.
 - If the critic still has problems that were not fixed, list them plainly.
 - No praise of the work or of the user. No "I hope you like it".
+- If a decision says to offer something in the final report (a next step), end with that offer as one \
+short question.
 - Write in the language of the user's request."""
 
 
@@ -862,8 +866,19 @@ async def _writer_loop(ctx: AppContext, models: Models, conversation_id: str, ch
     for step in range(models.settings["max_steps"]):
         await fold(ctx, models, conversation_id, run, task, item["id"])
         run.emit("thinking", step=step + 1, phase="work", item=item["id"])
-        value = await llm.generate_json(_with_reminder([ChatMessage("system", system), *steps], reminder),
-                                        schema=WRITER_SCHEMA)
+        try:
+            value = await llm.generate_json(_with_reminder([ChatMessage("system", system), *steps], reminder),
+                                            schema=WRITER_SCHEMA)
+        except StructuredOutputError as exc:
+            # One bad answer must not end the whole work: it counts as a failed step of this item.
+            errors = [f"answer shape: {exc}"]
+            repeats = repeats + 1 if errors == last_errors else 0
+            last_errors = errors
+            if repeats + 1 >= REPEATS:
+                return f"stopped: the model did not answer in the required shape {REPEATS} times", False, [], changes
+            steps.append(ChatMessage("user", f"Your last answer was not valid ({exc}). Answer again with one "
+                                             "JSON object: {\"say\": \"...\", \"actions\": [...]}."))
+            continue
         say = str(value.get("say") or "").strip()
         actions = _actions(value)
         subs = _make_items(value.get("add_items")) if may_split else []
@@ -1041,7 +1056,7 @@ def _failed_checks(answered: list[dict[str, Any]], checks: list[str]) -> list[di
     if 0 < len(answered) < len(checks):
         issues.append({"where": "", "problem": f"the critic answered {len(answered)} of {len(checks)} checks",
                        "fix": "check the rest"})
-    return issues[:8]
+    return issues
 
 
 async def _critic(ctx: AppContext, models: Models, conversation_id: str, chat_id: str | None, run: Run,
@@ -1097,7 +1112,9 @@ async def review(ctx: AppContext, models: Models, conversation_id: str, chat_id:
              {"kind": "critic", "round": round_no, "issues": issues})
         if round_no == rounds:
             break
-        fix = {"id": f"fix{round_no}", "title": "Исправить замечания критика", "detail": _issues_text(issues),
+        # A weak writer fixes a few at a time; the rest stay listed and come back in the next round.
+        fix = {"id": f"fix{round_no}", "title": "Исправить замечания критика",
+               "detail": _issues_text(issues[:MAX_ISSUES]),
                "status": "todo", "summary": "", "parent": ""}
         _progress(ctx, run, conversation_id, "Исправляю замечания критика", fix["detail"])
         summary, _, _, _ = await _writer_loop(ctx, models, conversation_id, chat_id, run, task, fix,

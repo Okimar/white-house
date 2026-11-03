@@ -323,3 +323,46 @@ async def test_no_questions_goes_straight_to_the_plan_and_a_task_can_be_dropped(
     state = await wait(client, ctx, conv, await client.post(f"/api/assistant/chats/{conv}/send",
                                                             json={"text": "привет"}))
     assert state["messages"][-1]["text"] == "Привет"
+
+
+async def test_a_badly_shaped_answer_is_a_failed_step_not_the_end_of_the_work(client, ctx, fake_llm):
+    # Regression (live Gemini, stage 10г): the writer twice answered without "say"; the error ended the
+    # whole task at item 4 of 8.
+    await setup(client)
+    await client.put("/api/assistant/settings", json={"critic": False})
+    conv = (await client.post("/api/assistant/chats")).json()["id"]
+    await big_until_plan(client, ctx, fake_llm, conv)
+    sent = len(fake_llm.requests)
+    bad = J(say="нет действий")  # no "actions": not a step at all, asked again once, then given up on
+    fake_llm.queue(bad, bad, J(say="Создаю", actions=[act("create_lorebook", name="Город")]),
+                   J(say="Готово: лорбук «Город»", actions=[]),
+                   J(actions=[]),  # item 2: no "say" is fine
+                   J(say="Сделан лорбук «Город»."))
+    state = await wait(client, ctx, conv, await client.post(f"/api/assistant/chats/{conv}/go", json={}))
+    assert [i["status"] for i in state["task"]["items"]] == ["done", "done"]
+    assert "Your last answer was not valid" in texts(fake_llm, sent + 2)
+    assert state["messages"][-1]["data"]["kind"] == "report"
+
+
+async def test_every_critic_issue_is_kept_and_a_fix_takes_eight_at_a_time(client, ctx, fake_llm):
+    # Regression (stage 10г): issues past the eighth were cut, and a skill's checks come last, so the
+    # critic's findings on clichés and names never reached the writer or the user.
+    await setup(client)
+    conv = (await client.post("/api/assistant/chats")).json()["id"]
+    await big_until_plan(client, ctx, fake_llm, conv)
+    failed = [{"n": n, "ok": False, "where": f"запись {n}", "problem": f"беда {n}", "fix": f"чинить {n}"}
+              for n in range(1, 11)]
+    fake_llm.queue(
+        J(say="книга", actions=[act("create_lorebook", name="Город")]), J(say="1 готов", actions=[]),
+        J(say="2 готов", actions=[]),
+        J(say="", actions=[], checks=failed),
+        J(say="Исправил", actions=[]),
+        checks(),
+        J(say="Готово."),
+    )
+    state = await wait(client, ctx, conv, await client.post(f"/api/assistant/chats/{conv}/go", json={}))
+    first = next(m for m in state["messages"] if m["data"].get("kind") == "critic")
+    assert len(first["data"]["issues"]) == 10
+    fix = next(texts(fake_llm, i) for i in range(len(fake_llm.requests))
+               if "Исправить замечания критика" in texts(fake_llm, i))
+    assert "беда 8" in fix and "беда 9" not in fix

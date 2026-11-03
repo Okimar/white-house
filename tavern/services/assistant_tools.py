@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tavern.context import AppContext
+from tavern.core.retrieval import select_blocks
 from tavern.errors import AppError
 from tavern.formats.cards import TEXT_FIELDS, parse_card
 from tavern.services import character_tree, history, lorebooks
@@ -225,6 +226,36 @@ async def delete_bubble(env: Env, args: dict[str, Any]) -> Outcome:
                    undo, ("blocks",))
 
 
+class _Lucky:
+    """Every chance passes: a trial phrase shows what can come, not one roll of the dice."""
+
+    def random(self) -> float:
+        return 0.0
+
+
+async def try_phrase(env: Env, args: dict[str, Any]) -> Outcome:
+    """The bubbles one chat message would bring, by the same search as a real reply; nothing is kept."""
+    owner_id = _text(args, "owner_id")
+    text = _text(args, "text")
+    owner = character_tree.owner_of(env.ctx, owner_id)
+    blocks = env.ctx.blocks.for_owners([owner_id]).get(owner_id, [])
+    is_book = env.ctx.lorebooks.exists(owner_id)
+    settings = character_tree.retrieval_settings(env.ctx)
+    lore = lorebooks.lore_settings(env.ctx)
+    selection = select_blocks(
+        blocks, owner_name=owner["name"], scan_text=text, scan_messages=[text],
+        budget_tokens=lore["budget_tokens"] if is_book else int(settings["budget_tokens"]),
+        meaning=await character_tree.meaning_scores(env.ctx, blocks, text), threshold=float(settings["threshold"]),
+        links=env.ctx.blocks.links([owner_id]), rng=_Lucky(), recursion=lore["recursion"] if is_book else 0,
+        owner_names={owner_id: owner["name"]} if is_book else None, by_order=is_book,
+    )
+    found = {f.block["id"] for f in selection.found}
+    asleep = [b["title"] for b in blocks if b["mode"] == "search" and b["id"] not in found]
+    return Outcome({"text": text,
+                    "found": [{"title": f.block["title"], "path": f.path, "why": f.reason} for f in selection.found],
+                    "not_found": asleep[:60], "over_budget": selection.dropped})
+
+
 # --- lorebooks --------------------------------------------------------------------------------
 
 
@@ -318,6 +349,11 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
          update_bubble, required=("id", "changes")),
     Tool("delete_bubble", "Delete a bubble with its sub-bubbles (the user is asked first).", {"id": "bubble id"},
          delete_bubble, _ask_delete_bubble, ("id",)),
+    Tool("try_phrase", "Test the keywords: which bubbles of a character or entries of a lorebook one chat "
+         "message would bring (the same search as a real reply, every chance passing; nothing is kept). "
+         "\"not_found\" lists the keyword bubbles that stayed asleep.",
+         {"owner_id": "character id or lorebook id", "text": "a message as a player would write it"},
+         try_phrase, required=("owner_id", "text")),
     Tool("list_lorebooks", "All lorebooks: id, name, entry count, where they are on.", {}, list_lorebooks),
     Tool("create_lorebook", "Make an empty lorebook; then add entries with create_bubble.",
          {"name": "name", "description": "optional"}, create_lorebook, required=("name",)),
