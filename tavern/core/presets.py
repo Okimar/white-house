@@ -3,7 +3,7 @@
 A preset is plain JSON so it can be stored, exported and edited by agents:
 
     {
-      "blocks": [ {id, kind, name, enabled, role, text, position, depth, history?}, ... ],
+      "blocks": [ {id, kind, name, enabled, role, text, position, depth, group, history?}, ... ],
       "params": {temperature, top_p, top_k, max_tokens, presence_penalty, frequency_penalty, stop},
       "max_context_tokens": 0,          # 0 = use the connection's limit (0 there = no limit)
       "prompts": {"impersonate": ..., "no_write_for_me": ...},
@@ -21,6 +21,13 @@ Block kinds (the prompt manager shows them as a list the user reorders):
   history        the chat itself; exactly one per preset. Options: all / last N / token cap
   post_history   instructions after the chat (a card's post_history_instructions)
   text           any text the user writes
+  thinking       «Размышление»: a template the model fills in before the reply. Sent framed as
+                 "think inside <thinking>…</thinking>" (core/thinking.py); the thinking is cut
+                 out of the reply. At most one per preset.
+
+`group`: blocks with the same group are alternatives ("Длина": short / medium / long); at most one
+of them is on. The history block's `thoughts` = how many past replies are sent with their thinking
+(0 = none, the default), repeated lines dropped (core/thinking.compact).
 
 Blocks before `history` go before the chat, blocks after it go after. A block with
 position "depth" is instead inserted `depth` messages from the end of the chat.
@@ -36,9 +43,10 @@ from tavern.errors import AppError
 
 ROLES = ("system", "user", "assistant")
 KINDS = ("main", "persona", "cast", "examples", "lore_before", "lore_after", "history",
-         "post_history", "text")
+         "post_history", "text", "thinking")
 # Kinds that have text of their own in the preset (the others are filled from chat data).
-TEXT_KINDS = ("main", "post_history", "text")
+TEXT_KINDS = ("main", "post_history", "text", "thinking")
+MAX_GROUP = 40
 PARAM_TYPES: dict[str, tuple[type, ...]] = {
     "temperature": (int, float),
     "top_p": (int, float),
@@ -88,6 +96,7 @@ DEFAULT_BLOCK_NAMES = {
     "history": "История чата",
     "post_history": "После истории",
     "text": "Свой блок",
+    "thinking": "Размышление",
 }
 
 
@@ -99,7 +108,7 @@ class PresetError(AppError):
 def _block(kind: str, text: str = "", **extra: Any) -> dict[str, Any]:
     block = {
         "id": kind, "kind": kind, "name": DEFAULT_BLOCK_NAMES[kind], "enabled": True,
-        "role": "system", "text": text, "position": "top", "depth": 4,
+        "role": "system", "text": text, "position": "top", "depth": 4, "group": "",
     }
     block.update(extra)
     return block
@@ -113,7 +122,7 @@ DEFAULT_PRESET: dict[str, Any] = {
         _block("cast"),
         _block("lore_after"),
         _block("examples"),
-        _block("history", history={"mode": "all", "count": 50, "max_tokens": 0}),
+        _block("history", history={"mode": "all", "count": 50, "max_tokens": 0, "thoughts": 0}),
         _block("post_history"),
     ],
     "params": {},
@@ -163,6 +172,10 @@ def normalize_block(raw: Any, index: int) -> dict[str, Any]:
         raise PresetError(f"Block {index + 1}: position must be 'top' or 'depth'")
     block["position"] = position
     block["depth"] = _int(raw.get("depth", 4), f"Block {index + 1} depth", 0, 1000)
+    group = raw.get("group") or ""
+    if not isinstance(group, str):
+        raise PresetError(f"Block {index + 1}: group must be text")
+    block["group"] = " ".join(group.split())[:MAX_GROUP] if kind != "history" else ""
     if kind == "history":
         options = raw.get("history") or {}
         if not isinstance(options, dict):
@@ -174,6 +187,7 @@ def normalize_block(raw: Any, index: int) -> dict[str, Any]:
             "mode": mode,
             "count": _int(options.get("count", 50), "History message count", 1, 100_000),
             "max_tokens": _int(options.get("max_tokens", 0), "History token limit", 0, 10_000_000),
+            "thoughts": _int(options.get("thoughts", 0), "Past thinking count", 0, 1000),
         }
     return block
 
@@ -195,6 +209,15 @@ def normalize_preset(raw: Any) -> dict[str, Any]:
         raise PresetError("A preset has exactly one chat history block")
     if not histories:
         blocks.append(normalize_block({"kind": "history", "id": "history"}, len(blocks)))
+    if sum(b["kind"] == "thinking" for b in blocks) > 1:
+        raise PresetError("A preset has at most one «Размышление» (thinking) block")
+    on_in_group: dict[str, str] = {}
+    for b in blocks:
+        if b["group"] and b["enabled"]:
+            if b["group"] in on_in_group:
+                raise PresetError(f"Group «{b['group']}»: only one block may be on "
+                                  f"(«{on_in_group[b['group']]}» and «{b['name']}» are both on)")
+            on_in_group[b["group"]] = b["name"]
     preset["blocks"] = blocks
 
     params_raw = raw.get("params", {})

@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from tavern.core import thinking
 from tavern.core.presets import (
     DEFAULT_BLOCK_NAMES,
     DEFAULT_PROMPTS,
@@ -183,6 +184,8 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
             add(KIND_IDENTIFIERS[kind], block, marker=False, content=block["text"])
         elif kind == "text":
             add(block["id"], block, marker=False, content=block["text"])
+        elif kind == "thinking":  # ST has no such kind: the template goes framed, as plain text
+            add(block["id"], block, marker=False, content=thinking.frame(block["text"]))
         else:
             add(KIND_IDENTIFIERS[kind], block, marker=True)
 

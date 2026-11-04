@@ -10,15 +10,19 @@ const KIND_HINTS = {
   main: "главный промпт", persona: "карточка «это я»", cast: "карточки персонажей чата",
   examples: "примеры диалогов", lore_before: "лорбуки (этап 5)", lore_after: "лорбуки (этап 5)",
   history: "сама переписка", post_history: "после переписки", text: "свой текст",
+  thinking: "размышление перед ответом",
 };
-const TEXT_KINDS = ["main", "post_history", "text"];
+const TEXT_KINDS = ["main", "post_history", "text", "thinking"];
+const REMOVABLE = ["text", "thinking"];
+const THINKING_HINT = ["Например:", "Сцена: [где, кто рядом]", "Чего хочет {{char}} сейчас: [...]",
+  "План ответа: [...]"].join("\n");
 const PARAMS = [
   ["temperature", "Температура", 0.05], ["top_p", "Top P", 0.01], ["top_k", "Top K", 1],
   ["max_tokens", "Длина ответа (токены)", 1], ["presence_penalty", "Presence penalty", 0.05],
   ["frequency_penalty", "Frequency penalty", 0.05],
 ];
 
-function BlockRow({ block, index, count, readOnly, onChange, onMove, onRemove }) {
+function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onRemove }) {
   const [open, setOpen] = useState(false);
   const set = (patch) => onChange({ ...block, ...patch });
   return html`
@@ -28,11 +32,12 @@ function BlockRow({ block, index, count, readOnly, onChange, onMove, onRemove })
           onChange=${(e) => set({ enabled: e.target.checked })} />
         <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}>
           ${open ? "▾" : "▸"} ${block.name} <span class="muted">· ${KIND_HINTS[block.kind]}
-          ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span></button>
+          ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
+          ${block.group && html`<span class="tag" title="Из блоков группы включён только один">⇄ ${block.group}</span>`}</button>
         ${!readOnly && html`
           <button title="Выше" disabled=${index === 0} onClick=${() => onMove(index, -1)}>▲</button>
           <button title="Ниже" disabled=${index === count - 1} onClick=${() => onMove(index, 1)}>▼</button>
-          ${block.kind === "text" && html`<button title="Удалить блок" onClick=${() => onRemove(index)}>🗑</button>`}`}
+          ${REMOVABLE.includes(block.kind) && html`<button title="Удалить блок" onClick=${() => onRemove(index)}>🗑</button>`}`}
       </div>
       ${open && html`<div class="stack block-edit">
         <label class="stack">Название
@@ -51,6 +56,10 @@ function BlockRow({ block, index, count, readOnly, onChange, onMove, onRemove })
             <label title="0 — без ограничения">Не больше токенов
               <input type="number" min="0" value=${block.history.max_tokens} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, max_tokens: Number(e.target.value) || 0 } })} /></label>
+            <label title="Сколько последних ответов уходят модели вместе с их размышлением; повторяющиеся строки не шлются. 0 — не слать">
+              Слать прошлые размышления (ответов)
+              <input type="number" min="0" value=${block.history.thoughts || 0} disabled=${readOnly}
+                onInput=${(e) => set({ history: { ...block.history, thoughts: Math.max(0, Number(e.target.value) || 0) } })} /></label>
           </div>`
         : html`
           <div class="row">
@@ -66,9 +75,15 @@ function BlockRow({ block, index, count, readOnly, onChange, onMove, onRemove })
             ${block.position === "depth" && html`<label>Глубина
               <input type="number" min="0" max="1000" value=${block.depth} disabled=${readOnly}
                 onInput=${(e) => set({ depth: Number(e.target.value) || 0 })} /></label>`}
+            <label title="Блоки с одной группой — варианты на выбор: включите один, остальные выключатся">Группа «один из»
+              <input value=${block.group || ""} disabled=${readOnly} list="preset-groups" placeholder="нет"
+                onInput=${(e) => set({ group: e.target.value })} /></label>
           </div>
+          ${block.kind === "thinking" && html`<p class="muted">Шаблон, который модель заполняет перед ответом.
+            Tavern сам попросит думать внутри ${"<thinking>…</thinking>"} и уберёт размышление из текста ответа.</p>`}
           ${TEXT_KINDS.includes(block.kind) && html`<textarea rows="5" value=${block.text} disabled=${readOnly}
-            placeholder="Текст. Можно {{char}} и {{user}}" onInput=${(e) => set({ text: e.target.value })}></textarea>`}`}
+            placeholder=${block.kind === "thinking" ? THINKING_HINT
+              : "Текст. Можно {{char}} и {{user}}"} onInput=${(e) => set({ text: e.target.value })}></textarea>`}`}
       </div>`}
     </li>`;
 }
@@ -175,7 +190,17 @@ export function Presets({ settings, onChanged, onError }) {
 
   const edit = (data) => { setCurrent({ ...current, data }); setDirty(true); };
   const blocks = current ? current.data.blocks : [];
-  const setBlock = (i, block) => edit({ ...current.data, blocks: blocks.map((b, j) => (j === i ? block : b)) });
+  // A block switched on in a group switches the others of that group off.
+  const setBlock = (i, block) => edit({ ...current.data, blocks: blocks.map((b, j) => {
+    if (j === i) return block;
+    const group = (block.group || "").trim();
+    return block.enabled && group && (b.group || "").trim() === group && b.enabled ? { ...b, enabled: false } : b;
+  }) });
+  const groups = [...new Set(blocks.map((b) => (b.group || "").trim()).filter(Boolean))];
+  const hasThinking = blocks.some((b) => b.kind === "thinking");
+  const addThinking = () => edit({ ...current.data, blocks: [...blocks, {
+    id: "thinking", kind: "thinking", name: "Размышление", enabled: true, role: "system",
+    text: "", position: "top", depth: 4, group: "" }] });
   const move = (i, step) => {
     const next = [...blocks];
     [next[i], next[i + step]] = [next[i + step], next[i]];
@@ -184,7 +209,7 @@ export function Presets({ settings, onChanged, onError }) {
   const removeBlock = (i) => edit({ ...current.data, blocks: blocks.filter((_, j) => j !== i) });
   const addBlock = () => edit({ ...current.data, blocks: [...blocks, {
     id: "text-" + Date.now().toString(36), kind: "text", name: "Свой блок", enabled: true, role: "system",
-    text: "", position: "top", depth: 4 }] });
+    text: "", position: "top", depth: 4, group: "" }] });
   const setParam = (key, raw) => {
     const params = { ...current.data.params };
     if (raw === "") delete params[key];
@@ -232,9 +257,13 @@ export function Presets({ settings, onChanged, onError }) {
       <h3>Блоки (сверху вниз — как пойдут к модели)</h3>
       <ul class="preset-blocks">
         ${blocks.map((b, i) => html`<${BlockRow} key=${b.id} block=${b} index=${i} count=${blocks.length}
-          readOnly=${readOnly} onChange=${(nb) => setBlock(i, nb)} onMove=${move} onRemove=${removeBlock} />`)}
+          readOnly=${readOnly} groups=${groups} onChange=${(nb) => setBlock(i, nb)} onMove=${move} onRemove=${removeBlock} />`)}
       </ul>
-      ${!readOnly && html`<button onClick=${addBlock}>+ Свой блок</button>`}
+      <datalist id="preset-groups">${groups.map((g) => html`<option key=${g} value=${g} />`)}</datalist>
+      ${!readOnly && html`<div class="row">
+        <button onClick=${addBlock}>+ Свой блок</button>
+        ${!hasThinking && html`<button onClick=${addThinking} title="Шаблон, который модель заполняет перед ответом">+ Размышление</button>`}
+      </div>`}
 
       <h3>Модель</h3>
       <div class="param-grid">
