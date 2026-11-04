@@ -2,7 +2,7 @@
 import { html, useRef } from "../vendor/preact-htm.mjs";
 import { LorebookShelf } from "./Lorebooks.js";
 
-export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat,
+export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat, onRenameChat,
   onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, open, onClose,
   settings, onError }) {
   const fileInput = useRef(null);
@@ -56,7 +56,12 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
         ${chats.length === 0 && html`<li class="muted">Чатов пока нет</li>`}
         ${chats.map((c) => html`
           <li key=${c.id} class=${c.id === chatId ? "active" : ""}>
-            <button class="item" onClick=${() => onOpenChat(c.id)}>${c.title}</button>
+            <button class="item" onClick=${() => onOpenChat(c.id)}
+              title=${"Изменён: " + new Date(c.updated_at).toLocaleString()}>${c.title}</button>
+            <button title="Переименовать чат" data-slot="chat-rename" onClick=${() => {
+              const title = (prompt("Название чата", c.title) || "").trim();
+              if (title && title !== c.title) onRenameChat(c.id, title);
+            }}>✎</button>
             <a class="button" href=${`/api/chats/${c.id}/export.jsonl`} title="Скачать чат (JSONL)">↓</a>
             <button title="Удалить чат"
               onClick=${() => confirm(`Удалить чат «${c.title}»?`) && onDeleteChat(c.id)}>🗑</button>

@@ -51,7 +51,7 @@ from tavern.core.llm import LLMClient, StructuredOutputError
 from tavern.core.runs import Run
 from tavern.errors import NotFound, TavernError
 from tavern.providers.base import ChatMessage
-from tavern.services import assistant
+from tavern.services import assistant, assistant_app
 from tavern.services import assistant_tools as tools
 from tavern.services import skills as skill_service
 from tavern.services import spending
@@ -72,6 +72,7 @@ ROLES = ("planner", "writer", "critic", "small")
 READ_ONLY = frozenset({"list_characters", "read_character", "list_bubbles", "read_bubble", "try_phrase",
                        "list_lorebooks",
                        "app_routes", "read_chat", "list_themes", "read_theme_file", "read_skill"})
+CHANGES_NOTHING = READ_ONLY | {"show", "drive_guide"}
 
 # --- forms ------------------------------------------------------------------------------------
 
@@ -608,10 +609,17 @@ async def act(ctx: AppContext, env: tools.Env, conversation_id: str, run: Run, i
                 action = ctx.assistant_repo.add_action(conversation_id, tool.name, args, question, {}, "denied")
                 run.emit("action", action=action)
                 return {"tool": name, "error": "The user said no. Do not do it."}
+        if name not in CHANGES_NOTHING and name != "app_call":  # app_call waits by itself, for writes only
+            await assistant_app.wait_quiet(env)
         outcome = await tool.run(env, args)
     except TavernError as exc:
-        return {"tool": name, "error": str(getattr(exc, "message", exc))}
+        error = str(getattr(exc, "message", exc))
+        _journal_failure(ctx, conversation_id, run, name, args, error)
+        return {"tool": name, "error": error}
     result: dict[str, Any] = {"tool": name, "result": outcome.result}
+    refused = _refusal(name, args, outcome.result)
+    if refused:
+        _journal_failure(ctx, conversation_id, run, name, args, refused)
     if outcome.what:
         undo = {**outcome.undo, "changed": list(outcome.changed)}
         action = ctx.assistant_repo.add_action(conversation_id, tool.name, args, outcome.what, undo)
@@ -619,6 +627,29 @@ async def act(ctx: AppContext, env: tools.Env, conversation_id: str, run: Run, i
         ctx.notices.emit("assistant_changed", changed=list(outcome.changed))
         result["done"] = outcome.what
     return result
+
+
+def _refusal(name: Any, args: dict[str, Any], result: Any) -> str:
+    """Why the app refused a change asked for through app_call ("" = it did not): the call itself
+    worked, so only the answer's status tells."""
+    if name != "app_call" or str(args.get("method", "GET")).upper() == "GET" or not isinstance(result, dict):
+        return ""
+    status = result.get("status")
+    if not isinstance(status, int) or status < 400:
+        return ""
+    data = result.get("data")
+    error = data.get("error") if isinstance(data, dict) else None
+    return str(error.get("message")) if isinstance(error, dict) and error.get("message") else f"status {status}"
+
+
+def _journal_failure(ctx: AppContext, conversation_id: str, run: Run, name: Any, args: dict[str, Any],
+                     error: str) -> None:
+    """A change that did not happen is shown too: the page must not rest on the model's word about it.
+    Failed reads are the model's own business: it looks again."""
+    if name in CHANGES_NOTHING or (name == "app_call" and str(args.get("method", "GET")).upper() == "GET"):
+        return
+    what = f"Не вышло: {args.get('what') or name}: {error}"[:500]
+    run.emit("action", action=ctx.assistant_repo.add_action(conversation_id, str(name), args, what, {}, "failed"))
 
 
 def _actions(value: dict[str, Any]) -> list[dict[str, Any]]:
@@ -971,6 +1002,27 @@ async def work(ctx: AppContext, models: Models, conversation_id: str, chat_id: s
         task["seen"] = max([m["id"] for m in ctx.assistant_repo.messages(conversation_id)], default=0)
         save(ctx, run, conversation_id, task)
     while True:
+        await _do_items(ctx, models, conversation_id, chat_id, run, task)
+        if models.settings["critic"] and not task.get("reviewed") and _changes(ctx, conversation_id, task):
+            await review(ctx, models, conversation_id, chat_id, run, task)
+        if task.get("failed"):
+            break
+        # Written while the critic read: it may add work, and what is added gets checked too.
+        await fold(ctx, models, conversation_id, run, task, "")
+        if not any(i["status"] == "todo" for i in task["items"]):
+            break
+        task.pop("reviewed", None)
+    await report(ctx, models, conversation_id, run, task)
+    for message in _inbox(ctx, conversation_id, task):
+        task["seen"] = message["id"]
+        _say(ctx, run, conversation_id, f"Работа уже закончилась, и это сообщение я не успел учесть: «{message['text'][:200]}». "
+                                        "Напишите его ещё раз, если оно ещё нужно.", {"kind": "progress"})
+        save(ctx, run, conversation_id, task)
+
+
+async def _do_items(ctx: AppContext, models: Models, conversation_id: str, chat_id: str | None, run: Run,
+                    task: dict[str, Any]) -> None:
+    while True:
         item = next((i for i in task["items"] if i["status"] == "todo"), None)
         if item is None:
             break
@@ -1001,9 +1053,6 @@ async def work(ctx: AppContext, models: Models, conversation_id: str, chat_id: s
             _progress(ctx, run, conversation_id, f"Пункт {item['id']} не получился — останавливаюсь", summary)
             save(ctx, run, conversation_id, task)
             break
-    if models.settings["critic"] and not task.get("reviewed") and _changes(ctx, conversation_id, task):
-        await review(ctx, models, conversation_id, chat_id, run, task)
-    await report(ctx, models, conversation_id, run, task)
 
 
 def _changes(ctx: AppContext, conversation_id: str, task: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1119,7 +1168,8 @@ def _failed_checks(answered: list[dict[str, Any]], checks: list[str]) -> list[di
 
 
 async def _critic(ctx: AppContext, models: Models, conversation_id: str, chat_id: str | None, run: Run,
-                  task: dict[str, Any]) -> list[dict[str, str]]:
+                  task: dict[str, Any]) -> list[dict[str, str]] | None:
+    """The problems the critic found; None when it never answered the checks (that is not a pass)."""
     env = tools.Env(ctx, chat_id)
     read_tools = "\n".join(line for line in tools.describe().splitlines()
                            if line[2:].split(":")[0] in READ_ONLY | {"app_call"})
@@ -1147,7 +1197,7 @@ async def _critic(ctx: AppContext, models: Models, conversation_id: str, chat_id
             continue
         results = [await act(ctx, env, conversation_id, run, a, read_only=True) for a in actions]
         steps.append(ChatMessage("user", "Results:\n" + _data(results)))
-    return []
+    return None
 
 
 def _issues_text(issues: list[dict[str, str]]) -> str:
@@ -1161,8 +1211,15 @@ async def review(ctx: AppContext, models: Models, conversation_id: str, chat_id:
     issues: list[dict[str, str]] = []
     for round_no in range(1, rounds + 1):
         _progress(ctx, run, conversation_id, f"Критик проверяет (круг {round_no} из {rounds})…")
-        issues = await _critic(ctx, models, conversation_id, chat_id, run, task)
+        found = await _critic(ctx, models, conversation_id, chat_id, run, task)
         models.note_spent(task)
+        if found is None:
+            issues = [{"where": "", "fix": "",
+                       "problem": "the critic did not check the work: the model never answered the checks"}]
+            _say(ctx, run, conversation_id, "Критик не проверил работу: модель так и не ответила по списку проверок.",
+                 {"kind": "critic", "round": round_no, "issues": issues})
+            break
+        issues = found
         if not issues:
             _say(ctx, run, conversation_id, "Критик: замечаний нет.", {"kind": "critic", "round": round_no,
                                                                        "issues": []})
@@ -1239,6 +1296,7 @@ async def run_request(ctx: AppContext, conversation_id: str, chat_id: str | None
     models = Models(ctx, run, chat_id)
     if phase in ("questions", "plan", "work"):
         models.task_no = task.get("no", "")
+    stopped = False
     try:
         if phase == "questions":
             if go and wants_more_questions(ctx, task):
@@ -1254,6 +1312,7 @@ async def run_request(ctx: AppContext, conversation_id: str, chat_id: str | None
             await small(ctx, models, conversation_id, chat_id, run, request)
         run.emit("done")
     except asyncio.CancelledError:
+        stopped = True
         run.emit("stopped")
         raise
     except TavernError as exc:
@@ -1269,6 +1328,8 @@ async def run_request(ctx: AppContext, conversation_id: str, chat_id: str | None
             current = {}
         if models.task_no and current.get("no") == models.task_no:
             models.note_spent(current)
+            if stopped:  # the user's own «Стоп»: unlike a crash or a restart, nothing to remind about
+                current["stopped"] = True
             repo.set_task(conversation_id, current)
         ctx.notices.emit("assistant_state", chat_id=conversation_id, phase=current.get("phase", ""))
 

@@ -53,6 +53,7 @@ DEFAULTS: dict[str, Any] = {
     "dir": "",
 }
 TICK_SECONDS = 60.0
+VERSIONS_DIR = ".versions"  # past versions of plugins and themes (storage/backup.py leaves them out of copies)
 TMP_DIR = ".backup-tmp"
 RESTORE_NEW = "new"
 RESTORE_OLD = "old"
@@ -192,7 +193,20 @@ class BackupService:
 
     def delete(self, name: str) -> None:
         self.find(name).unlink()
+        self._last_fp = None  # "nothing changed since the last copy" spoke of a copy that may be gone
         self.ctx.notices.emit("backups")
+
+    def refresh_warnings(self) -> None:
+        """The startup warnings again, once something may have fixed them. Without any there is nothing
+        to take back, and a phone is spared the database check."""
+        if not self.warnings:
+            return
+        from tavern.services import doctor
+
+        fresh = doctor.quick(self.ctx)
+        if fresh != self.warnings:
+            self.warnings = fresh
+            self.ctx.notices.emit("backups")
 
     def status(self) -> dict[str, Any]:
         newest = next(iter(self.archives()), None)
@@ -282,15 +296,9 @@ class BackupService:
                 removed.append(info.name)
         return removed
 
-    def upload(self, blob: bytes) -> dict[str, Any]:
+    def upload_file(self, probe: Path) -> dict[str, Any]:
         """Keep a copy file the user brought (from another device, from the cloud)."""
-        work = self.tmp_dir()
-        try:
-            probe = work / "upload.zip"
-            probe.write_bytes(blob)
-            name = self.keep(probe)
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
+        name = self.keep(probe)
         if self.ctx.gdrive is not None:
             self.ctx.gdrive.wake()
         return {"name": name}
@@ -364,6 +372,7 @@ class BackupService:
         while not self._stop.wait(TICK_SECONDS):
             try:
                 self.tick()
+                self.refresh_warnings()
             except Exception:  # noqa: BLE001
                 log.exception("Scheduled backup failed")
 
@@ -372,7 +381,8 @@ class BackupService:
     def restore(self, name: str) -> dict[str, Any]:
         """Put a copy back into the running app. Everything is as before if any step fails."""
         if self.ctx.runs.running():
-            raise Conflict("Сейчас пишется ответ. Остановите его или дождитесь конца, потом восстанавливайте.",
+            raise Conflict("Сейчас пишется ответ или работает помощник. Остановите или дождитесь конца, потом "
+                           "восстанавливайте.",
                            code="busy")
         source = self.find(name)
         db_only = source.suffix == ".sqlite3"
@@ -395,6 +405,7 @@ class BackupService:
             finally:
                 shutil.rmtree(work, ignore_errors=True)
             self._last_fp = None
+            self.refresh_warnings()
         log.info("Restored from %s", name)
         self.ctx.notices.emit("restored", name=name)
         return {"restored": name, "safety": safety["name"] if safety else ""}
@@ -438,9 +449,22 @@ class BackupService:
                     live.mkdir(exist_ok=True)
             self._load_db(current_db)
             raise
+        else:
+            self._keep_versions(old, moved)
         finally:
             ctx.plugins.errors.clear()
             ctx.plugins.start()
+
+    def _keep_versions(self, old: Path, tops: list[str]) -> None:
+        """Past versions of plugins and themes are not in a copy: they stay from before the restore,
+        or «Вернуть прошлую версию» would lose them. Not worth failing a finished restore over."""
+        for top in tops:
+            kept, live = old / top / VERSIONS_DIR, self.ctx.paths.root / top / VERSIONS_DIR
+            try:
+                if kept.is_dir() and not live.exists():
+                    kept.rename(live)
+            except OSError as exc:
+                log.warning("Could not keep past versions in %s: %s", top, exc)
 
     def _load_db(self, source: Path) -> None:
         db = self.ctx.db

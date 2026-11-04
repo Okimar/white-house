@@ -346,6 +346,7 @@ export function Assistant({ chatId, openConv, onClose, onChanged, onOpenSkills, 
   const lastOf = (kind) => (data ? [...data.messages].reverse().find((m) => m.data.kind === kind) : null);
   const liveQuestions = !runId && task.phase === "questions" ? lastOf("questions") : null;
   const livePlan = !runId && task.phase === "plan" ? lastOf("plan") : null;
+  const leftMidway = !runId && task.phase === "work"; // a stop, a failure or a restart: the plan is not finished
   const renderMessage = (m, key) => {
     const kind = m.data.kind;
     if (m.role === "user") {
@@ -420,6 +421,14 @@ export function Assistant({ chatId, openConv, onClose, onChanged, onOpenSkills, 
           <div class="row">
             <button class="primary" onClick=${() => answer(true)}>Разрешить</button>
             <button onClick=${() => answer(false)}>Нет</button>
+          </div>
+        </div>`}
+        ${leftMidway && html`<div class="assistant-ask" data-slot="assistant-resume" role="status">
+          <p>Работа остановилась на середине плана. Сделанное на месте.</p>
+          <div class="row">
+            <button class="primary" onClick=${go}>Продолжить</button>
+            <button onClick=${drop}>Отменить задачу</button>
+            <span class="muted">или напишите, что поменять</span>
           </div>
         </div>`}
         ${runId && !data?.ask && html`<p class="muted assistant-thinking">${thinkingText()}</p>`}

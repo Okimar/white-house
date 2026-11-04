@@ -131,11 +131,11 @@ class ChatRepo:
         return [_message(row) for row in rows]
 
     def search_messages(self, chat_id: str, query: str, *, limit: int = 100) -> list[dict[str, Any]]:
-        """Case-insensitive literal search across stored message text."""
+        """Case-insensitive literal search across stored message text; service messages stay out."""
         self.get_chat(chat_id)
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         rows = self.db.fetchall(
-            _MESSAGE_SELECT + " WHERE m.chat_id = ? AND lower(content) LIKE lower(?) ESCAPE '\\' "
+            _MESSAGE_SELECT + " WHERE m.chat_id = ? AND m.hidden = 0 AND lower(content) LIKE lower(?) ESCAPE '\\' "
             "ORDER BY m.depth, m.created_at LIMIT ?",
             (chat_id, f"%{escaped}%", limit),
         )

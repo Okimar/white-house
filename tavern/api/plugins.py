@@ -38,8 +38,10 @@ async def get_plugin(request: Request) -> JSONResponse:
 
 async def enable(request: Request) -> JSONResponse:
     body = await json_body(request)
-    return JSONResponse(ctx_of(request).plugins.enable(
-        request.path_params["id"], approve=field(body, "approve", bool, default=False)))
+    ctx = ctx_of(request)
+    plugin = ctx.plugins.enable(request.path_params["id"], approve=field(body, "approve", bool, default=False))
+    ctx.backups.refresh_warnings()  # "changed without approval" may be settled now
+    return JSONResponse(plugin)
 
 
 async def disable(request: Request) -> JSONResponse:

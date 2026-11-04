@@ -191,12 +191,10 @@ def _announce(server, url: str, ctx, started: float, open_browser: bool) -> None
     if ctx.sandbox:
         log.warning("SANDBOX MODE: changes go to %s and are discarded on exit", ctx.paths.root)
     if ctx.config.remote_enabled:
-        log.warning(
-            "Remote access is ON. Open %slogin?token=%s on the other device. "
-            "Rotate with `python -m tavern token --rotate`.",
-            url,
-            ctx.secrets.access_token(),
-        )
+        # The address with the token goes to the screen only: the log file keeps no secrets.
+        log.warning("Remote access is ON. The address for other devices is shown on the screen. "
+                    "Rotate the token with `python -m tavern token --rotate`.")
+        print(f"Open {url}login?token={ctx.secrets.access_token()} on the other device.", file=sys.stderr, flush=True)
     if open_browser:
         open_url(url)
 

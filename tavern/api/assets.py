@@ -13,6 +13,7 @@ from starlette.routing import Route
 
 from tavern.api.util import BadRequest, ctx_of, field, json_body, read_body
 from tavern.errors import NotFound
+from tavern.services import spending
 from tavern.storage.assets import MAX_IMAGE_BYTES
 
 SIZE_RE = re.compile(r"^\d{2,4}x\d{2,4}$")
@@ -53,6 +54,7 @@ async def generate_asset(request: Request) -> JSONResponse:
     provider = ctx.providers.create(connection)
     try:
         blob = await provider.generate_image(prompt, model=connection.get("model", ""), size=size)
+        spending.record_call(ctx, connection, "picture", model=connection.get("model", ""))
     finally:
         await provider.aclose()
     name = field(body, "name", str, default="") or prompt[:40]

@@ -181,6 +181,22 @@ export function useChat(chatId, onError) {
     // Something else added messages (a plugin's command): show the newest page.
     reload: () => guard(reload()),
     selectBranch: (messageId) => guard(api.post(`/chats/${chatId}/branch`, { leaf_id: messageId }).then(reload)),
+    // A new branch from this message: the view ends here, what comes next starts beside the old one.
+    branchFrom: (messageId) => guard(api.post(`/chats/${chatId}/branch`, { leaf_id: messageId, exact: true }).then(reload)),
+    // Make a found message part of the view: its branch if another one is open, older pages if not loaded.
+    reveal: (message) => guard((async () => {
+      let oldest = stateRef.current.messages[0]?.depth;
+      if (!message.on_path) {
+        await api.post(`/chats/${chatId}/branch`, { leaf_id: message.id });
+        const d = await api.get(`/chats/${chatId}?limit=${PAGE}`);
+        setState((s) => ({ ...s, chat: d.chat, messages: d.messages, hasMore: d.has_more }));
+        oldest = d.messages[0]?.depth;
+      }
+      if (oldest !== undefined && message.depth < oldest) {
+        const page = await api.get(`/chats/${chatId}/messages?limit=${oldest - message.depth + 5}&before_depth=${oldest}`);
+        setState((s) => ({ ...s, hasMore: page.has_more, messages: [...page.messages, ...s.messages] }));
+      }
+    })()),
     remove: (id) => guard(api.del(`/messages/${id}`).then(reload)),
   };
 }

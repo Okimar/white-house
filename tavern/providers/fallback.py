@@ -89,7 +89,7 @@ class FallbackProvider(Provider):
         size = 0
         passing = False
         async for event in provider.stream(request):
-            if passing:
+            if passing or event.kind == "reasoning":  # only the reply's words are judged: thinking goes live
                 yield event
                 continue
             if event.kind == "done":
@@ -123,7 +123,7 @@ class FallbackProvider(Provider):
             started = False
             try:
                 async for event in self._attempt(provider, req):
-                    started = True
+                    started = started or event.kind != "reasoning"  # no reply yet: another step may still write it
                     yield event
                 self.used = label
                 return

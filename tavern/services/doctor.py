@@ -218,6 +218,7 @@ def fix(ctx: AppContext, ids: list[str]) -> dict[str, Any]:
     found = {f["id"]: f for f in full(ctx) if f["fix"]}
     chosen = [i for i in ids if i in found]
     if not chosen:
+        ctx.backups.refresh_warnings()
         return {"fixed": [], "findings": full(ctx), "later": []}
     try:
         ctx.backups.create("risky", "doctor-fix", force=True)
@@ -247,5 +248,6 @@ def fix(ctx: AppContext, ids: list[str]) -> dict[str, Any]:
             continue  # the copy taken above is the repair
         fixed.append(finding_id)
         log.info("Doctor fixed %s", finding_id)
+    ctx.backups.refresh_warnings()
     ctx.notices.emit("backups")
     return {"fixed": fixed, "findings": full(ctx), "later": later}

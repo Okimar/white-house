@@ -75,6 +75,28 @@ def add_member_now(ctx: AppContext, chat_id: str, character_id: str, **options: 
     return member
 
 
+def restore_members(ctx: AppContext, chat_id: str, rows: list[dict[str, Any]], main: str | None) -> None:
+    """The cast of an imported chat: the file's members this install has. A file without any of
+    them (older format, other install) gets what a new chat gets: `main` and the default "me"."""
+    for row in rows:
+        options = {k: row[k] for k in ("depth", "importance", "is_me", "model_may_write", "talkativeness",
+                                       "muted", "blurb") if k in row}
+        try:
+            add_member_now(ctx, chat_id, row["character_id"], **options)
+        except (NotFound, AppError):  # that character is not here, or a field this version cannot read
+            continue
+    current = ctx.members.list(chat_id)
+    if not any(not m["is_me"] for m in current) and main:
+        add_member_now(ctx, chat_id, main)
+    if not rows:
+        default_me = ctx.settings.get("default_me")
+        if default_me and default_me != main:
+            try:
+                add_member_now(ctx, chat_id, default_me, is_me=True)
+            except NotFound:
+                pass  # the default character was deleted: the chat simply has no "me"
+
+
 async def add_member(ctx: AppContext, chat_id: str, character_id: str, **options: Any) -> list[dict[str, Any]]:
     add_member_now(ctx, chat_id, character_id, **options)
     return await _changed(ctx, chat_id)

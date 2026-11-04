@@ -23,7 +23,7 @@ from dataclasses import replace
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
-from tavern.core import structured
+from tavern.core import structured, thinking
 from tavern.core.budget import RunBudget
 from tavern.providers.base import (
     ChatMessage,
@@ -91,6 +91,7 @@ class LLMClient:
 
     def _request(self, messages: list[ChatMessage], opts: dict[str, Any]) -> GenerationRequest:
         merged = {**self.defaults, **opts}
+        merged.pop("split_thinking", None)  # ours, never sent to the service
         return GenerationRequest(
             messages=messages,
             model=merged.pop("model", self.model),
@@ -119,7 +120,9 @@ class LLMClient:
             self._trace(kind, **data)
 
     async def stream(self, messages: list[ChatMessage], **opts: Any) -> AsyncIterator[StreamEvent]:
+        """`split_thinking=True` (chat replies): `<thinking>…</thinking>` in the text comes out as reasoning."""
         await self._begin()
+        splitter = thinking.ThinkSplitter() if opts.get("split_thinking") else None
         request = self._request(messages, opts)
         parts: list[str] = []
         done = False
@@ -127,10 +130,20 @@ class LLMClient:
             async for event in self.provider.stream(request):
                 if event.kind == "text":
                     parts.append(event.text)
-                    yield event
+                    if splitter is None:
+                        yield event
+                    else:
+                        for kind, piece in splitter.feed(event.text):
+                            yield StreamEvent(kind, text=piece)
                 elif event.kind == "reasoning":
                     yield event
                 elif event.kind == "done":
+                    if splitter is not None:
+                        for kind, piece in splitter.finish():
+                            yield StreamEvent(kind, text=piece)
+                        if splitter.unclosed and not splitter.shown:
+                            # The model never closed its thinking: better a raw reply than an empty one.
+                            yield StreamEvent("text", text=splitter.unclosed.strip())
                     done = True
                     usage = self._charge(event.usage or Usage(), messages, "".join(parts), request.model)
                     yield StreamEvent("done", usage=usage, finish_reason=event.finish_reason)

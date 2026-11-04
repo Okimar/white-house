@@ -26,6 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from tavern.core import thinking
 from tavern.core.prompt import DEFAULT_CHAR_NAME, START_TURN, estimate_tokens, substitute
 from tavern.providers.base import ChatMessage
 
@@ -270,6 +271,8 @@ def assemble(data: PromptInput) -> Prompt:
             place(Entry(role, sub(text), source, block["name"], kind), block)
         elif kind == "text":
             place(Entry(role, sub(block["text"]), preset_source(block), block["name"], kind), block)
+        elif kind == "thinking" and not data.impersonate and block["text"].strip():
+            place(Entry(role, sub(thinking.frame(block["text"])), preset_source(block), block["name"], kind), block)
         elif kind == "persona" and me is not None:
             text = card_text(me.card, preset["prompts"])
             if text:
@@ -325,12 +328,20 @@ def assemble(data: PromptInput) -> Prompt:
     if options["mode"] == "last":
         history = history[-options["count"]:]
     saved_sources: dict[str, set[str]] = {}  # note id -> its attached copies in the history
+    # The last N replies go with their thinking, each without the lines an earlier one already said.
+    thought_rows = [m for m in history if m["role"] == "assistant"
+                    and ((m.get("swipe_meta") or {}).get("reasoning") or "").strip()]
+    thought_rows = thought_rows[-options["thoughts"]:] if options["thoughts"] else []
+    past_thoughts = dict(zip((m["id"] for m in thought_rows),
+                             thinking.compact([m["swipe_meta"]["reasoning"] for m in thought_rows])))
 
     def message_entry(m: dict[str, Any]) -> Entry:
         text = m["content"]
         together = (m.get("extra") or {}).get("together")  # a combined round names everyone inside
         if data.several and m["role"] == "assistant" and m.get("name") and m["name"] != char and not together:
             text = f"{m['name']}: {text}"  # another character's line, so the model does not take it as its own
+        if past_thoughts.get(m["id"]):
+            text = thinking.wrap(past_thoughts[m["id"]], text)
         entry = Entry(m["role"], sub(text), f"message:{m['id']}",
                       f"№{m['depth'] + 1} {m.get('name') or m['role']}", "message")
         if data.load_image is not None:

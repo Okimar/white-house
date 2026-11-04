@@ -259,6 +259,15 @@ def _author(
         return None, ""
 
 
+def via_line(label: str, fallback: str, main: str) -> str:
+    """The «через …» line of a version. `label`: which parallel request it is ("" = no parallel ones);
+    `fallback`: the step that answered for the main connection, if one did: it says nothing about
+    a version written by another request."""
+    if not label:
+        return fallback
+    return f"{label} ↪ {fallback}" if fallback and label.startswith(main) else label
+
+
 def start_impersonate(ctx: AppContext, chat_id: str) -> Run:
     """Let the model write the user's next turn (kept for API clients; same as continue as user)."""
     return start_continue(ctx, chat_id, role="user")
@@ -542,10 +551,9 @@ def _writer(
                 extra_meta: dict[str, Any] = dict(job.meta)  # a plugin writer's own data first: core keys win
                 if job.reasoning:
                     extra_meta["reasoning"] = "".join(job.reasoning)
-                if getattr(provider, "used", ""):
-                    extra_meta["via"] = provider.used  # a fallback step answered instead
-                if via_label:
-                    extra_meta["via"] = via_label  # parallel requests: which one this version is
+                via = via_line(via_label, getattr(provider, "used", ""), _label(connection))
+                if via:
+                    extra_meta["via"] = via
                 spent = tallies.get(via_label, tally)
                 if spent.requests:
                     extra_meta["usage"] = spent.as_meta()
@@ -610,6 +618,7 @@ def _writer(
                                 history=history, user_name=me, llm=llm, run=run,
                                 max_context_tokens=max_context, instruction=instruction,
                                 prompt_input=prompt_input, message_id=reply["id"])
+            job.params["split_thinking"] = True  # <thinking> written in the reply goes to «Размышление»
             job.on_reasoning = lambda text: run.emit("reasoning", id=reply["id"], text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
             if warning:
@@ -857,6 +866,7 @@ async def _narrate(
                                          purpose="narrator", tally=tally))
     run.emit("start", run_id=run.id, message=message, user_message=None)
     parts: list[str] = []
+    thinking: list[str] = []
 
     def save() -> bool:
         text = "".join(parts)
@@ -864,8 +874,11 @@ async def _narrate(
             ctx.chats.delete_message(message["id"])
             return False
         ctx.chats.set_content(message["id"], text)
-        if tally.requests:
-            ctx.chats.update_swipe_meta(message["id"], 0, {"usage": tally.as_meta()})
+        meta: dict[str, Any] = {"usage": tally.as_meta()} if tally.requests else {}
+        if thinking:
+            meta["reasoning"] = "".join(thinking)
+        if meta:
+            ctx.chats.update_swipe_meta(message["id"], 0, meta)
         try:
             entries = [{"role": m.role, "text": m.content, "source": "prompt:narrator", "label": narrator["name"],
                         "kind": "prompt", "msg": i} for i, m in enumerate(prompt)]
@@ -878,10 +891,13 @@ async def _narrate(
         return True
 
     try:
-        async for event in llm.stream(prompt):
+        async for event in llm.stream(prompt, split_thinking=True):
             if event.kind == "text":
                 parts.append(event.text)
                 run.emit("delta", id=message["id"], text=event.text)
+            elif event.kind == "reasoning":
+                thinking.append(event.text)
+                run.emit("reasoning", id=message["id"], text=event.text)
     except asyncio.CancelledError:
         save()
         raise

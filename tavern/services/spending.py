@@ -197,6 +197,16 @@ def meter(
     return record
 
 
+def record_call(
+    ctx: AppContext, connection: dict[str, Any], purpose: str, *, model: str = "", tokens: int = 0,
+    usage: Usage | None = None,
+) -> None:
+    """A paid request that does not go through an LLMClient: vectors, a picture, a trial request.
+    `tokens`: a rough guess when the service reports nothing (a picture has none: counted, price unknown)."""
+    spent = usage if usage is not None and usage.total else Usage(prompt_tokens=tokens)
+    meter(ctx, connection, purpose=purpose)(model, spent, not (usage and usage.total), None)
+
+
 # Limits and summaries
 
 

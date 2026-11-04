@@ -287,8 +287,10 @@ async def select_branch(request: Request) -> JSONResponse:
     message = ctx.chats.get_message(leaf_id)
     if message["chat_id"] != chat_id:
         raise BadRequest("Branch leaf belongs to another chat", code="wrong_chat")
-    # Selecting an alternative shows its whole continuation, not just the message itself.
-    ctx.chats.set_leaf(chat_id, ctx.chats.newest_leaf(leaf_id))
+    # Selecting an alternative shows its whole continuation, not just the message itself. `exact`
+    # stops at that message: the next one starts a new branch there, the old one stays under ⑂.
+    exact = field(body, "exact", bool, default=False)
+    ctx.chats.set_leaf(chat_id, leaf_id if exact else ctx.chats.newest_leaf(leaf_id))
     return JSONResponse({"chat": ctx.chats.get_chat(chat_id)})
 
 
@@ -299,7 +301,9 @@ async def search_chat(request: Request) -> JSONResponse:
     query = request.query_params.get("q", "").strip()
     if not query:
         raise BadRequest("Search query must not be empty", code="empty_query")
-    return JSONResponse({"messages": ctx.chats.search_messages(chat_id, query)})
+    path = {message["id"] for message in ctx.chats.active_path(chat_id)}
+    found = ctx.chats.search_messages(chat_id, query)
+    return JSONResponse({"messages": [{**message, "on_path": message["id"] in path} for message in found]})
 
 
 async def list_swipes(request: Request) -> JSONResponse:

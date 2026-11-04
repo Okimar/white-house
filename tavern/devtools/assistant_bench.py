@@ -92,8 +92,9 @@ async def play(ctx: AppContext, scenario: dict[str, Any], chat_id: str | None = 
 
     for turn in scenario["turns"]:
         await step(f"«{turn['text'][:40]}»", text=turn["text"])
-        if ctx.assistant_repo.task(conv).get("phase") == "questions":
-            await step("ответы", answers=turn.get("answers", {}))
+        for _ in range(2):  # some skills ask a second round before the plan
+            if ctx.assistant_repo.task(conv).get("phase") == "questions":
+                await step("ответы", answers=turn.get("answers", {}))
         if ctx.assistant_repo.task(conv).get("phase") == "plan" and turn.get("go", True):
             await step("давай", go=True)
     return {"conversation": conv, "timings": timings, "asks": asks, "journal_from": journal_from,

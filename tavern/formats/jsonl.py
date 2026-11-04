@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 _FORMAT = "tavern_chat_v1"
-RECORD_TYPES = {"header", "chat", "message", "swipes", "chat_note", "message_note"}
+RECORD_TYPES = {"header", "chat", "message", "swipes", "swipe_meta", "member", "chat_note", "message_note"}
 
 
 def _line(kind: str, value: Any) -> str:
@@ -21,15 +21,21 @@ def export_chat_jsonl(
     *,
     chat_notes: Iterable[dict[str, Any]] = (),
     message_notes: Iterable[dict[str, Any]] = (),
+    swipe_metas: Iterable[list[dict[str, Any]]] = (),
+    members: Iterable[dict[str, Any]] = (),
 ) -> str:
     """Serialize one chat as a self-contained, line-oriented document.
 
-    `chat_notes`: the chat's author's notes; `message_notes`: notes attached to its messages.
+    `chat_notes`: the chat's author's notes; `message_notes`: notes attached to its messages;
+    `swipe_metas`: per message, what each version carried (thinking, pictures, spending);
+    `members`: who takes part. Files written before the last two are still read.
     """
     rows = [_line("header", {"format": _FORMAT, "version": 1})]
     rows.append(_line("chat", chat))
+    rows.extend(_line("member", member) for member in members)
     rows.extend(_line("message", message) for message in messages)
     rows.extend(_line("swipes", values) for values in swipes)
+    rows.extend(_line("swipe_meta", values) for values in swipe_metas)
     rows.extend(_line("chat_note", note) for note in chat_notes)
     rows.extend(_line("message_note", note) for note in message_notes)
     return "\n".join(rows) + "\n"
@@ -41,6 +47,8 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
     chat = None
     messages: list[dict[str, Any]] = []
     swipes: list[list[str]] = []
+    swipe_metas: list[list[dict[str, Any]]] = []
+    members: list[dict[str, Any]] = []
     chat_notes: list[dict[str, Any]] = []
     message_notes: list[dict[str, Any]] = []
     header = None
@@ -83,6 +91,14 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
                     or not isinstance(value.get("text"), str)):
                 raise ValueError("Invalid JSONL message note")
             message_notes.append(value)
+        elif kind == "member":
+            if not isinstance(value, dict) or not isinstance(value.get("character_id"), str):
+                raise ValueError("Invalid JSONL member")
+            members.append(value)
+        elif kind == "swipe_meta":
+            if not isinstance(value, list) or not all(isinstance(meta, dict) for meta in value):
+                raise ValueError("Invalid JSONL swipe meta")
+            swipe_metas.append(value)
         else:
             if not isinstance(value, list) or not all(isinstance(text, str) for text in value):
                 raise ValueError("Invalid JSONL swipes record")
@@ -94,5 +110,5 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
         raise ValueError("JSONL messages need unique ids")
     if any(message.get("parent_id") not in {None, *ids} for message in messages):
         raise ValueError("JSONL message parent is missing")
-    return {"chat": chat, "messages": messages, "swipes": swipes, "chat_notes": chat_notes,
-            "message_notes": message_notes}
+    return {"chat": chat, "messages": messages, "swipes": swipes, "swipe_metas": swipe_metas, "members": members,
+            "chat_notes": chat_notes, "message_notes": message_notes}

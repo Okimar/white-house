@@ -29,7 +29,7 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/core/chat.js` | `useChat(chatId, onError)`: messages, paging, send(text, replyRole)/continue(role)/regenerate/stop, edit/swipe/remove, branches/selectBranch, search, setRoles (ids / numbers / all) |
 | `web/core/theme.js` | `applyTheme` (stylesheet, base, effects script with error containment), `emit` events for theme scripts, `SAFE_MODE` (`/?safe`) |
 | `web/components/roles.js` | the three roles (user/assistant/system) with icon and label, shared by Composer and Message |
-| `web/components/VirtualList.js` | windowed list with variable heights, stick-to-bottom, scroll anchoring |
+| `web/components/VirtualList.js` | windowed list with variable heights, stick-to-bottom, scroll anchoring; `jumpTo={id}` holds that item at the top while the heights above it are measured (a search find, after `chat.reveal(message)` loaded its branch and pages) |
 | `web/components/Message.js`, `Composer.js`, `Sidebar.js`, `Settings.js` | views; Settings has tabs. Composer: 📎 / paste adds library pictures to the message (`send(text, role, images)`); Message shows `swipe_meta.reasoning` folded (💭) and `swipe_meta.images` |
 | `web/components/Profiles.js` | profiles block and "Несколько запросов сразу" (Settings → Подключения); `PickVariants` opens when a run ends with `done.pick` (state `chat.pick`, `GET /messages/{id}/swipes`); `variants_failed` events become an error toast; `ProfileSwitch` in the top bar (remounted when Settings closes), `FallbackSteps` in the connection editor; Message shows `swipe_meta.via` |
 | `web/components/Skills.js` | Settings tab «Инструкции»: skills grouped built-in / own / plugins / programmer, switch each, built-in ones read-only with «Сделать копию» (a copy of a built-in replaces it for the assistant), own ones edited (name, title, when to use, audience, English text with ## Plan / ## Write / ## Check). The assistant's «📖» line opens it on that skill through localStorage `tavern.skill` and `onOpenSkills` |
@@ -93,7 +93,7 @@ python -m tavern --sandbox --port 8770 --no-browser
 
 Open `http://127.0.0.1:8770/`, add a connection with base URL `http://127.0.0.1:5001/v1`, import
 or create a character, then check at least: send, streaming with Stop, regenerate, swipes, edit,
-delete, continue, branch list (⑂) and switching, search with jump to a result,
+delete, continue, branch list (⑂), switching and «Новая ветка отсюда», search with jump to a result (also one not loaded yet or on another branch), renaming a chat,
 the composer "Ответ от" menu (system: the reply arrives as ⚙; user: the model writes for you), the role icon
 menu on a message, bulk role change (checkboxes, numbers like `1-5, 8`, "Всем"),
 reload during a reply, a long chat (scroll to the top loads older pages without jumping),

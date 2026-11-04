@@ -128,34 +128,47 @@ def _decode_text_chunk(kind: bytes, payload: bytes) -> tuple[str, bytes] | None:
 
 
 def decode_png_card(blob: bytes) -> tuple[str, dict[str, Any]]:
-    """Read a character card from PNG metadata without decoding the image pixels."""
+    """Read a character card from PNG metadata without decoding the image pixels.
+
+    V3 cards keep their data in a ``ccv3`` chunk and usually an older copy in ``chara``: the newer
+    one wins, and a damaged one falls back to the other."""
     if not blob.startswith(PNG_SIGNATURE):
         raise CardError("Character card is not a PNG image")
     pos = len(PNG_SIGNATURE)
-    encoded: bytes | None = None
+    found: dict[str, bytes] = {}
     while pos + 12 <= len(blob):
         length = struct.unpack(">I", blob[pos : pos + 4])[0]
         end = pos + 12 + length
-        if end > len(blob):
-            raise CardError("Truncated PNG chunk")
-        kind = blob[pos + 4 : pos + 8]
-        payload = blob[pos + 8 : pos + 8 + length]
-        checksum = struct.unpack(">I", blob[pos + 8 + length : end])[0]
-        if binascii.crc32(kind + payload) & 0xFFFFFFFF != checksum:
-            raise CardError("Invalid PNG chunk checksum")
-        text = _decode_text_chunk(kind, payload)
-        if text and text[0].lower() == "chara":
-            encoded = text[1]
-            break
+        try:
+            if end > len(blob):
+                raise CardError("Truncated PNG chunk")
+            kind = blob[pos + 4 : pos + 8]
+            payload = blob[pos + 8 : pos + 8 + length]
+            checksum = struct.unpack(">I", blob[pos + 8 + length : end])[0]
+            if binascii.crc32(kind + payload) & 0xFFFFFFFF != checksum:
+                raise CardError("Invalid PNG chunk checksum")
+            text = _decode_text_chunk(kind, payload)
+        except CardError:
+            if found:  # damage further on must not cost a card already read
+                break
+            raise
+        if text and text[0].lower() in ("chara", "ccv3"):
+            found.setdefault(text[0].lower(), text[1])
         pos = end
-    if encoded is None:
+    if not found:
         raise CardError("PNG has no chara card metadata")
-    try:
-        decoded = base64.b64decode(encoded, validate=True)
-        obj = json.loads(decoded.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error) as exc:
-        raise CardError("PNG chara metadata is not valid base64 JSON") from exc
-    return parse_card(obj)
+    failure: Exception | None = None
+    for key in ("ccv3", "chara"):
+        if key not in found:
+            continue
+        try:
+            decoded = base64.b64decode(found[key], validate=True)
+            return parse_card(json.loads(decoded.decode("utf-8")))
+        except (ValueError, UnicodeDecodeError, binascii.Error, CardError) as exc:
+            failure = exc
+    raise CardError("PNG chara metadata is not valid base64 JSON") from failure
+
+
 def parse_card(obj: Any) -> tuple[str, dict[str, Any]]:
     """Return (spec, data). `data` always has a non-empty name and all text fields as str."""
     if not isinstance(obj, dict):

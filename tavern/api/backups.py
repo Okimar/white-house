@@ -7,12 +7,14 @@ event loop.
 
 from __future__ import annotations
 
+import shutil
+
 import anyio
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body, read_body
+from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body, save_body
 from tavern.services import doctor
 from tavern.services.backups import MAX_UPLOAD_BYTES
 from tavern.services.gdrive import GUIDE, GUIDE_PLACE
@@ -33,7 +35,9 @@ async def create(request: Request) -> JSONResponse:
 
 
 async def save_settings(request: Request) -> JSONResponse:
-    return JSONResponse(ctx_of(request).backups.save_settings(await json_body(request)))
+    saved = ctx_of(request).backups.save_settings(await json_body(request))
+    await anyio.to_thread.run_sync(ctx_of(request).backups.refresh_warnings)  # the folder may be fine now
+    return JSONResponse(saved)
 
 
 async def download(request: Request) -> FileResponse:
@@ -49,10 +53,15 @@ async def delete(request: Request) -> Response:
 
 
 async def upload(request: Request) -> JSONResponse:
-    blob = await read_body(request, MAX_UPLOAD_BYTES)
-    if not blob:
-        raise BadRequest("Пустой файл")
-    made = await anyio.to_thread.run_sync(ctx_of(request).backups.upload, blob)
+    backups = ctx_of(request).backups
+    work = backups.tmp_dir()
+    try:
+        probe = work / "upload.zip"
+        if not await save_body(request, probe, MAX_UPLOAD_BYTES):
+            raise BadRequest("Пустой файл")
+        made = await anyio.to_thread.run_sync(backups.upload_file, probe)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     return JSONResponse(made, status_code=201)
 
 

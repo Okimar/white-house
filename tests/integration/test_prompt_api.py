@@ -114,7 +114,8 @@ async def test_st_preset_import_and_export(client):
 async def test_own_format_keeps_everything_and_st_format_drops_extras(client):
     created = (await client.post("/api/presets", json={"name": "Full", "from": "default"})).json()
     data = created["data"]
-    next(b for b in data["blocks"] if b["kind"] == "history")["history"] = {"mode": "last", "count": 7, "max_tokens": 0}
+    next(b for b in data["blocks"] if b["kind"] == "history")["history"] = {"mode": "last", "count": 7, "max_tokens": 0,
+                                                                          "thoughts": 2}
     data["prompts"]["no_write_for_me"] = "Hands off {{user}}."
     await client.put(f"/api/presets/{created['id']}", json={"name": "Full", "data": data})
 

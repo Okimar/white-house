@@ -39,6 +39,8 @@ ALWAYS_CLOSED = re.compile(r"^/(assistant|events|runs/|plugins/asks)")
 CLOSED_WRITES = (
     (re.compile(r"^/connections/[^/]+/keys"), "API keys are closed to the assistant"),
     (re.compile(r"^/backups/gdrive"), "the Google Drive sign-in and app pass are closed to the assistant"),
+    (re.compile(r"^/backups/[^/]+/restore$"),
+     "restoring a copy replaces all the data: closed to the assistant, the user does it on the «Копии» tab"),
     (re.compile(r"^/plugins(?!/command$|/[^/]+/actions/)"), "installing and switching plugins is closed to the assistant"),
     (re.compile(r"^/themes"), "use the theme tools (make_theme, write_theme_file, set_theme)"),
     (re.compile(r"^/assets"), "pictures are files: the assistant cannot add or delete them"),
@@ -61,7 +63,8 @@ HINTS = {
     "GET /chats/{id}/messages": "?limit=&before_depth= — prefer read_chat",
     "GET /chats/{id}/history": "the chat's message tree (branches)",
     "GET /chats/{id}/search": "?q= — messages containing the words",
-    "POST /chats/{id}/branch": "{leaf_id} — switch to the branch ending at that message",
+    "POST /chats/{id}/branch": "{leaf_id, exact?} — switch to the branch through that message; exact: stop at it, "
+                               "so the next message starts a new branch there (the old one stays)",
     "GET /messages/{id}/branches": "the other continuations after this message",
     "PUT /messages/{id}/swipe": "{index} — show another version of the message",
     "DELETE /messages/{id}": "delete the message AND every message after it",
@@ -163,10 +166,14 @@ def _check(method: str, path: str, body: Any) -> None:
         raise ToolError("Approving theme scripts is the user's own decision")
 
 
-async def _wait_quiet(env: Env) -> None:
+def busy_with_replies(ctx: Any) -> bool:
+    return any(not key.startswith("assistant:") for key in ctx.runs.running())
+
+
+async def wait_quiet(env: Env) -> None:
     """A change waits until no reply is written anywhere: the recorder would catch those rows too."""
     waited = 0.0
-    while [k for k in env.ctx.runs.running() if not k.startswith("assistant:")]:
+    while busy_with_replies(env.ctx):
         if waited >= QUIET_WAIT:
             raise ToolError("A reply is still being written; try again when it is done")
         await asyncio.sleep(0.2)
@@ -204,7 +211,7 @@ async def app_call(env: Env, args: dict[str, Any]) -> Outcome:
     if method == "GET":
         response = await client.request(method, "/api" + path, **kwargs)
         return Outcome({"status": response.status_code, "data": _answer(response)})
-    await _wait_quiet(env)
+    await wait_quiet(env)
     with Recorder(env.ctx.db) as rec:
         response = await client.request(method, "/api" + path, **kwargs)
     result = {"status": response.status_code, "data": _answer(response)}

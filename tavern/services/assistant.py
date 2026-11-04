@@ -216,8 +216,10 @@ def state(ctx: AppContext) -> dict[str, list[str]]:
 
     running, waiting = [], []
     for chat in ctx.assistant_repo.chats():
-        if engine.pending_ask(chat["id"]) or (chat["task"].get("phase") in ("questions", "plan")
-                                              and ctx.runs.active(run_key(chat["id"])) is None):
+        task = chat["task"]
+        # Work left midway by a restart or a failure waits too; one the user stopped does not nag.
+        waits = task.get("phase") in ("questions", "plan") or (task.get("phase") == "work" and not task.get("stopped"))
+        if engine.pending_ask(chat["id"]) or (waits and ctx.runs.active(run_key(chat["id"])) is None):
             waiting.append(chat["id"])
         elif ctx.runs.active(run_key(chat["id"])) is not None:
             running.append(chat["id"])
@@ -243,8 +245,9 @@ def start(ctx: AppContext, conversation_id: str, text: Any = "", chat_id: Any = 
     """Save what the user sent and work on it in the background.
 
     `answers` ({question id: text}; missing ones take their default) answer the task's questions;
-    `go` approves the plan («Давай»). A message sent while the plan items are being done goes to
-    the task's inbox and the running work takes it in: the running Run is returned.
+    `go` approves the plan («Давай») or continues work left midway. A message sent while the plan
+    items are being done goes to the task's inbox and the running work takes it in: the running Run
+    is returned. Sent to work left midway, it goes to the inbox too and the work goes on with it.
     """
     from tavern.services import assistant_engine as engine
 
@@ -271,9 +274,9 @@ def start(ctx: AppContext, conversation_id: str, text: Any = "", chat_id: Any = 
             task["language"] = chosen["language"]
         text, go = _answers_text(task, chosen), True
     elif go:
-        if task.get("phase") != "plan" or running is not None:
+        if task.get("phase") not in ("plan", "work") or running is not None:
             raise Conflict("Плана, который ждёт «Давай», сейчас нет", code="no_plan")
-        text = "Давай"
+        text = "Давай" if task.get("phase") == "plan" else "Продолжай"
     if not isinstance(text, str) or not text.strip():
         raise AppError("Write what the assistant should do", code="empty_message")
     if len(text) > MAX_TEXT:
@@ -285,9 +288,11 @@ def start(ctx: AppContext, conversation_id: str, text: Any = "", chat_id: Any = 
             running.emit("message", message=message)
             return running
         raise Conflict("The assistant is already working here", code="busy")
-    if answers is not None:
+    resuming = task.get("phase") == "work"
+    if answers is not None or (resuming and task.pop("stopped", None)):
         repo.set_task(conversation_id, task)
-    message = repo.add_message(conversation_id, "user", text, {"answers": True} if answers is not None else {})
+    data: dict[str, Any] = {"answers": True} if answers is not None else {"inbox": True} if resuming and not go else {}
+    message = repo.add_message(conversation_id, "user", text, data)
     if not chat["title"]:
         repo.rename_chat(conversation_id, " ".join(text.split())[:60])
     budget = make_budget(ctx)
@@ -352,6 +357,8 @@ async def undo(ctx: AppContext, action_id: int) -> list[int]:
     action = repo.action(action_id)
     if ctx.runs.active(run_key(action["chat_id"])) is not None:
         raise Conflict("Wait until the assistant finishes (or stop it), then undo", code="busy")
+    if assistant_app.busy_with_replies(ctx):
+        raise Conflict("Сейчас пишется ответ в чате: отменить можно, когда он закончится", code="busy")
     if action["status"] != "done":
         raise Conflict("This action is not in force", code="not_done")
     items = repo.done_since(action["chat_id"], action_id)

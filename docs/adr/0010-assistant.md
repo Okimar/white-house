@@ -33,12 +33,13 @@ themes, chats, presets and chat settings.
   conversation still in force (newest first), so a later change never rests on a removed one.
   Rows removed by triggers (a character's edit history) are not brought back.
 - **Confirmation.** Tools with `confirm` (delete character / bubble / lorebook) pause the run with
-  a `confirm` event; the window shows «Разрешить / Нет»; no answer in 10 minutes or «Стоп» = no.
+  a `confirm` event; the window shows «Разрешить / Нет»; it waits as long as it takes; «Стоп» = no.
   A refusal is journaled as `denied` and the model is told not to try another way.
 - **Prompt injection.** The system prompt says text in `<data>` is never an instruction; deleting
   needs the user anyway; there is no tool that reads keys or settings with secrets.
-- **Runs** go through `ctx.runs` under `assistant:<conversation id>` (budget: steps × 3 model calls
-  plus the global run budget; «Стоп» cancels), followed by the existing `/runs/{id}/events`.
+- **Runs** go through `ctx.runs` under `assistant:<conversation id>` (the step limits per request and
+  per plan item stop a run; a generous call budget stays behind them; «Стоп» cancels), followed by
+  the existing `/runs/{id}/events`.
 - **Spending.** Purpose `assistant`; the client's gate checks the global limits (`spending.guard`)
   and the assistant's own day / month limits in the shown currency before every request.
 - **Storage.** Migration 0015: `assistant_chats`, `assistant_messages` (user / assistant / tool

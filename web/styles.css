@@ -99,6 +99,8 @@ h3 { font-size: 1rem; margin: 16px 0 6px; }
 .msg-user { background: var(--msg-user-bg); }
 .msg-system { background: transparent; border: 1px dashed var(--line); }
 .msg-selected { outline: 2px solid var(--accent); }
+.msg-found { outline: 2px solid var(--accent); outline-offset: 2px; }
+.branch-hint { flex-basis: 100%; }
 .msg-num { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
 .msg-avatar { width: var(--avatar-size); height: var(--avatar-size); border-radius: 50%; object-fit: cover; flex: none; }
 .role-wrap { position: relative; }
@@ -206,7 +208,9 @@ button.link { border: 0; background: transparent; color: var(--accent); padding:
 .preset-blocks { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .preset-block { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 6px; }
 .preset-block.off { opacity: .6; }
+.preset-block .tag { margin-left: 6px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); font-size: .85em; }
 .preset-block .row { flex-wrap: nowrap; }
+.preset-block .block-edit .row { flex-wrap: wrap; }
 .preset-block .item { border: 0; background: transparent; }
 .block-edit { padding: 6px 0 2px 28px; }
 .param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
@@ -351,8 +355,13 @@ input.num { width: 4.5em; }
   .chat-actions { padding: 4px 6px; }
   .composer { padding: 6px; gap: 6px; }
   .role-pick .role-label { display: none; }
-  .role-pick { max-width: 64px; }
+  /* The message gets the whole width on its own line; the small controls sit under it. */
+  .composer textarea { order: -1; flex: 1 0 100%; }
+  .composer-images { order: -2; }
+  .composer [data-slot="send-button"], .composer [data-slot="stop-button"] { margin-left: auto; }
   .dialog { padding: 12px; }
+  .dialog .tabs { flex-wrap: nowrap; overflow-x: auto; }
+  .dialog .tabs button { flex: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }

@@ -130,6 +130,9 @@ def normalize_manifest(raw: Any, *, theme_id: str) -> dict[str, Any]:
     }
 
 
+SCRIPT_SUFFIXES = (".js", ".mjs")
+
+
 def _stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
 
@@ -153,6 +156,20 @@ def _theme_files(folder: Path) -> dict[str, Path]:
         except ThemeError:
             continue
     return files
+
+
+def _scripts_sha256(folder: Path, script: str) -> str | None:
+    """What approving a theme's script covers: the script and every other script it could load. With
+    just the one file this is that file's own hash, so earlier approvals stay valid."""
+    main = _sha256(folder / script)
+    others = [(rel, path) for rel, path in _theme_files(folder).items()
+              if path.suffix.lower() in SCRIPT_SUFFIXES and rel != script]
+    if main is None or not others:
+        return main
+    combined = hashlib.sha256(main.encode())
+    for rel, path in others:
+        combined.update(f"\0{rel}\0{_sha256(path)}".encode())
+    return combined.hexdigest()
 
 
 @dataclass
@@ -189,7 +206,7 @@ class ThemeStore:
             "builtin": builtin,
             "has_css": (folder / STYLESHEET).is_file(),
             # The browser runs a script only if the user approved exactly this content.
-            "script_sha256": _sha256(folder / script) if script else None,
+            "script_sha256": _scripts_sha256(folder, script) if script else None,
             "versions": len(self._version_dirs(theme_id)) if not builtin else 0,
         }
 

@@ -20,6 +20,7 @@ from tavern.core import structured
 from tavern.core.llm import extract_json
 from tavern.providers import params as P
 from tavern.providers.base import ChatMessage, GenerationRequest, Provider, ProviderError
+from tavern.services import spending
 
 PROBE_PARALLEL = 3
 # Values sent when trying a setting: harmless, and different from "not sent".
@@ -59,7 +60,7 @@ async def probe(
     (the trial failed for another reason, e.g. the limit ran out). Raises ProviderError when even
     a request with no settings fails: then the connection or model itself is broken."""
     wanted = [n for n in (names or probeable(connection["kind"])) if n in PROBE_VALUES]
-    provider = ctx.providers.create(connection, fallbacks=False)
+    provider = _Metered(ctx.providers.create(connection, fallbacks=False), ctx, connection, model)
     try:
         await _try(provider, model, {})
         results: dict[str, str] = {}
@@ -82,6 +83,21 @@ async def probe(
     finally:
         await provider.aclose()
     return ctx.connections.set_probe(connection["id"], model, results)
+
+
+class _Metered:
+    """The trials are real requests, however small: each one counts as spending."""
+
+    def __init__(self, provider: Provider, ctx: AppContext, connection: dict[str, Any], model: str) -> None:
+        self._provider, self._ctx, self._connection, self._model = provider, ctx, connection, model
+
+    async def generate(self, request: GenerationRequest) -> Any:
+        result = await self._provider.generate(request)
+        spending.record_call(self._ctx, self._connection, "probe", model=self._model, usage=result.usage, tokens=1)
+        return result
+
+    async def aclose(self) -> None:
+        await self._provider.aclose()
 
 
 async def _try_structured(provider: Provider, model: str) -> str:

@@ -9,9 +9,14 @@ const ESTIMATE = 90;
 const OVERSCAN_PX = 600;
 const STICK_PX = 48;
 const LOAD_MORE_PX = 400;
+const JUMP_MS = 800;
 
-export function VirtualList({ items, renderItem, onReachTop, resetKey }) {
+export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo }) {
   const box = useRef(null);
+  const jump = useRef(null); // { id, until }: keep this item at the top while heights above are measured
+  useLayoutEffect(() => {
+    if (jumpTo) jump.current = { id: jumpTo.id, until: Date.now() + JUMP_MS };
+  }, [jumpTo]);
   const heights = useRef(new Map()); // item id -> measured height
   const stuck = useRef(true); // pinned to the bottom
   const anchor = useRef(null); // { id, offset } of the first item before an update
@@ -64,7 +69,12 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey }) {
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    if (stuck.current) {
+    if (jump.current && Date.now() > jump.current.until) jump.current = null;
+    const jumpIndex = jump.current ? items.findIndex((i) => i.id === jump.current.id) : -1;
+    if (jumpIndex >= 0) {
+      stuck.current = false;
+      if (Math.abs(offsets[jumpIndex] - el.scrollTop) > 1) el.scrollTop = offsets[jumpIndex];
+    } else if (stuck.current) {
       el.scrollTop = el.scrollHeight;
     } else if (anchor.current) {
       const idx = items.findIndex((i) => i.id === anchor.current.id);
@@ -77,7 +87,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey }) {
 
   const onScroll = useCallback(() => {
     const el = box.current;
-    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+    if (!jump.current) stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
     // The user moved the view: that is the new reference point, not a layout shift to undo.
     anchor.current = captureAnchor(el.scrollTop);
     setViewport({ top: el.scrollTop, height: el.clientHeight });

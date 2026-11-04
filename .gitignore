@@ -2,6 +2,7 @@
 /data/
 # Owner's own files dropped in for import checks (SillyTavern presets etc.)
 /presets-in/
+/char-create/
 
 # Python
 __pycache__/

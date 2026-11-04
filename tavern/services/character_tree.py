@@ -23,8 +23,10 @@ from typing import Any
 
 from tavern.context import AppContext
 from tavern.core.llm import LLMClient
+from tavern.core.prompt import estimate_tokens
 from tavern.core.retrieval import LOGICS, PATH_SEPARATOR, FoundBlock, cosine, select_blocks, stem
 from tavern.errors import AppError, NotFound
+from tavern.formats.st_lorebook import LOGIC_FROM_ST, LOGIC_TO_ST
 from tavern.services import history, spending
 from tavern.providers.base import ChatMessage, ProviderError
 
@@ -249,8 +251,9 @@ async def update_block(ctx: AppContext, block_id: str, changes: dict[str, Any]) 
     clean = _clean(changes, creating=False)
     if "parent_id" in clean:
         _check_parent(ctx, block["owner_id"], block_id, clean["parent_id"])
-        if clean["parent_id"] is not None:
-            clean["detached"] = False  # joined to a bubble: active again
+        # Joined to a bubble or dropped on the card: active again. Staying free takes saying so.
+        if clean["parent_id"] is not None or not clean.get("detached", False):
+            clean["detached"] = False
     if "layout" in clean:
         clean["layout"] = {**block["layout"], **clean["layout"]}
     before = history.block_before(ctx, block_id)
@@ -548,12 +551,38 @@ async def vectorize(ctx: AppContext, owner_ids: list[str]) -> int:
     try:
         for start in range(0, len(todo), 64):
             batch = todo[start : start + 64]
-            vectors = await provider.embed([t for _, t, _ in batch], model=model)
-            for (block_id, _, digest), vector in zip(batch, vectors):
-                ctx.blocks.save_vector(block_id, model, digest, vector)
+            await _embed_and_save(ctx, provider, connection, batch)
     finally:
         await provider.aclose()
     return len(todo)
+
+
+async def _embed_and_save(ctx: AppContext, provider: Any, connection: dict[str, Any],
+                          batch: list[tuple[str, str, str]]) -> None:
+    model = connection["model"]
+    vectors = await provider.embed([text for _, text, _ in batch], model=model)
+    spending.record_call(ctx, connection, "vectors", model=model, tokens=sum(estimate_tokens(t) for _, t, _ in batch))
+    for (block_id, _, digest), vector in zip(batch, vectors):
+        ctx.blocks.save_vector(block_id, model, digest, vector)
+
+
+async def _refresh_edited(ctx: AppContext, provider: Any, connection: dict[str, Any],
+                          blocks: list[dict[str, Any]], stored: dict[str, Any]) -> dict[str, Any]:
+    """Bubbles that have a vector but were edited since: their vector is made again here, so meaning
+    search never answers for text that is gone. Bubbles nobody vectorized stay that way."""
+    todo: list[tuple[str, str, str]] = []
+    for owner_id in {b["owner_id"] for b in blocks if b["id"] in stored}:
+        everyone = ctx.blocks.list(owner_id)  # the whole tree: a path needs every parent
+        paths = block_paths(everyone, owner_of(ctx, owner_id)["name"])
+        for block in everyone:
+            if block["id"] in stored and block["content"].strip():
+                text = _embed_text(paths[block["id"]], block["content"])
+                digest = _hash(text)
+                if stored[block["id"]][0] != digest:
+                    todo.append((block["id"], text, digest))
+    for start in range(0, len(todo), 64):
+        await _embed_and_save(ctx, provider, connection, todo[start : start + 64])
+    return ctx.blocks.vectors(list(stored), connection["model"]) if todo else stored
 
 
 async def meaning_scores(ctx: AppContext, blocks: list[dict[str, Any]], query: str) -> dict[str, float]:
@@ -566,7 +595,10 @@ async def meaning_scores(ctx: AppContext, blocks: list[dict[str, Any]], query: s
         return {}
     provider = ctx.providers.create(connection)
     try:
+        stored = await _refresh_edited(ctx, provider, connection, blocks, stored)
         [query_vector] = await provider.embed([query[-4000:]], model=connection["model"])
+        spending.record_call(ctx, connection, "vectors", model=connection["model"],
+                             tokens=estimate_tokens(query[-4000:]))
     except ProviderError:
         log.warning("Meaning search skipped: the embedding connection failed", exc_info=True)
         return {}
@@ -632,9 +664,15 @@ def blocks_from_book(book: Any) -> list[dict[str, Any]]:
         if not isinstance(entry, dict):
             continue
         ext = entry.get("extensions") if isinstance(entry.get("extensions"), dict) else {}
-        keys = [k for k in [*(entry.get("keys") or []), *(entry.get("secondary_keys") or [])] if isinstance(k, str)]
+        keys = [k for k in (entry.get("keys") or []) if isinstance(k, str)]
         title = (entry.get("comment") or entry.get("name") or (keys[0] if keys else "") or f"Запись {index + 1}")
         mode = "off" if entry.get("enabled") is False else ("always" if entry.get("constant") else "search")
+        # Second keys narrow an entry ("gate" and "night"), so they stay second keys; without
+        # `selective` SillyTavern ignores them, and so do we (they ride along in st_entry).
+        second = [k.strip() for k in (entry.get("secondary_keys") or []) if isinstance(k, str) and k.strip()]
+        rules: dict[str, Any] = {}
+        if second and entry.get("selective"):
+            rules = {"keys2": second[:MAX_KEYWORDS], "logic": LOGIC_FROM_ST.get(ext.get("selectiveLogic"), "and_any")}
         depth = ext.get("depth") if ext.get("position") == AT_DEPTH and isinstance(ext.get("depth"), int) else None
         sticky = ext.get("sticky") if isinstance(ext.get("sticky"), int) and ext.get("sticky") > 0 else 3
         chance = ext.get("probability")
@@ -649,6 +687,7 @@ def blocks_from_book(book: Any) -> list[dict[str, Any]]:
             "sticky": min(sticky, 1000),
             "chance": chance if use_chance and mode == "search" else 100,
             "position": index,
+            "rules": rules,
             "extra": {"st_entry": entry},
         })
     return result
@@ -682,15 +721,18 @@ def book_from_blocks(blocks: list[dict[str, Any]], owner: str, book_meta: dict[s
         ext["role"] = {v: k for k, v in ST_ROLES.items()}[block["role"]]
         ext["sticky"] = block["sticky"]
         ext["probability"], ext["useProbability"] = block["chance"], block["chance"] < 100
+        second = block.get("rules", {}).get("keys2") or []
+        if second:
+            ext["selectiveLogic"] = LOGIC_TO_ST.get(block["rules"].get("logic", "and_any"), 0)
         parent_path = paths[block["id"]] if block["parent_id"] in by_id else block["title"]
         original.update({
             "id": original.get("id", uid),
             "keys": block["keywords"] or [block["title"]],
-            "secondary_keys": [],
+            "secondary_keys": second,
             "comment": parent_path.split(PATH_SEPARATOR, 1)[-1],
             "content": block["content"],
             "constant": block["mode"] == "always",
-            "selective": False,
+            "selective": bool(second),
             "enabled": block["mode"] != "off" and not is_free(block, by_id),
             "insertion_order": original.get("insertion_order", 100),
             "extensions": ext,

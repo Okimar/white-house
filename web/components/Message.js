@@ -45,8 +45,8 @@ function NoteCard({ note, onHide }) {
 }
 
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
-  streamText, streamThinking, busy, isLast, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
-  onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend }) {
+  streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
+  onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded" }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
@@ -83,7 +83,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   return html`<div class="msg-row" data-slot="message-row">
     ${showHiddenHere && hidden.length > 0 && html`<${NoteColumn} notes=${hidden} side="left" few=${few}
       onHide=${hide} onMore=${more} />`}
-    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (message.exclude_from_prompt ? " msg-excluded" : "")}
+    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (message.exclude_from_prompt ? " msg-excluded" : "")}
       data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}
       data-excluded=${message.exclude_from_prompt ? "true" : "false"}>
       <header data-slot="message-header">
@@ -114,7 +114,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
         ${!busy && !editing && html`
           <button title="Редактировать" onClick=${() => setEditing(message.content)}>✎</button>
           <button title="Удалить" onClick=${() => confirm("Удалить это сообщение и всё после него?") && onRemove(message.id)}>🗑</button>
-          <button title="Показать ветки" onClick=${() => onBranches(message.id)}>⑂</button>
+          <button title="Ветки: посмотреть или начать новую отсюда" onClick=${() => onBranches(message.id)}>⑂</button>
           <button title="Что видела модель перед этим сообщением" onClick=${() => onPrompt(message)}>👁</button>
           <button data-slot="message-exclude" aria-pressed=${message.exclude_from_prompt}
             title=${message.exclude_from_prompt ? "Скрыто от модели. Нажмите, чтобы модель снова его видела"
@@ -136,7 +136,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
             <button class="primary" onClick=${save}>Сохранить</button>
             <button onClick=${() => setEditing(null)}>Отмена</button>
           </div>`
-        : html`${thinking && html`<details class="thinking" data-slot="message-thinking" open=${streaming && !text}>
+        : html`${thinking && thinkingDisplay !== "hidden" && html`<details class="thinking" data-slot="message-thinking"
+            open=${thinkingDisplay === "open" || (streaming && !text)}>
             <summary>💭 Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text">${thinking}</div>
           </details>`}
           ${messageTrees(message).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}

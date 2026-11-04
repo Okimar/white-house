@@ -12,6 +12,7 @@ from starlette.routing import Route
 from tavern.api.util import BadRequest, attachment, copy_before, ctx_of
 from tavern.errors import AppError, NotFound
 from tavern.formats.jsonl import export_chat_jsonl, import_chat_jsonl
+from tavern.services import cast
 from tavern.services import notes as note_service
 from tavern.storage.repos.notes import NOTE_FIELDS
 
@@ -19,9 +20,12 @@ from tavern.storage.repos.notes import NOTE_FIELDS
 def _export_rows(ctx: Any, chat_id: str) -> str:
     chat = ctx.chats.get_chat(chat_id)
     messages = ctx.chats.all_messages(chat_id)
-    swipes = [ctx.chats.get_swipes(message["id"]) for message in messages]
-    return export_chat_jsonl(chat, messages, swipes, chat_notes=ctx.notes.list("chat", chat_id),
-                             message_notes=ctx.notes.attached(chat_id))
+    versions = [ctx.chats.list_swipes(message["id"]) for message in messages]
+    return export_chat_jsonl(chat, messages, [[v["content"] for v in row] for row in versions],
+                             chat_notes=ctx.notes.list("chat", chat_id),
+                             message_notes=ctx.notes.attached(chat_id),
+                             swipe_metas=[[v["meta"] for v in row] for row in versions],
+                             members=ctx.members.list(chat_id))
 
 
 async def export_chat(request: Request) -> PlainTextResponse:
@@ -55,24 +59,32 @@ async def import_chat(request: Request) -> JSONResponse:
         title=str(source.get("title") or "Imported chat"),
         meta=source.get("meta") if isinstance(source.get("meta"), dict) else {},
     )
+    cast.restore_members(ctx, chat["id"], imported["members"], character_id)
     id_map: dict[str, str] = {}
+    known = {character["id"] for character in ctx.characters.list()}
+    # Stable by depth: the same order as the export, so swipe rows still line up with messages.
     messages = sorted(imported["messages"], key=lambda item: item.get("depth", 0))
-    swipe_rows = imported["swipes"]
+    swipe_rows, meta_rows = imported["swipes"], imported["swipe_metas"]
     for index, item in enumerate(messages):
         parent_id = id_map.get(item.get("parent_id"))
+        author = item.get("character_id")
         created = ctx.chats.add_message(
             chat["id"], role=item.get("role", "system"), content=item.get("content", ""),
             parent_id=parent_id, name=item.get("name", ""), hidden=bool(item.get("hidden")),
+            character_id=author if author in known else None,
             exclude_from_prompt=bool(item.get("exclude_from_prompt")), owner=item.get("owner", ""),
             extra=item.get("extra") if isinstance(item.get("extra"), dict) else {},
             set_leaf=False,
         )
         id_map[item["id"]] = created["id"]
         values = swipe_rows[index] if index < len(swipe_rows) else [created["content"]]
+        metas = meta_rows[index] if index < len(meta_rows) else []
         if values:
             ctx.chats.set_content(created["id"], values[0], swipe_idx=0)
-            for text in values[1:]:
-                ctx.chats.add_swipe(created["id"], text)
+            if metas and metas[0]:
+                ctx.chats.update_swipe_meta(created["id"], 0, metas[0])
+            for number, text in enumerate(values[1:], 1):
+                ctx.chats.add_swipe(created["id"], text, metas[number] if number < len(metas) else None)
             active = item.get("active_swipe", 0)
             if isinstance(active, int) and 0 <= active < len(values):
                 ctx.chats.set_active_swipe(created["id"], active)

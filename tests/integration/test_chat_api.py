@@ -95,6 +95,24 @@ async def test_send_streams_and_saves_reply(client, ctx, fake_llm, setup):
     assert sent["messages"][-1] == {"role": "user", "content": "hello"}
 
 
+async def test_thinking_written_in_the_reply_goes_to_its_reasoning(client, ctx, fake_llm, setup):
+    fake_llm.queue("<thinking>Plan: wave back</thinking>\n\nShe waves.")
+    chat_id = setup["chat"]["id"]
+    run_id = await send(client, chat_id)
+    await finish(ctx, run_id)
+    events = await run_events(client, run_id)
+    assert "".join(e["text"] for e in events if e["type"] == "delta") == "She waves."
+    assert "".join(e["text"] for e in events if e["type"] == "reasoning") == "Plan: wave back"
+    reply = (await messages(client, chat_id))[-1]
+    assert reply["content"] == "She waves." and reply["swipe_meta"]["reasoning"] == "Plan: wave back"
+    assert "split_thinking" not in fake_llm.requests[0]
+
+
+async def test_thinking_display_setting_takes_only_known_values(client):
+    assert (await client.put("/api/settings", json={"thinking_display": "open"})).status_code == 200
+    assert (await client.put("/api/settings", json={"thinking_display": "sideways"})).status_code == 400
+
+
 async def test_api_key_is_never_returned(client, setup):
     listing = (await client.get("/api/connections")).json()
     assert listing["connections"][0]["has_key"] is True

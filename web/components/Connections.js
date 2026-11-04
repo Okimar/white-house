@@ -144,6 +144,13 @@ function ConnectionEditor({ conn, catalog, connections, onSaved, onRemoved, onEr
 
   const say = (text, kind = "") => setLog((l) => [...l.slice(-7), { text, kind, at: new Date().toLocaleTimeString() }]);
 
+  // Changed from outside (a profile was applied): show it, unless the user is editing right now.
+  useEffect(() => {
+    if (dirty) return;
+    setHead({ name: conn.name, base_url: conn.base_url, model: conn.model });
+    setParams(conn.params || {});
+  }, [conn.name, conn.base_url, conn.model, JSON.stringify(conn.params || {})]);
+
   useEffect(() => {
     api.get(`/connections/${conn.id}/model-info`).then((d) => {
       setModels(d.models);

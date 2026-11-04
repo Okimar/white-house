@@ -69,6 +69,14 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           <option value="few">Две последние и «ещё N»</option>
           <option value="all">Все подряд</option>
         </select>
+        <h2>Размышления модели</h2>
+        <select value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
+          onChange=${(e) => saveSetting({ thinking_display: e.target.value })}>
+          <option value="folded">Свёрнуты (💭 по нажатию)</option>
+          <option value="open">Развёрнуты</option>
+          <option value="hidden">Скрыты</option>
+        </select>
+        <p class="muted">Слать ли прошлые размышления модели — в пресете, блок «История чата».</p>
         <h2>Удаление</h2>
         <label><input type="checkbox" checked=${Boolean(settings.skip_delete_confirm)}
           onChange=${(e) => saveSetting({ skip_delete_confirm: e.target.checked })} />

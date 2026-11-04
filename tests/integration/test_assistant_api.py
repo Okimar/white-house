@@ -256,7 +256,8 @@ async def test_closed_doors_stay_closed(client, ctx, fake_llm):
     for phrase in ("API keys are closed", "Keys and passwords are closed", "plugins is closed",
                    "Approving theme scripts", "/assistant is closed", "use the theme tools"):
         assert phrase in results, phrase
-    assert state["actions"] == []
+    # Nothing happened, and each refused change is shown (the read of /assistant is the model's business).
+    assert [a["status"] for a in state["actions"]] == ["failed"] * 5
     assert not (await client.get("/api/plugins")).json()["plugins"][0]["enabled"]
     routes = await client.get("/api/assistant")  # still works for the page itself
     assert routes.status_code == 200

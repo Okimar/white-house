@@ -7,7 +7,13 @@ cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (
     echo ==^> Creating virtualenv in .venv
     python -m venv .venv || (echo Python 3.11+ is required: https://www.python.org/downloads/ & exit /b 1)
+)
+
+rem Also after an update: the installed list is remembered and compared with requirements.txt.
+fc /b requirements.txt ".venv\requirements.installed" >nul 2>nul || (
+    echo ==^> Installing dependencies
     ".venv\Scripts\python.exe" -m pip install --disable-pip-version-check -q --only-binary=:all: -r requirements.txt || exit /b 1
+    copy /y requirements.txt ".venv\requirements.installed" >nul
 )
 
 ".venv\Scripts\python.exe" -m tavern %*

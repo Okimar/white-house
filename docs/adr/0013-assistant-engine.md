@@ -64,5 +64,10 @@ progress shown in full or as short lines.
   let cheap models take the simple calls.
 - The engine never trusts the model's form beyond the schema: missing ids, empty plans and unknown
   tools come back as errors or plain failures the user sees.
-- Skills (10б) plug into the same calls: the writer and critic will get the matching skill text and
-  its checklist.
+- Skills (10б) plug into the same calls: the writer and critic get the matching skill text and its
+  checklist.
+- What the app refuses is shown to the user, not only told to the model: a failed change is a journal
+  line (`failed`, no undo). A critic that never answers its checks is an open issue, not a pass.
+- Messages written while the critic reads are folded into the plan too, and what they add gets
+  checked. Work left midway by a restart or a failure waits for «Продолжить»; after the user's own
+  «Стоп» it does not call for attention.

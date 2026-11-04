@@ -144,13 +144,14 @@ SETTING_TYPES = {
     "retrieval": dict,  # finding character blocks: scan_messages, budget_tokens, threshold
     "embedding_connection": str,  # connection used for meaning vectors
     "notes_display": str,  # notes beside a message: "few" (2 + "ещё N", default) or "all"
+    "thinking_display": str,  # a reply's «Размышление»: "folded" (default), "open" or "hidden"
     "skip_delete_confirm": bool,  # delete bubbles without asking "are you sure?"
     "open_new_bubble": bool,  # "+ Пузырь" / "+ Подпузырь" opens the new bubble in the panel; default off
     "character_history": bool,  # keep the history of character changes ("Отменить", versions); default on
     "lorebooks": dict,  # lorebook budget_tokens / budget_percent / recursion (services/lorebooks.py)
 }
 STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
-SETTING_CHOICES = {"notes_display": ("few", "all")}
+SETTING_CHOICES = {"notes_display": ("few", "all"), "thinking_display": ("folded", "open", "hidden")}
 
 
 async def get_settings(request: Request) -> JSONResponse:

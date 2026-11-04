@@ -9,7 +9,14 @@ Tavern: a roleplay chat frontend with SillyTavern's feature set, written from sc
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done; 10а (the assistant's engine for weak models: questions, plan, items with the task pinned, a checklist critic, a model per role, live test stand) and 10б (skills inside the app: «Инструкции» tab, parts per role, checks for the critic) and 10в (layers in bubbles: a found bubble brings only its «Всегда» sub-bubbles; the doctor gives bare «По теме» sub-bubbles keywords by the model) and 10г (the «Лорбуки» skill: core of the world, «Если … →» lines, banned clichés, names; try_phrase tests keywords like a reply) done; 10д (the «Персонажи» skill: the core in the description, bubbles per person/place/item, greetings; a second round of questions for skills with «## More questions») done**.
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done; 10а (the assistant's engine for weak models: questions, plan, items with the task pinned, a checklist critic, a model per role, live test stand) and 10б (skills inside the app: «Инструкции» tab, parts per role, checks for the critic) and 10в (layers in bubbles: a found bubble brings only its «Всегда» sub-bubbles; the doctor gives bare «По теме» sub-bubbles keywords by the model) and 10г (the «Лорбуки» skill: core of the world, «Если … →» lines, banned clichés, names; try_phrase tests keywords like a reply) done; 10д (the «Персонажи» skill: the core in the description, bubbles per person/place/item, greetings; a second round of questions for skills with «## More questions») done; 10е-1 (preset groups «один из», the «Размышление» block, `<thinking>` cut out of replies, show / send / repeats dropped) done**. An inventory of what really works, with what it found and fixed: [docs/STATUS.md](docs/STATUS.md) (2026-11-04).
+
+## How a session starts
+
+1. Read this file, [docs/STATUS.md](docs/STATUS.md) and the section of [docs/ROADMAP.md](docs/ROADMAP.md) for the task.
+2. **Write a plan first** and show it to the owner (Russian). No edits before that.
+3. **Decide about sub-agents** and say it in the plan: what they would do and why, or why not. Read-only sweeps and separate files are fine; shared files stay with one agent.
+4. Only then work. Commit only when the owner asks.
 
 ## Commands
 
@@ -97,7 +104,11 @@ tavern/                 Python package (backend)
                         never, groups with paths, token budget; finer rules (second keywords, whole
                         words, pause, delay, one-per-group, filter), chains, lorebook pools by order
   storage/repos/blocks.py  character_blocks, block_embeddings, chat_block_hits
-  core/presets.py       preset JSON shape and validation (block kinds, model params)
+  core/presets.py       preset JSON shape and validation (block kinds, model params, groups «один из»,
+                        the «Размышление» block, how many past thinkings the history sends)
+  core/thinking.py      `<thinking>`/`<think>` written in a reply: split out while streaming (LLMClient.stream
+                        split_thinking=True, set for chat replies) into the reply's reasoning; old thinking
+                        sent back without repeated lines; the frame for the «Размышление» block
   core/assembly.py      builds the prompt from a preset + members + history, with budget trimming;
                         keeps every part (entry) for the archive
   core/                 events (EventBus), budget (RunBudget), prompt, llm (LLMClient), generation
@@ -147,7 +158,7 @@ tavern/                 Python package (backend)
                         auto by model name, SillyTavern instruct/context files both ways);
                         services/templates.py (own + built-in, resolve), storage/repos/templates.py
   formats/cards.py      character card V1/V2/V3 parsing and PNG metadata import/export
-  formats/jsonl.py      versioned JSONL chat tree and swipe import/export
+  formats/jsonl.py      versioned JSONL chat tree, swipes with what each carried, members (older files still read)
   formats/media.py      allowed file types for themes/pictures, image type sniffing
   formats/st_preset.py  SillyTavern Chat Completion preset <-> Tavern preset (converted once)
   storage/repos/        SQL access per entity (characters, chats/messages/swipes, connections, settings)
@@ -167,7 +178,7 @@ web/                    browser UI: Preact + htm vendored in web/vendor, plain E
                         side panels: components/PluginTree.js)
   styles.css            base look: CSS variables + data-slot places themes restyle; phone/tablet layout
   themes/               built-in themes (default, light, dark, sakura = example with effects)
-tests/unit/             pure logic, no I/O beyond tmp_path
+tests/unit/             pure logic, no I/O beyond tmp_path (test_web_syntax parses every web/ module with Node)
 tests/integration/      HTTP API through httpx.ASGITransport, CLI commands
 tests/smoke/            starts the real server in a subprocess
 docs/                   ROADMAP.md, adr/ (architecture decisions)

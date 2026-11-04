@@ -24,6 +24,8 @@ import { PluginAsks } from "./components/Plugins.js";
 import { Assistant } from "./components/Assistant.js";
 import { BackupWarning } from "./components/Backups.js";
 
+const FOUND_MS = 2500; // how long a found message stays marked
+
 function App() {
   const [characters, setCharacters] = useState([]);
   const [chats, setChats] = useState([]);
@@ -41,6 +43,8 @@ function App() {
   const assistantRef = useRef({ changed() {}, show() {} }); // the event stream outlives renders: it calls the newest
   const [toast, setToast] = useState("");
   const [searchResults, setSearchResults] = useState(null);
+  const [jumpTo, setJumpTo] = useState(null); // { id } of the found message being shown
+  const foundTimer = useRef(null);
   const [branchResults, setBranchResults] = useState(null);
   const [role, setRole] = useState("assistant"); // who the model's next messages are saved as
   const [selecting, setSelecting] = useState(false); // checkbox mode for changing roles in bulk
@@ -330,6 +334,31 @@ function App() {
     await chat.selectBranch(messageId);
   };
 
+  // A found message: bring it into the view and mark it for a moment. Another branch closes the
+  // list (its marks of "this branch" are stale); on the same branch the list stays for the next find.
+  const showFound = async (message) => {
+    if (!message.on_path) setSearchResults(null);
+    await chat.reveal(message);
+    setJumpTo({ id: message.id });
+    clearTimeout(foundTimer.current);
+    foundTimer.current = setTimeout(() => setJumpTo(null), FOUND_MS);
+  };
+
+  const branchFrom = async (messageId) => {
+    setBranchResults(null);
+    await chat.branchFrom(messageId);
+  };
+
+  const renameChat = async (id, title) => {
+    try {
+      await api.put(`/chats/${id}`, { title });
+      await refresh();
+      if (id === chatId) chat.refreshInfo();
+    } catch (e) {
+      onError(e.message);
+    }
+  };
+
   const lastId = chat.messages.length ? chat.messages[chat.messages.length - 1].id : null;
   const avatar = character && character.avatar ? `/api/characters/${character.id}/avatar` : null;
   // Each reply shows the avatar of the character who wrote it (a chat may have many).
@@ -346,12 +375,12 @@ function App() {
   const renderItem = (m) => html`<${Message} message=${m} notes=${notesOf[m.id]} showHidden=${showHidden}
     notesOpen=${notesOpen[m.id]} age=${lastDepth - m.depth}
     onNotesOpen=${(id, open) => setNotesOpen((o) => ({ ...o, [id]: open }))}
-    notesDisplay=${settings.notes_display || "few"}
+    notesDisplay=${settings.notes_display || "few"} thinkingDisplay=${settings.thinking_display || "folded"}
     onOpenNotes=${(message, shownNow) => setNotesFor({ message, shown: shownNow })}
     avatar=${avatarOf(m)} spend=${spend && spend.settings}
     streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
     streamThinking=${chat.streams[m.id] ? chat.streams[m.id].thinking : null}
-    busy=${chat.running} isLast=${m.id === lastId}
+    busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
     onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${chat.regenerate}
     onBranches=${openBranches} onPrompt=${setPromptOf}
@@ -367,7 +396,7 @@ function App() {
         onOpen=${() => setShowSettings("backups")} onClose=${() => setBackupWarningHidden(true)} />`}
       <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} open=${menu}
         onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
-        onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat}
+        onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat} onRenameChat=${renameChat}
         onEditCharacter=${(id) => { setEditingCharacter(id); setMenu(false); }}
         onDeleteCharacter=${deleteCharacter} onSettings=${() => setShowSettings(true)}
         onAssistant=${() => { setShowAssistant(true); setMenu(false); }}
@@ -398,7 +427,7 @@ function App() {
         ${shown
           ? html`
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
-              onReachTop=${chat.loadOlder} resetKey=${chatId} />
+              onReachTop=${chat.loadOlder} resetKey=${chatId} jumpTo=${jumpTo} />
             <div class="chat-actions" data-slot="chat-actions">
               <button disabled=${chat.running} onClick=${() => chat.continue(role)}
                 title="Модель напишет следующее сообщение от выбранной роли без вашей реплики">Продолжить</button>
@@ -427,14 +456,18 @@ function App() {
               </div>`}
               ${searchResults && html`<div class="search-results">
                 <strong>Результаты: ${searchResults.length}</strong>
-                ${searchResults.map((m) => html`<button key=${m.id} disabled=${chat.running}
-                  onClick=${() => selectBranch(m.id)}>${m.content.slice(0, 80)}</button>`)}
+                ${searchResults.map((m) => html`<button key=${m.id} disabled=${chat.running} data-slot="search-result"
+                  title=${m.on_path ? "Показать это сообщение" : "Сообщение в другой ветке: откроется она"}
+                  onClick=${() => showFound(m)}>#${m.depth + 1}${m.on_path ? "" : " ⑂"} ${m.content.slice(0, 80)}</button>`)}
                 <button onClick=${() => setSearchResults(null)}>Закрыть</button>
               </div>`}
               ${branchResults && html`<div class="branch-results">
-                <strong>Ветки: ${branchResults.branches.length}</strong>
+                <strong>Продолжения: ${branchResults.branches.length}</strong>
                 ${branchResults.branches.map((m) => html`<button key=${m.id} disabled=${chat.running}
                   onClick=${() => selectBranch(m.id)}>${m.content.slice(0, 80)}</button>`)}
+                ${branchResults.messageId !== lastId && html`<button class="primary" data-slot="branch-from-here"
+                  disabled=${chat.running} onClick=${() => branchFrom(branchResults.messageId)}>Новая ветка отсюда</button>
+                  <span class="branch-hint muted">Чат продолжится от этого сообщения. Всё, что было после него, останется в старой ветке: вернуться можно здесь же, через ⑂.</span>`}
                 <button onClick=${() => setBranchResults(null)}>Закрыть</button>
               </div>`}
             </div>
