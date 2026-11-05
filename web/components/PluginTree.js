@@ -3,13 +3,14 @@
 //   {title, open, items: [{title, text, state: "wait" | "done" | "error" | "", children: [...]}]}
 import { html } from "../vendor/preact-htm.mjs";
 import { togglePanel } from "../core/plugins.js";
+import { Icon, IconButton } from "./Icon.js";
 
-const MARK = { wait: "⏳", done: "✓", error: "⚠" };
+const MARK = { wait: "loader-circle", done: "check", error: "triangle-alert" };
 
 function Item({ item }) {
   const children = item.children || [];
   return html`<li class="ptree-item" data-state=${item.state || ""}>
-    <div class="ptree-head">${MARK[item.state] && html`<span class="ptree-mark">${MARK[item.state]}</span>`}
+    <div class="ptree-head">${MARK[item.state] && html`<span class="ptree-mark"><${Icon} name=${MARK[item.state]} /></span>`}
       <strong>${item.title}</strong></div>
     ${item.text && html`<div class="ptree-text">${item.text}</div>`}
     ${children.length > 0 && html`<ul class="ptree-list">${children.map((c, i) => html`<${Item} key=${i} item=${c} />`)}</ul>`}
@@ -28,7 +29,7 @@ export function MessageTree({ owner, tree }) {
 // Buttons for the top bar: one per panel that has something to show.
 export function PanelButtons({ panels }) {
   return panels.filter((p) => p.render()).map((p) => html`<button key=${p.key} data-slot="plugin-panel-button"
-    data-plugin=${p.owner} aria-pressed=${p.shown} title=${p.title}
+    data-plugin=${p.owner} aria-pressed=${p.shown} title=${p.title} aria-label=${p.title}
     onClick=${() => togglePanel(p.key, !p.shown)}>${p.icon}</button>`);
 }
 
@@ -37,7 +38,7 @@ export function Panels({ panels }) {
     const tree = p.render();
     return html`<aside key=${p.key} class="plugin-panel" data-slot="plugin-panel" data-plugin=${p.owner}>
       <header><strong>${p.icon} ${(tree && tree.title) || p.title}</strong><span class="spacer"></span>
-        <button title="Закрыть" onClick=${() => togglePanel(p.key, false)}>✕</button></header>
+        <${IconButton} icon="x" label="Закрыть" onClick=${() => togglePanel(p.key, false)} /></header>
       ${tree ? html`<${Tree} tree=${tree} />` : html`<p class="muted">Пока пусто.</p>`}
     </aside>`;
   });

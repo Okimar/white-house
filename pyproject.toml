@@ -1,5 +1,5 @@
 [project]
-name = "tavern"
+name = "white-house"
 version = "0.1.0"
 description = "Fast, lightweight roleplay chat frontend compatible with SillyTavern formats"
 requires-python = ">=3.11"

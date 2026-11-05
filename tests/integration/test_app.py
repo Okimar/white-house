@@ -24,7 +24,7 @@ async def test_unknown_api_route_is_json_404(client):
 async def test_index_is_served(client):
     response = await client.get("/")
     assert response.status_code == 200
-    assert "<title>Tavern</title>" in response.text
+    assert "<title>White House</title>" in response.text
 
 
 def test_open_context_creates_layout(data_paths):

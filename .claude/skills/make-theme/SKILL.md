@@ -50,7 +50,8 @@ per file, 30 MB per theme.
 
 | Variable | Meaning |
 |---|---|
-| `--bg --panel --fg --muted --line --accent --accent-fg --danger` | core colours |
+| `--bg --panel --fg --muted --line --accent --accent-fg --danger --danger-fg --success --warning` | core colours (`--raised` and `--text2` are mixed from them by themselves) |
+| `--font-reading --text-reading --font-mono --text-xs --text-sm --text-md --text-lg` | the text of messages, the mono face, the type scale |
 | `--user --bot` | message colours (fallbacks for the two below) |
 | `--app-bg --sidebar-bg --topbar-bg --composer-bg --dialog-bg --overlay-bg` | surfaces, may be gradients or `url(...)` |
 | `--msg-user-bg --msg-bot-bg --msg-border --msg-shadow` | message bubbles |
@@ -73,6 +74,8 @@ per file, 30 MB per theme.
 | `message` | one message | `data-role` (user/assistant/system), `data-streaming` |
 | `message-header`, `message-avatar`, `message-name`, `message-body` | parts of a message | |
 | `message-thinking`, `message-images` | the model's folded thinking (`details.thinking`), pictures sent with a message | |
+| `message-number`, `message-swipes`, `message-actions`, `message-menu` | the number on the margin, the variant arrows, the buttons on the panel, the "…" list button | |
+| `chats`, `characters`, `phone-nav`, `menu`, `search-results`, `branch-results` | parts of the left panel, a phone's small icons in the top bar, any drop-down list, the search and branch panels | |
 | `chat-actions` | Continue / roles row | |
 | `speakers` | «Ответит:» buttons under the chat, one per character (`.muted-member` when muted) | |
 | `talk-button` | «Пусть поговорят» (characters answer one another) | |

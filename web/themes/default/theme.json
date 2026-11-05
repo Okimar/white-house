@@ -3,7 +3,7 @@
   "format_version": 1,
   "id": "default",
   "name": "Стандартная",
-  "author": "Tavern",
+  "author": "White House",
   "version": "1",
   "description": "Базовый вид: светлый или тёмный по настройке системы.",
   "base": "auto"

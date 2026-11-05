@@ -1,9 +1,11 @@
-// One chat message: number, role, text, swipe arrows, edit, delete and the branch list. Text is
-// rendered as plain text (never as HTML), so a model or a card cannot inject markup.
-// The role icon shows who the model takes the message from; clicking it opens a role menu.
+// One chat message: number, role, text, swipe arrows and its actions. Text is rendered as plain text
+// (never as HTML), so a model or a card cannot inject markup.
+// The role icon shows who the model takes the message from; pressing it opens a role menu.
+// Actions: by default in a "…" list at the side; the setting message_actions = "always" keeps them all on the
+// panel, and message_pinned lists those kept on the panel in any mode (core/messageActions.js).
 // Author's notes kept after the message hang beside it: visible ones on the right (folded once
 // AUTO_FOLD messages came after it), hidden ones on the left only when asked for. With the setting
-// notes_display = "few" a column shows its last FEW notes and an "ещё N" chip; 📝 and the chip
+// notes_display = "few" a column shows its last FEW notes and an "ещё N" chip; the notes button and the chip
 // open the drop-down with every note of the message.
 // With spending shown under messages (`spend` = the spending settings), a small line says what this
 // version cost ("≈" = the service gave no counts, or the reply was stopped).
@@ -12,7 +14,11 @@ import { html, useState } from "../vendor/preact-htm.mjs";
 import { ROLES, roleOf } from "./roles.js";
 import { usageLine } from "../core/spending.js";
 import { messageExtras, messageTrees, usePluginUi } from "../core/plugins.js";
+import { DEFAULT_PINNED, MESSAGE_ACTIONS, splitActions } from "../core/messageActions.js";
 import { MessageTree } from "./PluginTree.js";
+import { Icon, IconButton } from "./Icon.js";
+import { MenuButton, openMenu } from "./Menu.js";
+import { ask } from "./Dialogs.js";
 
 function usageTitle(u) {
   return `Запрос: ${u.prompt_tokens} токенов, ответ: ${u.completion_tokens}` +
@@ -35,42 +41,46 @@ function NoteColumn({ notes, side, few, onHide, onMore }) {
 
 function NoteCard({ note, onHide }) {
   return html`<div class=${"msg-note " + note.kind} data-slot="message-note" data-kind=${note.kind}
-    title=${note.kind === "hidden" ? "Невидимая заметка: модель видит её, в чате она скрыта"
+    title=${note.kind === "hidden" ? "Скрытая заметка: модель видит её, в чате она скрыта"
       : "Видимая заметка: модель видит её после этого сообщения"}>
-    <span class="msg-note-head">${note.kind === "hidden" ? "👻" : "📝"}
+    <span class="msg-note-head"><${Icon} name=${note.kind === "hidden" ? "eye-off" : "notebook-pen"} />
       ${note.title && html`<strong>${note.title}</strong>`}
       <span class="spacer"></span>
-      ${onHide && html`<button title="Скрыть заметки сообщения" onClick=${onHide}>✕</button>`}</span>
+      ${onHide && html`<${IconButton} icon="chevron-down" label="Свернуть заметки сообщения" onClick=${onHide} />`}</span>
     ${note.text}</div>`;
 }
 
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
   streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
-  onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded" }) {
+  onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
+  actionsMode = "menu", pinned = DEFAULT_PINNED }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
-  const [picking, setPicking] = useState(false); // role menu open
+  const [saving, setSaving] = useState(false);
   const streaming = streamText !== null && streamText !== undefined;
   const text = streaming ? streamText : message.content;
   const meta = message.swipe_meta || {};
   const thinking = streaming ? streamThinking : meta.reasoning;
   const role = roleOf(message.role);
   const canRegenerate = isLast && message.role !== "user" && !busy;
-  const fallbackName = { user: "Вы", assistant: "Ассистент", system: "Система" }[message.role];
+  const fallbackName = { user: "Вы", assistant: "Персонаж", system: "Система" }[message.role];
 
+  // The draft stays open until the server has it: a failed save must not lose the text.
   const save = async () => {
-    const draft = editing;
-    setEditing(null);
-    if (draft !== message.content) await onEdit(message.id, draft);
+    if (editing === message.content) { setEditing(null); return; }
+    setSaving(true);
+    const ok = await onEdit(message.id, editing);
+    setSaving(false);
+    if (ok !== false) setEditing(null);
   };
 
-  const pick = async (id) => {
-    setPicking(false);
-    if (id !== message.role) await onRole(id, { ids: [message.id] });
-  };
+  const pickRole = (button) => openMenu(button, ROLES.map((r) => ({
+    icon: r.icon, label: r.label + (r.id === message.role ? " (сейчас)" : ""), disabled: r.id === message.role,
+    onClick: () => onRole(r.id, { ids: [message.id] }),
+  })));
 
-  // notesOpen: true / false once the user pressed 📝 or ✕ here; undefined = automatic.
+  // notesOpen: true / false once the user pressed the notes button or fold here; undefined = automatic.
   const hidden = notes.filter((n) => n.kind === "hidden");
   const visible = notes.filter((n) => n.kind === "visible");
   const showVisible = notesOpen === true || (notesOpen === undefined && age < AUTO_FOLD);
@@ -80,65 +90,89 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   const more = () => onOpenNotes(message, notesOpen === true);
   const few = notesDisplay !== "all";
 
+  // Reading tools (what the model saw, notes) work during a reply; those that change the chat wait for it.
+  const excluded = Boolean(message.exclude_from_prompt);
+  const actions = {
+    edit: { disabled: busy, onClick: () => setEditing(message.content) },
+    regenerate: { onClick: onRegenerate },
+    branches: { disabled: busy, onClick: () => onBranches(message.id) },
+    prompt: { onClick: () => onPrompt(message) },
+    exclude: {
+      disabled: busy, label: excluded ? "Вернуть модели" : "Скрыть от модели", pressed: excluded,
+      onClick: () => onExclude(message.id, !excluded),
+    },
+    notes: { label: notes.length ? `Заметки: ${notes.length}` : "Написать заметку", pressed: anyShown, count: notes.length, onClick: more },
+    delete: {
+      disabled: busy, danger: true,
+      onClick: async () => {
+        if (await ask("Удалить это сообщение и всё после него?", { ok: "Удалить", danger: true })) onRemove(message.id);
+      },
+    },
+  };
+  const available = MESSAGE_ACTIONS.map((a) => a.id).filter((id) => id !== "regenerate" || canRegenerate);
+  const status = [excluded && "exclude", notes.length > 0 && "notes"].filter(Boolean);
+  const { bar, menu } = splitActions(available, { mode: actionsMode, pinned, status });
+  const describe = (id) => ({ ...MESSAGE_ACTIONS.find((a) => a.id === id), ...actions[id] });
+  const pluginButtons = streaming ? [] : plugins.messageButtons;
+  const titleOf = (b) => (typeof b.title === "function" ? b.title(message) : b.title);
+  const menuItems = () => [
+    ...menu.map(describe),
+    ...(actionsMode === "always" ? [] : pluginButtons.map((b) => ({
+      icon: b.icon, emoji: true, label: titleOf(b), onClick: () => b.onClick(message),
+    }))),
+  ];
+
   return html`<div class="msg-row" data-slot="message-row">
     ${showHiddenHere && hidden.length > 0 && html`<${NoteColumn} notes=${hidden} side="left" few=${few}
       onHide=${hide} onMore=${more} />`}
-    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (message.exclude_from_prompt ? " msg-excluded" : "")}
+    <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (excluded ? " msg-excluded" : "")}
       data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}
-      data-excluded=${message.exclude_from_prompt ? "true" : "false"}>
+      data-excluded=${excluded ? "true" : "false"}>
       <header data-slot="message-header">
         ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy}
           aria-label=${"Выбрать сообщение " + (message.depth + 1)} onChange=${() => onSelect(message.id)} />`}
+        <span class="msg-num" data-slot="message-number" title="Номер сообщения">${message.depth + 1}</span>
         ${avatar && !avatarFailed && html`<img class="msg-avatar" data-slot="message-avatar" src=${avatar}
           alt="" loading="lazy" onError=${() => setAvatarFailed(true)} />`}
-        <span class="msg-num" title="Номер сообщения">#${message.depth + 1}</span>
-        <span class="role-wrap">
-          <button class="role-icon" disabled=${busy} aria-haspopup="menu" aria-expanded=${picking}
-            title=${"Модель видит это как сообщение от: " + role.label + ". Нажмите, чтобы сменить"}
-            onClick=${() => setPicking(!picking)}>${role.icon}</button>
-          ${picking && html`<span class="role-menu" role="menu">
-            ${ROLES.map((r) => html`<button key=${r.id} role="menuitemradio" aria-checked=${r.id === message.role}
-              onClick=${() => pick(r.id)}>${r.icon} ${r.label}</button>`)}
-          </span>`}
-        </span>
-        <strong data-slot="message-name">${message.name || fallbackName}</strong>
+        <${IconButton} icon=${role.icon} class="role-icon" disabled=${busy} aria-haspopup="menu"
+          label=${"Модель видит это как сообщение от: " + role.label + ". Нажмите, чтобы сменить"}
+          onClick=${(e) => pickRole(e.currentTarget)} />
+        <strong class="msg-name" data-slot="message-name">${message.name || fallbackName}</strong>
         ${message.swipe_count > 1 && html`
-          <span class="swipes">
-            <button title="Предыдущий вариант" disabled=${busy || message.active_swipe === 0}
-              onClick=${() => onSwipe(message.id, message.active_swipe - 1)}>‹</button>
-            ${message.active_swipe + 1} / ${message.swipe_count}
-            <button title="Следующий вариант" disabled=${busy || message.active_swipe >= message.swipe_count - 1}
-              onClick=${() => onSwipe(message.id, message.active_swipe + 1)}>›</button>
+          <span class="swipes" data-slot="message-swipes">
+            <${IconButton} icon="chevron-left" label="Предыдущий вариант" disabled=${busy || message.active_swipe === 0}
+              onClick=${() => onSwipe(message.id, message.active_swipe - 1)} />
+            <span class="swipe-count">${message.active_swipe + 1} / ${message.swipe_count}</span>
+            <${IconButton} icon="chevron-right" label="Следующий вариант" disabled=${busy || message.active_swipe >= message.swipe_count - 1}
+              onClick=${() => onSwipe(message.id, message.active_swipe + 1)} />
           </span>`}
         <span class="spacer"></span>
-        ${!busy && !editing && html`
-          <button title="Редактировать" onClick=${() => setEditing(message.content)}>✎</button>
-          <button title="Удалить" onClick=${() => confirm("Удалить это сообщение и всё после него?") && onRemove(message.id)}>🗑</button>
-          <button title="Ветки: посмотреть или начать новую отсюда" onClick=${() => onBranches(message.id)}>⑂</button>
-          <button title="Что видела модель перед этим сообщением" onClick=${() => onPrompt(message)}>👁</button>
-          <button data-slot="message-exclude" aria-pressed=${message.exclude_from_prompt}
-            title=${message.exclude_from_prompt ? "Скрыто от модели. Нажмите, чтобы модель снова его видела"
-              : "Скрыть от модели: сообщение останется в чате, но модель его не прочтёт"}
-            onClick=${() => onExclude(message.id, !message.exclude_from_prompt)}>🙈</button>
-          <button class=${"notes-toggle" + (notes.length ? " has" : "")} aria-pressed=${anyShown}
-            title=${notes.length ? `Заметки этого сообщения (${notes.length}): посмотреть, изменить, добавить`
-              : "Нет заметки. Нажмите, чтобы написать"}
-            onClick=${more}>📝${notes.length ? html`<small>${notes.length}</small>` : ""}</button>
-          ${!streaming && plugins.messageButtons.map((b, i) => html`<button key=${b.owner + i} data-slot="message-plugin-button"
-            data-plugin=${b.owner} title=${typeof b.title === "function" ? b.title(message) : b.title}
-            onClick=${() => b.onClick(message)}>${b.icon}</button>`)}`}
-        ${canRegenerate && html`<button title="Другой вариант" onClick=${onRegenerate}>↻</button>`}
+        ${editing === null && !streaming && html`<span class="msg-actions" data-slot="message-actions">
+          ${bar.map((id) => {
+            const a = describe(id);
+            return html`<${IconButton} key=${id} icon=${a.icon} label=${a.label} disabled=${a.disabled}
+              class=${id === "notes" ? "notes-toggle" + (notes.length ? " has" : "") : ""}
+              data-slot=${id === "exclude" ? "message-exclude" : null} aria-pressed=${a.pressed}
+              onClick=${a.onClick}>${a.count ? html`<small>${a.count}</small>` : null}<//>`;
+          })}
+          ${actionsMode === "always" && pluginButtons.map((b, i) => html`<button key=${b.owner + i} type="button"
+            class="icon-btn" data-slot="message-plugin-button" data-plugin=${b.owner} title=${titleOf(b)}
+            aria-label=${titleOf(b)} onClick=${() => b.onClick(message)}>${b.icon}</button>`)}
+          ${(menu.length > 0 || (actionsMode !== "always" && pluginButtons.length > 0)) && html`<${MenuButton}
+            label="Действия с сообщением" data-slot="message-menu" items=${menuItems} />`}
+        </span>`}
       </header>
       ${editing !== null
         ? html`
-          <textarea class="edit" value=${editing} rows="6" onInput=${(e) => setEditing(e.target.value)}></textarea>
+          <textarea class="edit" value=${editing} rows="6" aria-label="Текст сообщения"
+            onInput=${(e) => setEditing(e.target.value)}></textarea>
           <div class="row">
-            <button class="primary" onClick=${save}>Сохранить</button>
-            <button onClick=${() => setEditing(null)}>Отмена</button>
+            <button class="primary" disabled=${saving} onClick=${save}>Сохранить</button>
+            <button disabled=${saving} onClick=${() => setEditing(null)}>Отмена</button>
           </div>`
         : html`${thinking && thinkingDisplay !== "hidden" && html`<details class="thinking" data-slot="message-thinking"
             open=${thinkingDisplay === "open" || (streaming && !text)}>
-            <summary>💭 Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text">${thinking}</div>
+            <summary><${Icon} name="brain" /> Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text">${thinking}</div>
           </details>`}
           ${messageTrees(message).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
@@ -146,8 +180,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
               rel="noopener"><img src=${"/assets/" + encodeURIComponent(name)} alt="картинка" loading="lazy" /></a>`)}
           </div>`}
           ${meta.via && !streaming && html`<div class="msg-via muted" data-slot="message-via"
-            title="Основное подключение не ответило, ответил запасной путь">↪ через ${meta.via}</div>`}
-          ${message.exclude_from_prompt && html`<div class="msg-excluded-note muted" data-slot="message-excluded">🙈 скрыто от модели</div>`}
+            title="Основное подключение не ответило, ответил запасной путь"><${Icon} name="corner-down-right" /> через ${String(meta.via).replaceAll("↪", "→")}</div>`}
+          ${excluded && html`<div class="msg-excluded-note muted" data-slot="message-excluded"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
           <div class="body" data-slot="message-body">${text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
           ${!streaming && messageExtras(message).map((line, i) => html`<div key=${line.owner + i} class="msg-plugin"
             data-slot="message-plugin" data-plugin=${line.owner}>${line.text}</div>`)}

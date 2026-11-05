@@ -12,7 +12,8 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
   `web/vendor/preact-htm.mjs`. A new library needs an ADR in `docs/adr/` (size, license, why).
 - Message text is rendered as text (`${text}`), never as HTML. Do not use `dangerouslySetInnerHTML`.
 - The API key never reaches the browser. The UI only sees `has_key`.
-- Must work on a phone: layout breaks at 720px, tap targets >= 32px, no hover-only controls.
+- Must work on a phone: layout breaks at 720px, tap targets >= 32px, no hover-only controls. There the left panel's sections open as a sheet from small icons in the top bar (`data-section`).
+- Spacing on a 4px grid, sizes from `--text-*`, words from `docs/UI_AUDIT.md`: «вы», «Помощник» is the window, the model's role is «Персонаж», «Копия» is only a backup.
 - The look comes from CSS variables in `web/styles.css`; themes override them and style
   `data-slot` places. Give new visible elements a `data-slot` name and use variables, not
   hard-coded colours. Never rename or remove an existing slot or variable without updating
@@ -27,6 +28,12 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/main.js` | app shell: lists, selected chat, dialogs, toast |
 | `web/core/api.js` | `api.get/post/put/del` (throws `ApiError`), `followRun(runId, onEvent)` |
 | `web/core/chat.js` | `useChat(chatId, onError)`: messages, paging, send(text, replyRole)/continue(role)/regenerate/stop, edit/swipe/remove, branches/selectBranch, search, setRoles (ids / numbers / all) |
+| `web/components/Icon.js` | `Icon`, `IconButton` (a label is required): one set of line icons, `web/vendor/lucide-icons.mjs` (ADR 0014). No emoji as icons; plugins' own `icon` text stays |
+| `web/components/Menu.js` | `openMenu(anchor, items)`, `MenuButton`: a drop-down at the end of body, so no list or dialog cuts it off |
+| `web/components/Dialogs.js` | `await ask(text, {ok, danger, hint})`, `await askText(text, {value})`: use these, never `confirm()` / `prompt()`; `DialogHost` is in the shell |
+| `web/components/State.js` | `useLoad`, `Pending` (a failed load shows why and «Повторить», never an endless «Загрузка…»), `EmptyNote` |
+| `web/core/notify.js`, `web/core/keys.js` | `notify(text, "ok"/"info"/"error")`: only errors are red. `useEscape(close)`, `backdrop(close)` for every window: Esc closes the newest, a text selection dragged out of a window does not close it |
+| `web/core/messageActions.js` | a message's buttons: settings `message_actions` ("menu" / "always") and `message_pinned` decide the panel and the "…" list |
 | `web/core/theme.js` | `applyTheme` (stylesheet, base, effects script with error containment), `emit` events for theme scripts, `SAFE_MODE` (`/?safe`) |
 | `web/components/roles.js` | the three roles (user/assistant/system) with icon and label, shared by Composer and Message |
 | `web/components/VirtualList.js` | windowed list with variable heights, stick-to-bottom, scroll anchoring; `jumpTo={id}` holds that item at the top while the heights above it are measured (a search find, after `chat.reveal(message)` loaded its branch and pages) |

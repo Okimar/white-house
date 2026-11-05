@@ -1,11 +1,15 @@
 // "Участники" panel of a chat: who takes part, where each card goes (depth) and who is dropped first
 // when the prompt does not fit (importance), which one is "me", and the chat's preset.
 // Who speaks (any chat may have many characters, that is normal): who answers (order), what the model
-// knows about the others, and per character talkativeness, "молчит", a short description and "ответь ты".
+// knows about the others, and per character talkativeness, "молчит", a short description and «Пусть ответит».
 // Every change goes to the server at once; agents change the same things through the same API.
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { BookPicker } from "./Lorebooks.js";
+import { IconButton } from "./Icon.js";
+import { ask } from "./Dialogs.js";
+import { Pending } from "./State.js";
+import { backdrop, useEscape } from "../core/keys.js";
 
 const DEPTHS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20];
 const IMPORTANCE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -13,7 +17,7 @@ const ORDERS = [
   ["natural", "Сам: кого назвали по имени, иначе по разговорчивости"],
   ["turns", "По очереди, по списку участников"],
   ["model", "Модель решает (ещё один короткий запрос)"],
-  ["manual", "Только вручную: «ответь ты»"],
+  ["manual", "Только вручную, кнопкой «Пусть ответит»"],
   ["all", "Все сразу, не видя ответов друг друга"],
 ];
 const TOGETHER = [
@@ -30,7 +34,8 @@ const OTHERS = [
 
 export function Members({ chat, characters, settings, generators = [], onClose, onChanged, onEditCharacter, onAnswer,
   onError }) {
-  const [members, setMembers] = useState([]);
+  const [members, setMembers] = useState(null); // null until loaded: «пока нет персонажей» must not flash
+  const [loadError, setLoadError] = useState("");
   const [speaking, setSpeaking] = useState({ order: "natural", others: "none", talk_limit: 4, together: "finished",
     narrator: { enabled: false, name: "Рассказчик", connection_id: "", model: "" }, ...(chat.meta.speakers || {}) });
   const [connections, setConnections] = useState([]);
@@ -40,17 +45,26 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
   const [adding, setAdding] = useState("");
   const [blurbs, setBlurbs] = useState({}); // typed, not saved yet: a re-render must not wipe them
 
+  useEscape(onClose);
+  const loadMembers = () => {
+    setLoadError("");
+    api.get(`/chats/${chat.id}/members`).then((d) => setMembers(d.members)).catch((e) => setLoadError(e.message));
+  };
   useEffect(() => {
-    api.get(`/chats/${chat.id}/members`).then((d) => setMembers(d.members)).catch((e) => onError(e.message));
+    loadMembers();
     api.get("/presets").then((d) => setPresets(d.presets)).catch((e) => onError(e.message));
     api.get("/connections").then((d) => setConnections(d.connections)).catch((e) => onError(e.message));
   }, [chat.id]);
 
+  // A failed save puts the controls back to what the server has.
   const apply = (promise) => promise.then((d) => { setMembers(d.members); onChanged(); })
-    .catch((e) => onError(e.message));
+    .catch((e) => { setMembers((list) => list && [...list]); onError(e.message); });
   const change = (m, patch) => apply(api.put(`/chats/${chat.id}/members/${m.character_id}`, patch));
-  const remove = (m) => confirm(`Убрать «${m.name}» из чата? Сам персонаж останется.`)
-    && apply(api.del(`/chats/${chat.id}/members/${m.character_id}`));
+  const remove = async (m) => {
+    if (await ask(`Убрать «${m.name}» из чата? Сам персонаж останется.`, { ok: "Убрать", danger: true })) {
+      apply(api.del(`/chats/${chat.id}/members/${m.character_id}`));
+    }
+  };
   const add = () => {
     if (!adding) return;
     apply(api.post(`/chats/${chat.id}/members`, { character_id: adding }));
@@ -61,20 +75,21 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
   const choosePreset = (id) => api.put(`/chats/${chat.id}/meta`, { preset_id: id })
     .then(onChanged).catch((e) => onError(e.message));
 
-  const outside = characters.filter((c) => !members.some((m) => m.character_id === c.id));
+  const outside = characters.filter((c) => !(members || []).some((m) => m.character_id === c.id));
   const globalPreset = presets.find((p) => p.id === (settings.active_preset || "default"));
 
   return html`
-    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="overlay" ...${backdrop(onClose)}>
       <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Участники чата">
         <div class="side-head"><strong>Участники чата</strong><span class="spacer"></span>
-          <button onClick=${onClose} title="Закрыть">✕</button></div>
-        <p class="muted">Глубина — куда вставить карточку: «в начале» или за сколько сообщений до конца чата
+          <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
+        <p class="hint">Глубина — куда вставить карточку: «в начале» или за сколько сообщений до конца чата
           (ближе к концу — сильнее влияет). Важность — 1 самый важный; при нехватке места первыми
           убираются карточки с большим числом.</p>
+        ${!members && html`<${Pending} error=${loadError} onRetry=${loadMembers} />`}
         <ul class="members">
-          ${members.length === 0 && html`<li class="muted">В чате пока нет персонажей.</li>`}
-          ${members.map((m) => html`
+          ${members && members.length === 0 && html`<li class="muted">В чате пока нет персонажей. Добавьте их ниже.</li>`}
+          ${(members || []).map((m) => html`
             <li key=${m.character_id} class=${"member" + (m.is_me ? " me" : "")} data-slot="member">
               <div class="row">
                 ${m.has_avatar && html`<img class="msg-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
@@ -82,10 +97,10 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                 ${m.is_me && html`<span class="badge">это я</span>`}
                 ${m.character_id === chat.character_id && html`<span class="badge">главный</span>`}
                 <span class="spacer"></span>
-                ${!m.is_me && html`<button title="Ответь ты: следующий ответ напишет этот персонаж"
-                  onClick=${() => onAnswer(m.character_id)}>🗣</button>`}
-                <button title="Карточка персонажа" onClick=${() => onEditCharacter(m.character_id)}>✎</button>
-                <button title="Убрать из чата" onClick=${() => remove(m)}>✕</button>
+                ${!m.is_me && html`<${IconButton} icon="message-circle-reply" label="Пусть ответит"
+                  onClick=${() => onAnswer(m.character_id)} />`}
+                <${IconButton} icon="pencil" label="Карточка персонажа" onClick=${() => onEditCharacter(m.character_id)} />
+                <${IconButton} icon="x" label="Убрать из чата" onClick=${() => remove(m)} />
               </div>
               <div class="row">
                 <label>Глубина
@@ -101,21 +116,22 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                   </select></label>
                 <label><input type="checkbox" checked=${m.is_me}
                   onChange=${(e) => change(m, { is_me: e.target.checked })} /> это я</label>
-                ${m.is_me && html`<label title="Если выключено, модель получит запрет писать за этого персонажа (кроме случая, когда вы сами просите её написать за вас)">
+                ${m.is_me && html`<label>
                   <input type="checkbox" checked=${m.model_may_write}
                     onChange=${(e) => change(m, { model_may_write: e.target.checked })} /> модель может писать за него</label>`}
               </div>
+              ${m.is_me && !m.model_may_write && html`<p class="hint">Модель не будет писать за этого персонажа, пока вы сами не попросите.</p>`}
               ${!m.is_me && html`<div class="row" data-slot="member-speaking">
-                <label title="Насколько охотно вступает в разговор, когда никого не назвали по имени">Разговорчивость
+                <label>Разговорчивость
                   <input type="range" min="0" max="100" step="10" value=${m.talkativeness}
                     onChange=${(e) => change(m, { talkativeness: Number(e.target.value) })} />
                   <span class="muted">${m.talkativeness}%</span></label>
-                <label title="Не отвечает сам и не попадает в промпт, пока не включите обратно">
+                <label>
                   <input type="checkbox" checked=${m.muted} onChange=${(e) => change(m, { muted: e.target.checked })} /> молчит</label>
               </div>
-              <label class="stack" data-slot="member-blurb">Коротко о нём для остальных (одна-две строки)
+              <label class="stack" data-slot="member-blurb">Коротко о нём для остальных
                 <input value=${blurbs[m.character_id] ?? m.blurb} maxLength="500"
-                  placeholder="например: старый кузнец, ворчит"
+                  placeholder="Например: старый кузнец, ворчит"
                   onInput=${(e) => setBlurbs((b) => ({ ...b, [m.character_id]: e.target.value }))}
                   onChange=${(e) => change(m, { blurb: e.target.value }).then(() => setBlurbs((b) => {
                     const { [m.character_id]: _, ...rest } = b;
@@ -125,7 +141,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         </ul>
         <div class="row">
           <select value=${adding} onChange=${(e) => setAdding(e.target.value)} aria-label="Персонаж">
-            <option value="">— выбрать персонажа —</option>
+            <option value="">Выберите персонажа</option>
             ${outside.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
           </select>
           <button class="primary" disabled=${!adding} onClick=${add}>Добавить</button>
@@ -150,9 +166,10 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
               <select value=${speaking.together} onChange=${(e) => changeSpeaking({ together: e.target.value })}>
                 ${TOGETHER.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
               </select></label>
-            <label title="После хода всех сразу ещё один запрос сводит их действия в одну сцену">
+            <label>
               <input type="checkbox" checked=${speaking.narrator.enabled}
                 onChange=${(e) => changeSpeaking({ narrator: { enabled: e.target.checked } })} /> Рассказчик сводит ход в одну сцену</label>
+            <p class="hint">После хода всех сразу ещё один запрос сводит их действия в одну сцену.</p>
             ${speaking.narrator.enabled && html`<div class="row" data-slot="narrator-settings">
               <label>Имя <input value=${narratorName ?? speaking.narrator.name} maxLength="200"
                 onInput=${(e) => setNarratorName(e.target.value)}
@@ -166,10 +183,10 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                 onInput=${(e) => setNarratorModel(e.target.value)}
                 onChange=${(e) => changeSpeaking({ narrator: { model: e.target.value } }).then(() => setNarratorModel(null))} /></label>
             </div>`}
-            <p class="muted">Текст указания рассказчику — в пресете (⚙ → Промпт → Служебные тексты).</p>
+            <p class="hint">Текст указания рассказчику лежит в пресете: настройки, вкладка «Промпт», служебные тексты.</p>
           </div>`}
-          <p class="muted">Ответить может любой: кнопка 🗣 здесь или имя под чатом. Молчащий не отвечает сам и
-            не попадает в промпт.</p>
+          <p class="hint">Ответить может любой: кнопка «Пусть ответит» здесь или имя под чатом. Разговорчивость — насколько
+            охотно персонаж вступает в разговор, когда никого не назвали по имени. Молчащий не отвечает сам и не попадает в промпт.</p>
         </div>
 
         <h2>Пресет промпта этого чата</h2>
@@ -179,8 +196,8 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         </select>
 
         ${(generators.length > 1 || chat.meta.generator) && html`<h2>Ответ пишет</h2>
-        <p class="muted">Дополнение может писать ответы по-своему (например, сначала «подумать» за каждого персонажа).
-          Его запросы к модели идут по правилам из ⚙ → «Дополнения».</p>
+        <p class="hint">Дополнение может писать ответы по-своему (например, сначала «подумать» за каждого персонажа).
+          Его запросы к модели идут по правилам из настроек, вкладка «Дополнения».</p>
         <select data-slot="generator-pick" aria-label="Ответ пишет" value=${chat.meta.generator || ""}
           onChange=${(e) => api.put(`/chats/${chat.id}/meta`, { generator: e.target.value }).then(onChanged)
             .catch((err) => onError(err.message))}>
@@ -191,7 +208,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         </select>`}
 
         <${BookPicker} scope="chat" target=${chat.id} title="Лорбуки этого чата" onError=${onError}
-          hint="Вместе с ними работают общие лорбуки (⚙ → Лорбуки) и лорбуки участников (в их карточках)." />
+          hint="Вместе с ними работают общие лорбуки (настройки, вкладка «Лорбуки») и лорбуки участников (в их карточках)." />
       </div>
     </div>
   `;

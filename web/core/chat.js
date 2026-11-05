@@ -3,6 +3,7 @@ import { useState, useRef, useCallback, useEffect } from "../vendor/preact-htm.m
 import { spendingChanged } from "./spending.js";
 import { api, followRun } from "./api.js";
 import { emit } from "./theme.js";
+import { notify } from "./notify.js";
 
 const PAGE = 50;
 const EMPTY = { chat: null, messages: [], hasMore: false, running: false };
@@ -60,7 +61,7 @@ export function useChat(chatId, onError) {
       if (event.reload) {
         // A turn of several replies: a round may have reordered or joined them on the server.
         setState((s) => ({ ...s, running: false }));
-        if (reloadRef.current) reloadRef.current();
+        if (reloadRef.current) reloadRef.current().catch((e) => onError(e.message));
       } else {
         setState((s) => ({
           ...s,
@@ -102,7 +103,7 @@ export function useChat(chatId, onError) {
         drop(event.id);
         onError(event.error.message);
       } else if (event.type === "spend_warning") {
-        onError(event.text);
+        notify(event.text, "info");
       } else if (event.type === "variants_failed") {
         onError("Не ответили: " + event.failed.map((f) => `${f.label} (${f.error})`).join("; "));
       } else if (["done", "stopped", "error"].includes(event.type)) {
@@ -122,11 +123,12 @@ export function useChat(chatId, onError) {
       if (dead) return;
       setState({ chat: data.chat, messages: data.messages, hasMore: data.has_more, running: !!data.run });
       if (data.run) follow(data.run.id); // the page was reloaded mid-generation: replay it
-    }).catch((e) => !dead && onError(e.message));
+    }).catch((e) => { if (!dead) { onError(e.message); setState((s) => ({ ...s, failed: e.message })); } });
     return () => { dead = true; stopFollowing(); };
   }, [chatId]);
 
-  const guard = (promise) => promise.catch((e) => { onError(e.message); });
+  // false tells the caller it failed (the error is already shown), so a draft can be kept.
+  const guard = (promise) => promise.catch((e) => { onError(e.message); return false; });
   // After the active branch changed on the server: reload its newest page.
   const reload = () => api.get(`/chats/${chatId}?limit=${PAGE}`).then((d) =>
     setState((s) => ({ ...s, chat: d.chat, messages: d.messages, hasMore: d.has_more })));

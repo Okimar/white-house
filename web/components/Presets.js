@@ -1,14 +1,18 @@
-// Settings tab "Промпт": prompt presets. Pick the general preset, copy, delete, import/export
+// Settings tab "Промпт": prompt presets. Pick the general preset, duplicate, delete, import/export
 // SillyTavern files, and edit a preset: the list of blocks (order, on/off, role, place) and the
-// model settings. The built-in preset is read-only; copy it to change it.
+// model settings. The built-in preset is read-only; duplicate it to change it.
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
+import { notify } from "../core/notify.js";
+import { backdrop, useEscape } from "../core/keys.js";
 import { ROLES } from "./roles.js";
 import { NoteList } from "./Notes.js";
+import { Icon, IconButton } from "./Icon.js";
+import { ask, askText } from "./Dialogs.js";
 
 const KIND_HINTS = {
   main: "главный промпт", persona: "карточка «это я»", cast: "карточки персонажей чата",
-  examples: "примеры диалогов", lore_before: "лорбуки (этап 5)", lore_after: "лорбуки (этап 5)",
+  examples: "примеры диалогов", lore_before: "лорбуки до переписки", lore_after: "лорбуки после переписки",
   history: "сама переписка", post_history: "после переписки", text: "свой текст",
   thinking: "размышление перед ответом",
 };
@@ -16,10 +20,23 @@ const TEXT_KINDS = ["main", "post_history", "text", "thinking"];
 const REMOVABLE = ["text", "thinking"];
 const THINKING_HINT = ["Например:", "Сцена: [где, кто рядом]", "Чего хочет {{char}} сейчас: [...]",
   "План ответа: [...]"].join("\n");
+// [key, label, step, the English name people search for]
 const PARAMS = [
-  ["temperature", "Температура", 0.05], ["top_p", "Top P", 0.01], ["top_k", "Top K", 1],
-  ["max_tokens", "Длина ответа (токены)", 1], ["presence_penalty", "Presence penalty", 0.05],
-  ["frequency_penalty", "Frequency penalty", 0.05],
+  ["temperature", "Температура", 0.05, ""], ["top_p", "Ядро выборки", 0.01, "Top P"],
+  ["top_k", "Число кандидатов", 1, "Top K"], ["max_tokens", "Длина ответа (токены)", 1, ""],
+  ["presence_penalty", "Штраф за повторение тем", 0.05, "Presence penalty"],
+  ["frequency_penalty", "Штраф за повторение слов", 0.05, "Frequency penalty"],
+];
+// [key, label, rows, explanation]
+const SERVICE_TEXTS = [
+  ["no_write_for_me", "Запрет писать за моего персонажа", 3, ""],
+  ["narrator", "Рассказчик после хода «все сразу»", 3, "Сводит действия всех в одну сцену."],
+  ["speaker_reply", "За кого модель пишет сейчас", 2,
+    "Для чатов с несколькими персонажами. {{char}} — тот, кто говорит. Пусто — не говорить."],
+  ["prefill", "Начало ответа модели", 3, "По-английски prefill: отправляется как начало её ответа. Пусто — нет."],
+  ["personality_format", "Формат характера", 1,
+    "Например, [{{char}}'s personality: {{personality}}]. Пусто — «Personality:»."],
+  ["scenario_format", "Формат сценария", 1, "С {{scenario}}. Пусто — «Scenario:»."],
 ];
 
 function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onRemove }) {
@@ -28,16 +45,17 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
   return html`
     <li class=${"preset-block" + (block.enabled ? "" : " off")} data-slot="preset-block">
       <div class="row">
-        <input type="checkbox" checked=${block.enabled} disabled=${readOnly} title="Включить / выключить"
+        <input type="checkbox" checked=${block.enabled} disabled=${readOnly} aria-label=${"Включить блок: " + block.name}
           onChange=${(e) => set({ enabled: e.target.checked })} />
         <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}>
-          ${open ? "▾" : "▸"} ${block.name} <span class="muted">· ${KIND_HINTS[block.kind]}
+          <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> ${block.name} <span class="muted">· ${KIND_HINTS[block.kind]}
           ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
-          ${block.group && html`<span class="tag" title="Из блоков группы включён только один">⇄ ${block.group}</span>`}</button>
+          ${block.group && html`<span class="tag" title="Из блоков группы включён только один"><${Icon} name="arrow-left-right" /> ${block.group}</span>`}</button>
         ${!readOnly && html`
-          <button title="Выше" disabled=${index === 0} onClick=${() => onMove(index, -1)}>▲</button>
-          <button title="Ниже" disabled=${index === count - 1} onClick=${() => onMove(index, 1)}>▼</button>
-          ${REMOVABLE.includes(block.kind) && html`<button title="Удалить блок" onClick=${() => onRemove(index)}>🗑</button>`}`}
+          <${IconButton} icon="arrow-up" label="Выше" disabled=${index === 0} onClick=${() => onMove(index, -1)} />
+          <${IconButton} icon="arrow-down" label="Ниже" disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
+          ${REMOVABLE.includes(block.kind) && html`<${IconButton} icon="trash-2" label="Удалить блок" class="danger-text"
+            onClick=${() => onRemove(index)} />`}`}
       </div>
       ${open && html`<div class="stack block-edit">
         <label class="stack">Название
@@ -53,19 +71,20 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
             ${block.history.mode === "last" && html`<label>N
               <input type="number" min="1" value=${block.history.count} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, count: Number(e.target.value) || 1 } })} /></label>`}
-            <label title="0 — без ограничения">Не больше токенов
+            <label>Не больше токенов
               <input type="number" min="0" value=${block.history.max_tokens} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, max_tokens: Number(e.target.value) || 0 } })} /></label>
-            <label title="Сколько последних ответов уходят модели вместе с их размышлением; повторяющиеся строки не шлются. 0 — не слать">
-              Слать прошлые размышления (ответов)
+            <label>Слать прошлые размышления (ответов)
               <input type="number" min="0" value=${block.history.thoughts || 0} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, thoughts: Math.max(0, Number(e.target.value) || 0) } })} /></label>
-          </div>`
+          </div>
+          <p class="hint">Токенов: 0 — без ограничения. Прошлые размышления: сколько последних ответов уходят модели
+            вместе с их размышлением; повторяющиеся строки не шлются; 0 — не слать.</p>`
         : html`
           <div class="row">
             <label>От кого
               <select value=${block.role} disabled=${readOnly} onChange=${(e) => set({ role: e.target.value })}>
-                ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.icon} ${r.label}</option>`)}
+                ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
               </select></label>
             <label>Где
               <select value=${block.position} disabled=${readOnly} onChange=${(e) => set({ position: e.target.value })}>
@@ -75,12 +94,13 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
             ${block.position === "depth" && html`<label>Глубина
               <input type="number" min="0" max="1000" value=${block.depth} disabled=${readOnly}
                 onInput=${(e) => set({ depth: Number(e.target.value) || 0 })} /></label>`}
-            <label title="Блоки с одной группой — варианты на выбор: включите один, остальные выключатся">Группа «один из»
+            <label>Группа «один из»
               <input value=${block.group || ""} disabled=${readOnly} list="preset-groups" placeholder="нет"
                 onInput=${(e) => set({ group: e.target.value })} /></label>
           </div>
+          <p class="hint">Блоки с одной группой — варианты на выбор: включите один, остальные выключатся.</p>
           ${block.kind === "thinking" && html`<p class="muted">Шаблон, который модель заполняет перед ответом.
-            Tavern сам попросит думать внутри ${"<thinking>…</thinking>"} и уберёт размышление из текста ответа.</p>`}
+            White House сам попросит думать внутри ${"<thinking>…</thinking>"} и уберёт размышление из текста ответа.</p>`}
           ${TEXT_KINDS.includes(block.kind) && html`<textarea rows="5" value=${block.text} disabled=${readOnly}
             placeholder=${block.kind === "thinking" ? THINKING_HINT
               : "Текст. Можно {{char}} и {{user}}"} onInput=${(e) => set({ text: e.target.value })}></textarea>`}`}
@@ -93,12 +113,20 @@ function RetrievalSettings({ settings, onChanged, onError }) {
   const [connections, setConnections] = useState([]);
   const current = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, ...(settings.retrieval || {}) };
   const [draft, setDraft] = useState(current);
-  useEffect(() => { api.get("/connections").then((d) => setConnections(d.connections)).catch(() => {}); }, []);
+  useEffect(() => { api.get("/connections").then((d) => setConnections(d.connections)).catch((e) => onError(e.message)); }, []);
   const save = async (patch) => {
-    try { await api.put("/settings", patch); onChanged(); } catch (e) { onError(e.message); }
+    try { await api.put("/settings", patch); notify("Сохранено", "ok"); onChanged(); } catch (e) { onError(e.message); }
   };
   const num = (key, value) => setDraft({ ...draft, [key]: value === "" ? "" : Number(value) });
   const dirty = JSON.stringify(draft) !== JSON.stringify(current);
+  const saveRetrieval = async () => {
+    const next = {
+      scan_messages: Math.max(1, Math.round(Number(draft.scan_messages) || 3)),
+      budget_tokens: Math.max(0, Math.round(Number(draft.budget_tokens) || 0)),
+      threshold: Math.min(1, Math.max(0, Number(draft.threshold) || 0)) };
+    await save({ retrieval: next });
+    setDraft(next); // what was stored, so the button does not stay lit after an empty field
+  };
   return html`
     <h2>Поиск пузырей персонажей</h2>
     <p class="muted">Зелёные пузыри из дерева персонажа подключаются, когда тема всплывает в последних сообщениях:
@@ -108,18 +136,33 @@ function RetrievalSettings({ settings, onChanged, onError }) {
         <input type="number" min="1" max="50" value=${draft.scan_messages} onInput=${(e) => num("scan_messages", e.target.value)} /></label>
       <label class="stack">Места для зелёных пузырей (токены)
         <input type="number" min="0" step="100" value=${draft.budget_tokens} onInput=${(e) => num("budget_tokens", e.target.value)} /></label>
-      <label class="stack" title="0..1: насколько близким по смыслу должен быть пузырь">Порог похожести
-        <input type="number" min="0" max="1" step="0.05" value=${draft.threshold} onInput=${(e) => num("threshold", e.target.value)} /></label>
+      <label class="stack">Порог похожести
+        <input type="number" min="0" max="1" step="0.05" value=${draft.threshold} onInput=${(e) => num("threshold", e.target.value)} />
+        <span class="hint">От 0 до 1: насколько близким по смыслу должен быть пузырь.</span></label>
     </div>
-    <button class="primary" disabled=${!dirty} onClick=${() => save({ retrieval: {
-      scan_messages: Math.max(1, Math.round(Number(draft.scan_messages) || 3)),
-      budget_tokens: Math.max(0, Math.round(Number(draft.budget_tokens) || 0)),
-      threshold: Math.min(1, Math.max(0, Number(draft.threshold) || 0)) } })}>Сохранить</button>
+    <div class="row">
+      <button disabled=${!dirty} onClick=${saveRetrieval}>Сохранить поиск</button>
+    </div>
     <label class="stack">Подключение для поиска по смыслу (векторы)
       <select value=${settings.embedding_connection || ""} onChange=${(e) => save({ embedding_connection: e.target.value })}>
         <option value="">— нет, только ключевые слова —</option>
         ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name} · ${c.model || "модель не задана"}</option>`)}
       </select></label>`;
+}
+
+function ExportDialog({ preset, onClose }) {
+  useEscape(onClose);
+  return html`<div class="overlay" ...${backdrop(onClose)}>
+    <div class="dialog stack" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Формат файла">
+      <strong>Скачать «${preset.name}»</strong>
+      <a class="button primary" href=${`/api/presets/${preset.id}/export?format=tavern`}
+        onClick=${onClose}>Наш формат — все настройки сохранятся</a>
+      <a class="button" href=${`/api/presets/${preset.id}/export?format=st`}
+        onClick=${onClose}>SillyTavern — часть настроек пропадёт</a>
+      <p class="muted">В SillyTavern нет места, например, для лимита истории и наших служебных текстов.</p>
+      <button onClick=${onClose}>Отмена</button>
+    </div>
+  </div>`;
 }
 
 export function Presets({ settings, onChanged, onError }) {
@@ -136,13 +179,21 @@ export function Presets({ settings, onChanged, onError }) {
     .catch((e) => onError(e.message));
   useEffect(() => { reload().then((d) => d && open(d.active)); }, []);
 
+  // Leaving a preset with unsaved edits asks first.
+  const discardOk = async () => !dirty || ask("Выбросить несохранённые правки?", { ok: "Выбросить", danger: true });
+  const go = async (id) => {
+    if (current && current.id === id) return;
+    if (await discardOk()) open(id);
+  };
+
   const choose = async (id) => {
     await api.put("/settings", { active_preset: id === "default" ? "" : id }).catch((e) => onError(e.message));
     setActive(id);
     onChanged();
   };
   const copyOf = async (p) => {
-    const name = prompt("Название копии", `${p.name} (копия)`);
+    if (!(await discardOk())) return;
+    const name = await askText("Название дубликата", { value: `${p.name} (дубликат)` });
     if (!name) return;
     try {
       const created = await api.post("/presets", { name, from: p.id });
@@ -152,7 +203,8 @@ export function Presets({ settings, onChanged, onError }) {
   };
   // A new preset starts as the built-in one, ready to edit.
   const createNew = async () => {
-    const name = prompt("Название нового пресета", "Мой пресет");
+    if (!(await discardOk())) return;
+    const name = await askText("Название нового пресета", { value: "Мой пресет" });
     if (!name || !name.trim()) return;
     try {
       const created = await api.post("/presets", { name: name.trim(), from: "default" });
@@ -161,7 +213,7 @@ export function Presets({ settings, onChanged, onError }) {
     } catch (e) { onError(e.message); }
   };
   const remove = async (p) => {
-    if (!confirm(`Удалить пресет «${p.name}»?`)) return;
+    if (!(await ask(`Удалить пресет «${p.name}»?`, { ok: "Удалить", danger: true }))) return;
     await api.del(`/presets/${p.id}`).catch((e) => onError(e.message));
     await reload();
     if (current && current.id === p.id) open("default");
@@ -170,7 +222,7 @@ export function Presets({ settings, onChanged, onError }) {
   const importFile = async (e) => {
     const file = e.target.files[0];
     e.target.value = "";
-    if (!file) return;
+    if (!file || !(await discardOk())) return;
     try {
       const created = await api.postBinary(`/presets/import?name=${encodeURIComponent(file.name)}`, file,
         "application/json");
@@ -184,6 +236,7 @@ export function Presets({ settings, onChanged, onError }) {
       setCurrent({ ...saved, builtin: false });
       setDirty(false);
       await reload();
+      notify("Сохранено", "ok");
       onChanged();
     } catch (e) { onError(e.message); }
   };
@@ -220,38 +273,31 @@ export function Presets({ settings, onChanged, onError }) {
 
   return html`
     <h2>Пресеты промпта</h2>
-    <p class="muted">Пресет — это порядок блоков промпта и настройки модели. Отмеченный кружком
+    <p class="hint">Пресет — это порядок блоков промпта и настройки модели. Пресет с пометкой «Общий»
       используется во всех чатах, где не выбран свой (меню «Участники» в чате).</p>
     <ul class="list">
       ${presets.map((p) => html`<li key=${p.id} class=${current && current.id === p.id ? "active" : ""}>
-        <input type="radio" name="active-preset" checked=${p.id === active} title="Общий пресет"
-          onChange=${() => choose(p.id)} />
-        <button class="item" onClick=${() => open(p.id)}>${p.name}${p.builtin ? " · встроенный" : ""}</button>
-        <button title="Сделать копию" onClick=${() => copyOf(p)}>⧉</button>
-        <button title="Скачать файл пресета" onClick=${() => setExporting(p)}>↓</button>
-        ${!p.builtin && html`<button title="Удалить" onClick=${() => remove(p)}>🗑</button>`}
+        <label class="pick-active">
+          <input type="radio" name="active-preset" checked=${p.id === active} onChange=${() => choose(p.id)} />
+          <span>${p.id === active ? "Общий" : "Выбрать"}</span>
+        </label>
+        <button class="item" onClick=${() => go(p.id)}>${p.name}${p.builtin ? " · встроенный" : ""}</button>
+        <${IconButton} icon="copy" label="Дублировать" onClick=${() => copyOf(p)} />
+        <${IconButton} icon="download" label="Скачать файл пресета" onClick=${() => setExporting(p)} />
+        ${!p.builtin && html`<${IconButton} icon="trash-2" label="Удалить" class="danger-text" onClick=${() => remove(p)} />`}
       </li>`)}
     </ul>
     <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${importFile} />
     <div class="row">
-      <button class="primary" onClick=${createNew}>+ Создать пресет</button>
-      <button onClick=${() => fileInput.current.click()}>Загрузить пресет (наш или SillyTavern)…</button>
+      <button onClick=${createNew}><${Icon} name="plus" /> Новый пресет</button>
+      <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Загрузить из файла</button>
     </div>
-    ${exporting && html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && setExporting(null)}>
-      <div class="dialog stack" role="dialog" aria-modal="true" aria-label="Формат файла">
-        <strong>Скачать «${exporting.name}»</strong>
-        <a class="button primary" href=${`/api/presets/${exporting.id}/export?format=tavern`}
-          onClick=${() => setExporting(null)}>Наш формат — все настройки сохранятся</a>
-        <a class="button" href=${`/api/presets/${exporting.id}/export?format=st`}
-          onClick=${() => setExporting(null)}>SillyTavern — часть настроек пропадёт</a>
-        <p class="muted">В SillyTavern нет места, например, для лимита истории и наших служебных текстов.</p>
-        <button onClick=${() => setExporting(null)}>Отмена</button>
-      </div>
-    </div>`}
+    <p class="hint">Файл пресета: наш или SillyTavern.</p>
+    ${exporting && html`<${ExportDialog} preset=${exporting} onClose=${() => setExporting(null)} />`}
 
     ${current && html`
       <h2>${readOnly ? "Просмотр" : "Правка"}: ${current.name}</h2>
-      ${readOnly && html`<p class="notice">Встроенный пресет менять нельзя. Нажмите ⧉, чтобы сделать копию для правки.</p>`}
+      ${readOnly && html`<p class="notice">Встроенный пресет менять нельзя. Нажмите «Дублировать» в списке, чтобы сделать дубликат для правки.</p>`}
       ${!readOnly && html`<label class="stack">Название
         <input value=${current.name} onInput=${(e) => { setCurrent({ ...current, name: e.target.value }); setDirty(true); }} /></label>`}
       <h3>Блоки (сверху вниз — как пойдут к модели)</h3>
@@ -261,17 +307,18 @@ export function Presets({ settings, onChanged, onError }) {
       </ul>
       <datalist id="preset-groups">${groups.map((g) => html`<option key=${g} value=${g} />`)}</datalist>
       ${!readOnly && html`<div class="row">
-        <button onClick=${addBlock}>+ Свой блок</button>
-        ${!hasThinking && html`<button onClick=${addThinking} title="Шаблон, который модель заполняет перед ответом">+ Размышление</button>`}
-      </div>`}
+        <button onClick=${addBlock}><${Icon} name="plus" /> Свой блок</button>
+        ${!hasThinking && html`<button onClick=${addThinking}><${Icon} name="plus" /> Размышление</button>`}
+      </div>
+      ${!hasThinking && html`<p class="hint">«Размышление» — шаблон, который модель заполняет перед ответом.</p>`}`}
 
       <h3>Модель</h3>
       <div class="param-grid">
-        ${PARAMS.map(([key, label, step]) => html`<label key=${key} class="stack">${label}
+        ${PARAMS.map(([key, label, step, english]) => html`<label key=${key} class="stack">${label}
           <input type="number" step=${step} disabled=${readOnly} placeholder="как у модели"
-            value=${current.data.params[key] ?? ""} onInput=${(e) => setParam(key, e.target.value)} /></label>`)}
-        <label class="stack" title="Сколько модель думает перед ответом (Gemini 3 и другие думающие модели)">
-          Уровень размышлений
+            value=${current.data.params[key] ?? ""} onInput=${(e) => setParam(key, e.target.value)} />
+          ${english && html`<span class="hint">${english}</span>`}</label>`)}
+        <label class="stack">Уровень размышлений
           <select disabled=${readOnly} value=${current.data.params.reasoning_effort || ""}
             onChange=${(e) => { const params = { ...current.data.params };
               if (e.target.value) params.reasoning_effort = e.target.value; else delete params.reasoning_effort;
@@ -279,10 +326,12 @@ export function Presets({ settings, onChanged, onError }) {
             <option value="">как у модели</option>
             <option value="minimal">минимальный</option><option value="low">низкий</option>
             <option value="medium">средний</option><option value="high">высокий</option>
-          </select></label>
-        <label class="stack" title="0 — как в подключении">Размер памяти (токены)
+          </select>
+          <span class="hint">Сколько модель думает перед ответом (Gemini 3 и другие думающие модели).</span></label>
+        <label class="stack">Размер памяти (токены)
           <input type="number" min="0" disabled=${readOnly} value=${current.data.max_context_tokens}
-            onInput=${(e) => edit({ ...current.data, max_context_tokens: Number(e.target.value) || 0 })} /></label>
+            onInput=${(e) => edit({ ...current.data, max_context_tokens: Number(e.target.value) || 0 })} />
+          <span class="hint">0 — как в подключении.</span></label>
       </div>
       <label><input type="checkbox" checked=${current.data.prefer_card_prompts} disabled=${readOnly}
         onChange=${(e) => edit({ ...current.data, prefer_card_prompts: e.target.checked })} />
@@ -291,23 +340,17 @@ export function Presets({ settings, onChanged, onError }) {
       <label class="stack">«Написать за меня»
         <textarea rows="3" disabled=${readOnly} value=${current.data.prompts.impersonate}
           onInput=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, impersonate: e.target.value } })}></textarea></label>
-      ${[
-        ["no_write_for_me", "Запрет писать за моего персонажа", 3],
-        ["narrator", "Рассказчик после хода «все сразу» (сводит действия в одну сцену)", 3],
-        ["speaker_reply", "Несколько персонажей: за кого модель пишет сейчас ({{char}} — тот, кто говорит); пусто — не говорить", 2],
-        ["prefill", "Начало ответа модели (prefill): отправляется как начало её ответа; пусто — нет", 3],
-        ["personality_format", "Формат характера, например [{{char}}'s personality: {{personality}}]; пусто — «Personality:»", 1],
-        ["scenario_format", "Формат сценария с {{scenario}}; пусто — «Scenario:»", 1],
-      ].map(([key, label, rows]) => html`<label key=${key} class="stack">${label}
+      ${SERVICE_TEXTS.map(([key, label, rows, hint]) => html`<label key=${key} class="stack">${label}
         <textarea rows=${rows} disabled=${readOnly} value=${current.data.prompts[key] || ""}
-          onInput=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, [key]: e.target.value } })}></textarea></label>`)}
+          onInput=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, [key]: e.target.value } })}></textarea>
+        ${hint && html`<span class="hint">${hint}</span>`}</label>`)}
       ${!readOnly && html`<div class="row sticky-save">
         <button class="primary" disabled=${!dirty} onClick=${save}>Сохранить пресет</button>
         ${dirty && html`<button onClick=${() => open(current.id)}>Отменить правки</button>`}
       </div>`}`}
     <${RetrievalSettings} settings=${settings} onChanged=${onChanged} onError=${onError} />
     <h2>Общие заметки автора</h2>
-    <p class="muted">Работают во всех чатах. Заметки чата и персонажей — кнопка 📝 в шапке чата.</p>
+    <p class="muted">Работают во всех чатах. Заметки чата и персонажей — кнопка с блокнотом <${Icon} name="notebook-pen" /> в шапке чата.</p>
     <${NoteList} scope="global" onError=${onError} />
   `;
 }

@@ -1,7 +1,7 @@
 // Spending (stage 6е): the summary hook and how money and tokens are written.
 // - useSpending(chatId): {summary, reload}; reloads by itself after every reply (spendingChanged()).
 // - money(usd, settings): "$0.0042" or "0.42 ₽" at the user's rate; tokens(n): "1.2k".
-// - usageLine(usage, settings): the small line under a message ("↑1.2k ↓350 · $0.0042").
+// - usageLine(usage, settings): the small line under a message ("запрос 1.2k, ответ 350 · $0.0042").
 import { useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "./api.js";
 
@@ -44,15 +44,15 @@ export function tokens(n) {
 // A sum from the server ({prompt_tokens, completion_tokens, cost, unpriced, requests}) as one line.
 export function sumLine(sum, settings) {
   const parts = [];
-  if (settings.tokens) parts.push(`↑${tokens(sum.prompt_tokens)} ↓${tokens(sum.completion_tokens)}`);
-  if (sum.cost || !sum.unpriced) parts.push(money(sum.cost || 0, settings) + (sum.unpriced ? "+?" : ""));
+  if (settings.tokens) parts.push(`запрос ${tokens(sum.prompt_tokens)}, ответ ${tokens(sum.completion_tokens)}`);
+  if (sum.cost || !sum.unpriced) parts.push(money(sum.cost || 0, settings) + (sum.unpriced ? " и без цены" : ""));
   return parts.join(" · ");
 }
 
 export function usageLine(usage, settings) {
   const parts = [];
   const guess = usage.estimated ? "≈" : "";
-  if (settings.tokens) parts.push(`${guess}↑${tokens(usage.prompt_tokens)} ↓${tokens(usage.completion_tokens)}`);
+  if (settings.tokens) parts.push(`${guess}запрос ${tokens(usage.prompt_tokens)}, ответ ${tokens(usage.completion_tokens)}`);
   if (usage.cost !== null && usage.cost !== undefined) parts.push(guess + money(usage.cost, settings));
   return parts.join(" · ");
 }

@@ -145,13 +145,20 @@ SETTING_TYPES = {
     "embedding_connection": str,  # connection used for meaning vectors
     "notes_display": str,  # notes beside a message: "few" (2 + "ещё N", default) or "all"
     "thinking_display": str,  # a reply's «Размышление»: "folded" (default), "open" or "hidden"
+    "message_actions": str,  # a message's buttons: "menu" (a "…" list, default) or "always" (all on its panel)
+    "message_pinned": list,  # ids of the buttons kept on the panel in any mode (web/core/messageActions.js)
     "skip_delete_confirm": bool,  # delete bubbles without asking "are you sure?"
     "open_new_bubble": bool,  # "+ Пузырь" / "+ Подпузырь" opens the new bubble in the panel; default off
     "character_history": bool,  # keep the history of character changes ("Отменить", versions); default on
     "lorebooks": dict,  # lorebook budget_tokens / budget_percent / recursion (services/lorebooks.py)
 }
 STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
-SETTING_CHOICES = {"notes_display": ("few", "all"), "thinking_display": ("folded", "open", "hidden")}
+SETTING_CHOICES = {
+    "notes_display": ("few", "all"),
+    "thinking_display": ("folded", "open", "hidden"),
+    "message_actions": ("menu", "always"),
+}
+MESSAGE_BUTTONS = frozenset({"edit", "regenerate", "branches", "prompt", "exclude", "notes", "delete"})
 
 
 async def get_settings(request: Request) -> JSONResponse:
@@ -172,6 +179,8 @@ async def put_settings(request: Request) -> JSONResponse:
             raise BadRequest(f"Setting {key!r} must map short strings to short strings")
         if key in SETTING_CHOICES and value not in ("", None, *SETTING_CHOICES[key]):
             raise BadRequest(f"Setting {key!r} must be one of: {', '.join(SETTING_CHOICES[key])}")
+        if key == "message_pinned" and not all(isinstance(v, str) and v in MESSAGE_BUTTONS for v in value):
+            raise BadRequest(f"Setting {key!r} takes these buttons: {', '.join(sorted(MESSAGE_BUTTONS))}")
         if key == "lorebooks" and value:
             value = lorebooks.clean_settings(value)
         if value in ("", None):

@@ -23,8 +23,27 @@ import { PanelButtons, Panels } from "./components/PluginTree.js";
 import { PluginAsks } from "./components/Plugins.js";
 import { Assistant } from "./components/Assistant.js";
 import { BackupWarning } from "./components/Backups.js";
+import { Icon, IconButton } from "./components/Icon.js";
+import { MenuButton } from "./components/Menu.js";
+import { DialogHost, ask } from "./components/Dialogs.js";
+import { EmptyNote, Pending } from "./components/State.js";
+import { dismiss, notify, subscribe } from "./core/notify.js";
+import { useEscape } from "./core/keys.js";
 
 const FOUND_MS = 2500; // how long a found message stays marked
+
+// The icons of a phone's top bar: each opens one section of the left panel as a sheet under the bar.
+const SECTIONS = [
+  ["chats", "message-square", "Чаты"],
+  ["characters", "users", "Персонажи"],
+  ["lorebooks", "book-open", "Лорбуки"],
+];
+
+// A sheet closes on Esc too (a component, because the hook must live only while the sheet is open).
+function SheetKeys({ onClose }) {
+  useEscape(onClose);
+  return null;
+}
 
 function App() {
   const [characters, setCharacters] = useState([]);
@@ -35,13 +54,15 @@ function App() {
   const [showSettings, setShowSettings] = useState(false); // true, or the tab to open
   const [backupStatus, setBackupStatus] = useState(null);
   const [backupWarningHidden, setBackupWarningHidden] = useState(false);
-  const [menu, setMenu] = useState(false);
+  const [loaded, setLoaded] = useState(false); // the first load of the lists and settings finished
+  const [sheet, setSheet] = useState(null); // phone: the section of the left panel shown under the bar
+  const [searching, setSearching] = useState(false); // phone: the search line is open
   const [showAssistant, setShowAssistant] = useState(false);
   const [assistantConv, setAssistantConv] = useState(""); // a conversation to open (from the 🪄 mark)
   const [assistantState, setAssistantState] = useState({ running: [], waiting: [] });
   const pluginUi = usePluginUi(); // side panels of plugins
   const assistantRef = useRef({ changed() {}, show() {} }); // the event stream outlives renders: it calls the newest
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState(null); // { text, kind } from core/notify.js
   const [searchResults, setSearchResults] = useState(null);
   const [jumpTo, setJumpTo] = useState(null); // { id } of the found message being shown
   const foundTimer = useRef(null);
@@ -64,10 +85,8 @@ function App() {
   const [plugins, setPlugins] = useState({ plugins: [], commands: [], generators: [] }); // GET /plugins
   const [asks, setAsks] = useState([]); // plugins asking to call a model (access setting "ask")
 
-  const onError = useCallback((message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 6000);
-  }, []);
+  const onError = useCallback((message) => notify(message, "error"), []);
+  useEffect(() => subscribe(setToast), []);
 
   const chat = useChat(chatId, onError);
 
@@ -107,23 +126,23 @@ function App() {
     history.replaceState(null, "", location.pathname);
     setShowSettings("backups");
     api.post("/backups/gdrive/finish", { address })
-      .then(() => onError("✓ Google Диск подключён"))
+      .then(() => notify("Google Диск подключён", "ok"))
       .catch((e) => onError(e.message));
   }, []);
   // "/roll 2d6": a plugin's command. Unknown commands are sent as ordinary text.
   const runCommand = async (text) => {
-    if (!chatId) { onError("Сначала откройте чат"); return null; }
+    if (!chatId) { onError("Сначала откройте чат"); return false; }
     try {
       const result = await api.post("/plugins/command", { chat_id: chatId, text });
-      if (!result.handled) onError(`Нет такой команды: ${text.split(" ")[0]}`);
-      else chat.reload();
+      if (!result.handled) { onError(`Нет такой команды: ${text.split(" ")[0]}`); return false; }
+      chat.reload();
       return result;
     } catch (e) {
       onError(e.message);
-      return null;
+      return false;
     }
   };
-  setPluginEnv({ toast: onError, chatId: () => chatId, reloadChat: () => chat.reload(), command: runCommand });
+  setPluginEnv({ toast: (text) => notify(text, "info"), chatId: () => chatId, reloadChat: () => chat.reload(), command: runCommand });
   const isCommand = (text) => text.startsWith("/") &&
     plugins.commands.some((c) => c.name === text.slice(1).split(/\s/)[0].toLowerCase());
   const { summary: spend, reload: reloadSpending } = useSpending(chatId);
@@ -139,6 +158,8 @@ function App() {
       setThemes(t);
     } catch (e) {
       onError(e.message);
+    } finally {
+      setLoaded(true);
     }
   };
   useEffect(() => { refresh(); }, []);
@@ -209,7 +230,7 @@ function App() {
     wasRunning.current = chat.running;
   }, [chat.running]);
 
-  const open = (id) => { setChatId(id); setMenu(false); };
+  const open = (id) => { setChatId(id); setSheet(null); };
 
   const newChat = async (characterId) => {
     try {
@@ -261,8 +282,12 @@ function App() {
   };
 
   const deleteChat = async (id) => {
-    await api.del(`/chats/${id}`).catch((e) => onError(e.message));
-    if (id === chatId) setChatId(null);
+    try {
+      await api.del(`/chats/${id}`);
+      if (id === chatId) setChatId(null);
+    } catch (e) {
+      onError(e.message); // it still exists: stays open
+    }
     refresh();
   };
 
@@ -278,6 +303,7 @@ function App() {
     setSelecting(false);
     setSelected(new Set());
     setNumbers("");
+    setSearching(false);
     let saved = null;
     try { saved = chatId && localStorage.getItem("tavern.replyRole." + chatId); } catch (e) { /* storage off */ }
     setRole(ROLES.some((r) => r.id === saved) ? saved : "assistant");
@@ -376,6 +402,7 @@ function App() {
     notesOpen=${notesOpen[m.id]} age=${lastDepth - m.depth}
     onNotesOpen=${(id, open) => setNotesOpen((o) => ({ ...o, [id]: open }))}
     notesDisplay=${settings.notes_display || "few"} thinkingDisplay=${settings.thinking_display || "folded"}
+    actionsMode=${settings.message_actions || "menu"} pinned=${settings.message_pinned}
     onOpenNotes=${(message, shownNow) => setNotesFor({ message, shown: shownNow })}
     avatar=${avatarOf(m)} spend=${spend && spend.settings}
     streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
@@ -388,87 +415,114 @@ function App() {
       .catch((e) => onError(e.message))} />`;
 
   const shown = chatId && chat.chat;
+  const openAssistant = () => { setSheet(null); setShowAssistant(true); };
+  const openSettings = (tab = true) => { setSheet(null); setShowSettings(tab); };
+  const assistantBusy = assistantState.waiting.length > 0 || assistantState.running.length > 0;
+  const openAssistantMark = () => {
+    setAssistantConv(assistantState.waiting[0] || assistantState.running[0]);
+    openAssistant();
+  };
+  const toggleSelecting = () => { setSelecting(!selecting); setSelected(new Set()); };
+  const chatMenu = () => [
+    { icon: "search", label: "Поиск по чату", onClick: () => setSearching(true), phone: true },
+    { icon: "users", label: "Участники и пресет", onClick: () => setShowMembers(true), phone: true },
+    { icon: "notebook-pen", label: "Заметки автора", onClick: () => setShowNotes(true), phone: true },
+    { icon: "user", label: selecting ? "Закончить смену ролей" : "Сменить роли", onClick: toggleSelecting },
+    { icon: "download", label: "Скачать чат", href: `/api/chats/${chatId}/export.jsonl` },
+  ].filter((item) => !item.phone || window.matchMedia("(max-width: 720px)").matches);
   return html`
-    <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"}>
+    <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"} data-sheet=${sheet ? "open" : "closed"}>
       ${SAFE_MODE && html`<div class="safe-banner" role="status">Безопасный режим: темы и окна дополнений выключены.
         <a href="/">Выйти</a></div>`}
-      ${!backupWarningHidden && html`<${BackupWarning} status=${backupStatus}
-        onOpen=${() => setShowSettings("backups")} onClose=${() => setBackupWarningHidden(true)} />`}
-      <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} open=${menu}
+      ${!backupWarningHidden && !showSettings && html`<${BackupWarning} status=${backupStatus}
+        onOpen=${() => openSettings("backups")} onClose=${() => setBackupWarningHidden(true)} />`}
+      <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} section=${sheet}
         onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
         onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat} onRenameChat=${renameChat}
-        onEditCharacter=${(id) => { setEditingCharacter(id); setMenu(false); }}
-        onDeleteCharacter=${deleteCharacter} onSettings=${() => setShowSettings(true)}
-        onAssistant=${() => { setShowAssistant(true); setMenu(false); }}
-        onClose=${() => setMenu(false)} settings=${settings} onError=${onError} />
+        onEditCharacter=${(id) => { setEditingCharacter(id); setSheet(null); }}
+        onDeleteCharacter=${deleteCharacter} onSettings=${() => openSettings()}
+        onAssistant=${openAssistant} settings=${settings} onError=${onError} />
+      ${sheet && html`<${SheetKeys} onClose=${() => setSheet(null)} />`}
       <main class="main" data-slot="chat" data-running=${chat.running ? "true" : "false"}>
         <div class="scene" data-slot="scene" aria-hidden="true"></div>
         <div class="topbar" data-slot="topbar">
-          <button class="only-mobile" title="Меню" onClick=${() => setMenu(true)}>☰</button>
-          <strong class="title" data-slot="title">${shown ? chat.chat.title : "Tavern"}</strong>
-          ${shown && html`<form class="search" onSubmit=${search}>
-            <input name="query" placeholder="Поиск" aria-label="Поиск по чату" />
+          <strong class="title" data-slot="title">${shown ? chat.chat.title : "White House"}</strong>
+          <span class="spacer"></span>
+          <nav class="phone-nav only-mobile" data-slot="phone-nav" aria-label="Разделы">
+            ${SECTIONS.map(([id, icon, label]) => html`<${IconButton} key=${id} icon=${icon} label=${label}
+              aria-pressed=${sheet === id} onClick=${() => setSheet(sheet === id ? null : id)} />`)}
+            <${IconButton} icon="wand" label=${assistantBusy ? "Помощник: есть работа" : "Помощник"}
+              class=${assistantBusy ? "has-mark" : ""}
+              onClick=${assistantBusy ? openAssistantMark : openAssistant} />
+            <${IconButton} icon="settings" label="Настройки" onClick=${() => openSettings()} />
+          </nav>
+          ${shown && html`<form class=${"search" + (searching ? " open" : "")} onSubmit=${search} role="search">
+            <${Icon} name="search" />
+            <input name="query" type="search" enterkeyhint="search" placeholder="Поиск" aria-label="Поиск по чату" />
           </form>`}
-          ${(assistantState.waiting.length > 0 || assistantState.running.length > 0) && html`<button
-            class=${"assistant-mark" + (assistantState.waiting.length ? " waiting" : "")} data-slot="assistant-mark"
-            title="Открыть помощника" onClick=${() => {
-              setAssistantConv(assistantState.waiting[0] || assistantState.running[0]);
-              setShowAssistant(true);
-            }}>${assistantState.waiting.length ? "🪄 ждёт вас" : "🪄 работает"}</button>`}
+          ${assistantBusy && html`<button class=${"assistant-mark only-wide" + (assistantState.waiting.length ? " waiting" : "")}
+            data-slot="assistant-mark" title="Открыть помощника" onClick=${openAssistantMark}>
+            <${Icon} name="wand" /> ${assistantState.waiting.length ? "Ждёт вас" : "Работает"}</button>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
           ${shown && html`<${ProfileSwitch} key=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
           ${shown && html`<${PanelButtons} panels=${pluginUi.panels} />`}
-          ${shown && html`<button data-slot="members-button" title="Участники чата и пресет"
-            onClick=${() => setShowMembers(true)}>👥</button>`}
-          ${shown && html`<button data-slot="notes-button" title="Заметки автора"
-            onClick=${() => setShowNotes(true)}>📝</button>`}
-          ${shown && html`<button class="export-chat" title="Экспортировать чат JSONL" onClick=${exportChat}>↓ JSONL</button>`}
+          ${shown && html`<${IconButton} icon="users" label="Участники чата и пресет" class="only-wide"
+            data-slot="members-button" onClick=${() => setShowMembers(true)} />`}
+          ${shown && html`<${IconButton} icon="notebook-pen" label="Заметки автора" class="only-wide"
+            data-slot="notes-button" onClick=${() => setShowNotes(true)} />`}
+          ${shown && html`<${MenuButton} label="Действия с чатом" class="export-chat" items=${chatMenu} />`}
         </div>
         ${shown
           ? html`
+            ${chat.messages.filter((m) => !m.hidden).length === 0 && html`<div class="empty" data-slot="empty">
+              <${EmptyNote} title="Сообщений пока нет" hint="Напишите первое сообщение внизу." /></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
               onReachTop=${chat.loadOlder} resetKey=${chatId} jumpTo=${jumpTo} />
             <div class="chat-actions" data-slot="chat-actions">
               <button disabled=${chat.running} onClick=${() => chat.continue(role)}
-                title="Модель напишет следующее сообщение от выбранной роли без вашей реплики">Продолжить</button>
+                title="Модель напишет следующее сообщение без вашей реплики">Продолжить</button>
               ${cast.length > 1 && html`<button data-slot="talk-button" disabled=${chat.running} onClick=${() => chat.talk()}
-                title="Персонажи отвечают друг другу сами, пока не наберётся предел из «Кто говорит» (👥) или пока вы не нажмёте «Стоп»">Пусть поговорят</button>`}
+                title="Персонажи отвечают друг другу сами, пока не наберётся предел из «Кто говорит» или пока вы не нажмёте «Стоп»">Пусть поговорят</button>`}
               ${cast.length > 0 && html`<div class="speakers" data-slot="speakers" role="group" aria-label="Ответит">
                 <span class="muted">Ответит:</span>
                 ${cast.map((m) => html`<button key=${m.character_id} class=${m.muted ? "muted-member" : ""}
                   disabled=${chat.running} onClick=${() => chat.continue("assistant", m.character_id)}
-                  title=${`Ответь ты: ${m.name}` + (m.muted ? " (молчит, но ответит, раз просите)" : "")}>
+                  title=${`Пусть ответит ${m.name}` + (m.muted ? " (молчит, но ответит, раз просите)" : "")}>
                   ${m.has_avatar && html`<img class="speaker-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
                   ${m.name}</button>`)}
               </div>`}
-              <button aria-pressed=${selecting} onClick=${() => { setSelecting(!selecting); setSelected(new Set()); }}>
-                ${selecting ? "Готово" : "Сменить роли…"}</button>
-              ${selecting && html`<div class="bulk-roles" role="group" aria-label="Массовая смена ролей">
+              ${selecting && html`<div class="bulk-roles" role="group" aria-label="Смена ролей у нескольких сообщений">
                 <span>Отмечено: ${selected.size}</span>
                 <input value=${numbers} placeholder="Номера: 1-5, 8" aria-label="Номера сообщений"
                   onInput=${(e) => setNumbers(e.target.value)} />
                 <select value=${bulkRole} aria-label="Новая роль" onChange=${(e) => setBulkRole(e.target.value)}>
-                  ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.icon} ${r.label}</option>`)}
+                  ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
                 </select>
                 <button class="primary" disabled=${chat.running} onClick=${() => applyRoles(false)}>Применить</button>
                 <button disabled=${chat.running}
-                  onClick=${() => confirm("Сменить роль у всех сообщений текущей ветки?") && applyRoles(true)}>Всем</button>
+                  onClick=${async () => { if (await ask("Сменить роль у всех сообщений текущей ветки?", { ok: "Сменить" })) applyRoles(true); }}>Всем сообщениям</button>
+                <button onClick=${toggleSelecting}>Готово</button>
               </div>`}
-              ${searchResults && html`<div class="search-results">
-                <strong>Результаты: ${searchResults.length}</strong>
-                ${searchResults.map((m) => html`<button key=${m.id} disabled=${chat.running} data-slot="search-result"
+              ${searchResults && html`<div class="search-results" data-slot="search-results">
+                <div class="panel-head"><strong>${searchResults.length ? `Найдено: ${searchResults.length}` : "Ничего не найдено"}</strong>
+                  <span class="spacer"></span>
+                  <${IconButton} icon="x" label="Закрыть" onClick=${() => { setSearchResults(null); setSearching(false); }} /></div>
+                ${searchResults.map((m) => html`<button key=${m.id} class="result-line" disabled=${chat.running} data-slot="search-result"
                   title=${m.on_path ? "Показать это сообщение" : "Сообщение в другой ветке: откроется она"}
-                  onClick=${() => showFound(m)}>#${m.depth + 1}${m.on_path ? "" : " ⑂"} ${m.content.slice(0, 80)}</button>`)}
-                <button onClick=${() => setSearchResults(null)}>Закрыть</button>
+                  onClick=${() => showFound(m)}><span class="msg-num">${m.depth + 1}</span>
+                  ${!m.on_path && html`<${Icon} name="git-branch" />`} <span class="result-text">${m.content.slice(0, 80)}</span></button>`)}
               </div>`}
-              ${branchResults && html`<div class="branch-results">
-                <strong>Продолжения: ${branchResults.branches.length}</strong>
-                ${branchResults.branches.map((m) => html`<button key=${m.id} disabled=${chat.running}
-                  onClick=${() => selectBranch(m.id)}>${m.content.slice(0, 80)}</button>`)}
+              ${branchResults && html`<div class="branch-results" data-slot="branch-results">
+                <div class="panel-head"><strong>Ветки: ${branchResults.branches.length}</strong>
+                  <span class="spacer"></span>
+                  <${IconButton} icon="x" label="Закрыть" onClick=${() => setBranchResults(null)} /></div>
+                ${!branchResults.branches.length && branchResults.messageId === lastId && html`<span class="branch-hint muted">
+                  У последнего сообщения других веток нет. Чтобы начать ветку, откройте «Ветки» у более раннего сообщения.</span>`}
+                ${branchResults.branches.map((m) => html`<button key=${m.id} class="result-line" disabled=${chat.running}
+                  onClick=${() => selectBranch(m.id)}><span class="result-text">${m.content.slice(0, 80)}</span></button>`)}
                 ${branchResults.messageId !== lastId && html`<button class="primary" data-slot="branch-from-here"
                   disabled=${chat.running} onClick=${() => branchFrom(branchResults.messageId)}>Новая ветка отсюда</button>
-                  <span class="branch-hint muted">Чат продолжится от этого сообщения. Всё, что было после него, останется в старой ветке: вернуться можно здесь же, через ⑂.</span>`}
-                <button onClick=${() => setBranchResults(null)}>Закрыть</button>
+                  <span class="branch-hint muted">Чат продолжится от этого сообщения. Всё, что было после него, останется в старой ветке, она будет в этом же списке.</span>`}
               </div>`}
             </div>
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
@@ -479,9 +533,14 @@ function App() {
               }}
               onStop=${chat.stop} onError=${onError} />`
           : html`<div class="empty" data-slot="empty">
-              <p>Выберите чат слева или начните новый с персонажем.</p>
-              ${!settings.active_connection && html`<p>Сначала добавьте подключение к API:
-                <button onClick=${() => setShowSettings(true)}>Настройки</button></p>`}
+              ${chatId && !chat.failed && html`<${Pending} />`}
+              ${chatId && chat.failed && html`<${Pending} error=${chat.failed} onRetry=${() => location.reload()} />`}
+              ${!chatId && !loaded && html`<${Pending} />`}
+              ${!chatId && loaded && !settings.active_connection && html`<${EmptyNote} title="Подключите модель"
+                hint="White House разговаривает через вашу модель: нужен её адрес и, чаще всего, ключ.">
+                <button class="primary" onClick=${() => openSettings("connections")}>Добавить подключение</button><//>`}
+              ${!chatId && loaded && settings.active_connection && html`<${EmptyNote} title="Выберите чат"
+                hint="Откройте чат из списка или начните новый: нажмите на персонажа и выберите «Новый чат»." />`}
             </div>`}
         <div class="overlay-layer" data-slot="overlay"></div>
       </main>
@@ -517,7 +576,10 @@ function App() {
         onOpenSkills=${() => setShowSettings("skills")}
         onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
-      ${toast && html`<div class="toast" data-slot="toast" role="alert" onClick=${() => setToast("")}>${toast}</div>`}
+      <${DialogHost} />
+      ${toast && html`<div class="toast" data-slot="toast" data-kind=${toast.kind} role=${toast.kind === "error" ? "alert" : "status"}
+        onClick=${dismiss}>${toast.kind === "ok" && html`<${Icon} name="check" />`}${toast.kind === "error" && html`<${Icon} name="triangle-alert" />`}
+        <span>${toast.text}</span></div>`}
     </div>
   `;
 }

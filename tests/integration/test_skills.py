@@ -114,7 +114,7 @@ async def test_big_work_takes_a_skill_and_each_role_reads_its_part(client, ctx, 
                                                             json={"text": "Сделай лорбук"}))
     assert "- lorebooks: Making or changing a lorebook" in sent(fake_llm, 1)  # the small role chose
     line = next(m for m in state["messages"] if m["data"].get("kind") == "skill")
-    assert line["text"] == "📖 Инструкция: Лорбуки" and line["data"]["skill_id"] == "builtin:lorebooks"
+    assert line["text"] == "Инструкция: Лорбуки" and line["data"]["skill_id"] == "builtin:lorebooks"
     asked = sent(fake_llm, 2)
     assert "SKILL «lorebooks»" in asked and "Ask about the vibe first." in asked and "Nest details" not in asked
     assert state["task"]["skill"] == "lorebooks"
@@ -154,7 +154,7 @@ async def test_small_requests_read_a_skill_with_a_line_and_cannot_change_skills(
     assert "read_skill" in sent(fake_llm, 0)
     results = sent(fake_llm, 1)
     assert "Nest details under their parent." in results and "never changes its own instructions" in results
-    assert any(m["text"] == "📖 Инструкция: Лорбуки" for m in state["messages"])
+    assert any(m["text"] == "Инструкция: Лорбуки" for m in state["messages"])
     assert skills.find(ctx, "lorebooks") is not None  # still on
 
 

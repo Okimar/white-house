@@ -753,7 +753,7 @@ async def small(ctx: AppContext, models: Models, conversation_id: str, chat_id: 
         for result in results:
             if result.get("tool") == "read_skill" and isinstance(result.get("result"), dict):
                 read = result["result"]
-                _say(ctx, run, conversation_id, f"📖 Инструкция: {read['title']}",
+                _say(ctx, run, conversation_id, f"Инструкция: {read['title']}",
                      {"kind": "skill", "skill_id": read["id"], "name": read["name"]})
         run.emit("message", message=repo.add_message(conversation_id, "tool", "", {"results": results}))
     note = (f"Я сделал {settings['max_steps']} шагов — это предел на одну просьбу. "
@@ -794,7 +794,7 @@ async def choose_skill(ctx: AppContext, models: Models, conversation_id: str, ru
     skill = skill_service.find(ctx, value.get("skill"))
     task["skill"] = skill["name"] if skill else ""
     if skill:
-        _say(ctx, run, conversation_id, f"📖 Инструкция: {skill['title']}",
+        _say(ctx, run, conversation_id, f"Инструкция: {skill['title']}",
              {"kind": "skill", "skill_id": skill["id"], "name": skill["name"]})
 
 
@@ -1336,6 +1336,8 @@ async def run_request(ctx: AppContext, conversation_id: str, chat_id: str | None
 
 def fail(ctx: AppContext, conversation_id: str, run: Run, exc: BaseException) -> None:
     error = _error_dict(exc)
+    if isinstance(exc, StructuredOutputError):  # the model's own wording is English and means nothing to the user
+        error["message"] = "Модель не ответила в нужном виде. Попробуйте другую модель для помощника или повторите."
     message = ctx.assistant_repo.add_message(conversation_id, "assistant", error["message"], {"error": True})
     run.emit("message", message=message)
     run.emit("error", error=error)

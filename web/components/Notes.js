@@ -1,22 +1,27 @@
 // Author's notes. NoteList edits the notes of one level (global, a character's, a chat's); Notes is
-// the chat's "📝" window with tabs for the three levels and edits by message numbers;
+// the chat's notes window with tabs for the three levels and edits by message numbers;
 // NotesByNumbers is the window over the chat that shows picked messages with their kept notes.
 // Every change goes to the server at once; agents change the same things through the same API.
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
+import { Icon, IconButton } from "./Icon.js";
+import { ask } from "./Dialogs.js";
+import { Pending, EmptyNote } from "./State.js";
+import { notify } from "../core/notify.js";
+import { backdrop, useEscape } from "../core/keys.js";
 
 const MODES = [
   ["once", "Не сохраняется: только в этом запросе"],
-  ["hidden", "Невидимая: в истории, в чате скрыта"],
+  ["hidden", "Скрытая: в истории, в чате не видна"],
   ["visible", "Видимая: в истории и возле сообщения"],
 ];
-const KINDS = [["visible", "📝 Видимая"], ["hidden", "👻 Невидимая"]];
+const KINDS = [["visible", "Видимая"], ["hidden", "Скрытая"]];
 const COLLAPSE_FROM = 8; // with more picked messages than this, they start folded
 
 function RoleSelect({ value, onChange }) {
   return html`<select value=${value} aria-label="От кого" onChange=${(e) => onChange(e.target.value)}>
-    ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.icon} ${r.label}</option>`)}
+    ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
   </select>`;
 }
 
@@ -26,7 +31,7 @@ function KindSelect({ value, onChange }) {
   </select>`;
 }
 
-function NumberField({ label, value, min, title, onChange }) {
+function NumberField({ label, value, min, onChange }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
@@ -34,7 +39,7 @@ function NumberField({ label, value, min, title, onChange }) {
     if (Number.isInteger(n) && n >= min && n !== value) onChange(n);
     else setDraft(String(value));
   };
-  return html`<label title=${title}>${label}
+  return html`<label>${label}
     <input type="number" min=${min} max="1000" value=${draft} class="num"
       onInput=${(e) => setDraft(e.target.value)} onBlur=${commit}
       onKeyDown=${(e) => e.key === "Enter" && commit()} /></label>`;
@@ -47,39 +52,42 @@ function NoteRow({ note, onSave, onDelete }) {
   return html`
     <li class=${"note" + (note.enabled ? "" : " off")} data-slot="note">
       <div class="row">
-        <label title="Включена"><input type="checkbox" checked=${note.enabled}
-          onChange=${(e) => onSave({ enabled: e.target.checked })} /></label>
-        <input class="grow" value=${title} placeholder="Название (по желанию)" aria-label="Название"
+        <label><input type="checkbox" checked=${note.enabled}
+          onChange=${(e) => onSave({ enabled: e.target.checked })} /> Включена</label>
+        <input class="grow" value=${title} placeholder="Название" aria-label="Название"
           onInput=${(e) => setTitle(e.target.value)} onBlur=${() => title !== note.title && onSave({ title })} />
-        <button title="Удалить заметку" onClick=${() => confirm("Удалить заметку?") && onDelete()}>🗑</button>
+        <${IconButton} icon="trash-2" label="Удалить заметку"
+          onClick=${async () => { if (await ask("Удалить заметку?", { ok: "Удалить", danger: true })) onDelete(); }} />
       </div>
-      <textarea rows="3" value=${text} placeholder="Текст заметки, можно {{char}} и {{user}}"
+      <textarea rows="3" value=${text} placeholder="Текст заметки. Можно использовать {{char}} и {{user}}"
         aria-label="Текст заметки" onInput=${(e) => setText(e.target.value)}
         onBlur=${() => text !== note.text && onSave({ text })}></textarea>
       <div class="row">
-        <${NumberField} label="Глубина" value=${note.depth} min=${0}
-          title="За сколько сообщений до конца чата вставить: 0 — в самом конце" onChange=${(depth) => onSave({ depth })} />
-        <${NumberField} label="Через" value=${note.interval} min=${0}
-          title="Сколько ответов пропустить между вставками: 0 — на каждый ответ, 1 — через один"
+        <${NumberField} label="Глубина" value=${note.depth} min=${0} onChange=${(depth) => onSave({ depth })} />
+        <${NumberField} label="Пропускать ответов" value=${note.interval} min=${0}
           onChange=${(interval) => onSave({ interval })} />
-        <span class="muted">ответов (0 — каждый)</span>
         <${RoleSelect} value=${note.role} onChange=${(role) => onSave({ role })} />
-        <select value=${note.mode} aria-label="Вид заметки" onChange=${(e) => onSave({ mode: e.target.value })}
-          title="Не сохраняется: модель видит её только в этом запросе. Невидимая и видимая остаются в истории после сообщения">
+        <select value=${note.mode} aria-label="Вид заметки" onChange=${(e) => onSave({ mode: e.target.value })}>
           ${MODES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
         </select>
       </div>
+      <p class="hint">Глубина: за сколько сообщений до конца чата вставить, 0 — в самом конце. Пропуск: сколько ответов
+        пропустить между вставками, 0 — вставлять в каждый ответ.</p>
     </li>`;
 }
 
 // Notes of one level. scope: "global" | "character" | "chat"; ownerId for the last two.
 export function NoteList({ scope, ownerId, initial, onError }) {
-  const [notes, setNotes] = useState(initial || []);
-  useEffect(() => {
+  const [notes, setNotes] = useState(initial || null); // null while loading: no «Заметок нет» flash
+  const [loadError, setLoadError] = useState("");
+  const load = () => {
     if (initial) { setNotes(initial); return; }
+    setLoadError("");
     const query = scope === "global" ? "scope=global" : `scope=${scope}&owner_id=${encodeURIComponent(ownerId)}`;
-    api.get(`/notes?${query}`).then((d) => setNotes(d.notes)).catch((e) => onError(e.message));
-  }, [scope, ownerId, initial]);
+    api.get(`/notes?${query}`).then((d) => setNotes(d.notes)).catch((e) => setLoadError(e.message));
+  };
+  useEffect(load, [scope, ownerId, initial]);
+  if (!notes) return html`<${Pending} error=${loadError} onRetry=${load} />`;
 
   const add = () => api.post("/notes", { scope, owner_id: ownerId || null, text: "" })
     .then((n) => setNotes([...notes, n])).catch((e) => onError(e.message));
@@ -90,10 +98,11 @@ export function NoteList({ scope, ownerId, initial, onError }) {
 
   return html`
     <ul class="notes" data-slot="note-list">
-      ${notes.length === 0 && html`<li class="muted">Заметок нет.</li>`}
+      ${notes.length === 0 && html`<li><${EmptyNote} title="Заметок пока нет"
+        hint="Заметка — текст, который модель получает вместе с историей чата." /></li>`}
       ${notes.map((n) => html`<${NoteRow} key=${n.id} note=${n} onSave=${(p) => save(n, p)} onDelete=${() => remove(n)} />`)}
     </ul>
-    <button onClick=${add}>+ Заметка</button>`;
+    <button onClick=${add}><${Icon} name="plus" /> Добавить заметку</button>`;
 }
 
 const TABS = [["chat", "Чат"], ["characters", "Персонажи"], ["global", "Общие"], ["numbers", "По номерам"]];
@@ -101,35 +110,40 @@ const TABS = [["chat", "Чат"], ["characters", "Персонажи"], ["global
 export function Notes({ chat, showHidden, onShowHidden, onClearHidden, onEditNumbers, onClose, onChanged, onError }) {
   const [tab, setTab] = useState("chat");
   const [data, setData] = useState(null);
+  const [loadError, setLoadError] = useState("");
   const [numbers, setNumbers] = useState("");
+  useEscape(onClose);
 
-  useEffect(() => {
-    api.get(`/chats/${chat.id}/notes`).then(setData).catch((e) => onError(e.message));
-  }, [chat.id]);
-
-  const removeByNumbers = () => {
-    if (!numbers.trim() || !confirm(`Удалить заметки у сообщений ${numbers}?`)) return;
-    api.post(`/chats/${chat.id}/message-notes/delete-by-numbers`, { numbers })
-      .then((d) => { onError(`Удалено заметок: ${d.removed}`); onChanged(); }).catch((e) => onError(e.message));
+  const load = () => {
+    setLoadError("");
+    api.get(`/chats/${chat.id}/notes`).then(setData).catch((e) => setLoadError(e.message));
   };
-  const clearHidden = () => confirm("Удалить из чата все невидимые заметки? Модель перестанет их видеть.")
-    && onClearHidden();
+  useEffect(load, [chat.id]);
+
+  const removeByNumbers = async () => {
+    if (!numbers.trim() || !await ask(`Удалить заметки у сообщений ${numbers}?`, { ok: "Удалить", danger: true })) return;
+    api.post(`/chats/${chat.id}/message-notes/delete-by-numbers`, { numbers })
+      .then((d) => { notify(`Удалено заметок: ${d.removed}`, "ok"); onChanged(); }).catch((e) => onError(e.message));
+  };
+  const clearHidden = async () => {
+    if (await ask("Удалить из чата все скрытые заметки? Модель перестанет их видеть.", { ok: "Удалить", danger: true })) onClearHidden();
+  };
 
   return html`
-    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="overlay" ...${backdrop(onClose)}>
       <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заметки автора">
         <div class="side-head"><strong>Заметки автора</strong><span class="spacer"></span>
-          <button onClick=${onClose} title="Закрыть">✕</button></div>
+          <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         <div class="row">
           <label><input type="checkbox" checked=${showHidden} onChange=${(e) => onShowHidden(e.target.checked)} />
-            показать все невидимые заметки</label>
-          <button onClick=${clearHidden}>Очистить чат от невидимых</button>
+            показать все скрытые заметки</label>
+          <button onClick=${clearHidden}>Удалить все скрытые</button>
         </div>
         <div class="tabs" role="tablist">
           ${TABS.map(([id, label]) => html`<button key=${id} role="tab" aria-selected=${tab === id}
             onClick=${() => setTab(id)}>${label}</button>`)}
         </div>
-        ${!data && html`<p class="muted">Загрузка…</p>`}
+        ${!data && tab !== "numbers" && html`<${Pending} error=${loadError} onRetry=${load} />`}
         ${data && tab === "chat" && html`
           <p class="muted">Работают только в этом чате.</p>
           <${NoteList} scope="chat" ownerId=${chat.id} initial=${data.chat} onError=${onError} />`}
@@ -137,7 +151,7 @@ export function Notes({ chat, showHidden, onShowHidden, onClearHidden, onEditNum
           <p class="muted">Заметка персонажа работает во всех чатах, где он участвует.</p>
           ${data.characters.length === 0 && html`<p class="muted">В чате нет персонажей.</p>`}
           ${data.characters.map((c) => html`<section key=${c.character_id} class="note-owner">
-            <h2>${c.name}${c.is_me ? " (это я)" : ""}</h2>
+            <h3>${c.name}${c.is_me ? " (это я)" : ""}</h3>
             <${NoteList} scope="character" ownerId=${c.character_id} initial=${c.notes} onError=${onError} />
           </section>`)}`}
         ${data && tab === "global" && html`
@@ -161,8 +175,11 @@ function AttachedNote({ note, onChanged, onError }) {
   const [text, setText] = useState(note.text);
   useEffect(() => setText(note.text), [note.id, note.text]);
   const save = (patch) => api.put(`/message-notes/${note.id}`, patch).then(onChanged).catch((e) => onError(e.message));
-  const remove = () => confirm("Удалить заметку?")
-    && api.del(`/message-notes/${note.id}`).then(onChanged).catch((e) => onError(e.message));
+  const remove = async () => {
+    if (await ask("Удалить заметку?", { ok: "Удалить", danger: true })) {
+      api.del(`/message-notes/${note.id}`).then(onChanged).catch((e) => onError(e.message));
+    }
+  };
   return html`<div class=${"attached-note " + note.kind} data-slot="attached-note">
     <textarea rows="2" value=${text} aria-label="Заметка" onInput=${(e) => setText(e.target.value)}
       onBlur=${() => text !== note.text && save({ text })}></textarea>
@@ -171,7 +188,7 @@ function AttachedNote({ note, onChanged, onError }) {
       <${KindSelect} value=${note.kind} onChange=${(kind) => save({ kind })} />
       ${note.title && html`<span class="muted">${note.title}</span>`}
       <span class="spacer"></span>
-      <button title="Удалить заметку" onClick=${remove}>🗑</button>
+      <${IconButton} icon="trash-2" label="Удалить заметку" onClick=${remove} />
     </div>
   </div>`;
 }
@@ -184,7 +201,7 @@ function NewNote({ messageId, chatId, hasNotes, onChanged, onError }) {
     .then(() => { setText(""); onChanged(); }).catch((e) => onError(e.message));
   return html`<div class="attached-note new">
     <textarea rows="2" value=${text}
-      placeholder=${hasNotes ? "Ещё одна заметка…" : "Нет заметки. Напишите, чтобы добавить"}
+      placeholder=${hasNotes ? "Ещё одна заметка" : "Новая заметка"}
       aria-label="Новая заметка" onInput=${(e) => setText(e.target.value)}></textarea>
     ${text.trim() && html`<div class="row"><${RoleSelect} value=${role} onChange=${setRole} />
       <${KindSelect} value=${kind} onChange=${setKind} />
@@ -200,6 +217,7 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
   const [commonKind, setCommonKind] = useState("visible");
   const load = () => api.post(`/chats/${chatId}/message-notes/by-numbers`, { numbers })
     .then((d) => setItems(d.items)).catch((e) => { onError(e.message); onClose(); });
+  useEscape(onClose);
   useEffect(() => { load(); }, [chatId, numbers]);
   const changed = () => { load(); onChanged(); };
 
@@ -211,11 +229,11 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
 
   const folded = items && items.length > COLLAPSE_FROM;
   return html`
-    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="overlay" ...${backdrop(onClose)}>
       <div class="dialog wide" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заметки по номерам">
         <div class="side-head"><strong>Заметки у сообщений ${numbers}</strong><span class="spacer"></span>
-          <button onClick=${onClose} title="Закрыть">✕</button></div>
-        ${!items && html`<p class="muted">Загрузка…</p>`}
+          <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
+        ${!items && html`<${Pending} />`}
         ${items && html`
           <details class="common-note">
             <summary>Одна заметка на все выбранные (${items.length})</summary>
@@ -226,7 +244,7 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
           </details>
           <div class="row">
             <button onClick=${() => kindForAll("visible")}>Все заметки видимыми</button>
-            <button onClick=${() => kindForAll("hidden")}>Все заметки невидимыми</button>
+            <button onClick=${() => kindForAll("hidden")}>Все заметки скрытыми</button>
           </div>
           <ul class="numbered">
             ${items.map((item) => html`<li key=${item.message.id} data-slot="numbered-message">
@@ -235,7 +253,7 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
                   <span class="msg-num">#${item.number}</span>
                   <strong>${item.message.name || item.message.role}</strong>
                   <span class="muted"> ${item.message.content.slice(0, 80)}</span>
-                  ${item.notes.length ? html`<span class="badge">📝 ${item.notes.length}</span>`
+                  ${item.notes.length ? html`<span class="badge"><${Icon} name="notebook-pen" /> ${item.notes.length}</span>`
                     : html`<span class="badge muted">нет заметки</span>`}
                 </summary>
                 <div class="body">${item.message.content}</div>
@@ -249,7 +267,7 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
     </div>`;
 }
 
-// The drop-down of one message (📝 or "ещё N"): every note of it, to read, switch, delete or add.
+// The drop-down of one message (its notes button or "ещё N"): every note of it, to read, switch, delete or add.
 export function MessageNotes({ chatId, message, shown, onShown, onClose, onChanged, onError }) {
   const [notes, setNotes] = useState(null);
   const number = String(message.depth + 1);
@@ -259,22 +277,23 @@ export function MessageNotes({ chatId, message, shown, onShown, onClose, onChang
   const changed = () => { load(); onChanged(); };
   const kindForAll = (kind) => api.post(`/chats/${chatId}/message-notes/kind-by-numbers`, { numbers: number, kind })
     .then(changed).catch((e) => onError(e.message));
+  useEscape(onClose);
 
   return html`
-    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="overlay" ...${backdrop(onClose)}>
       <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заметки сообщения">
         <div class="side-head"><strong>Заметки сообщения #${number}</strong><span class="spacer"></span>
-          <button onClick=${onClose} title="Закрыть">✕</button></div>
+          <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         <p class="muted message-preview">${message.content.slice(0, 200)}</p>
-        ${!notes && html`<p class="muted">Загрузка…</p>`}
+        ${!notes && html`<${Pending} />`}
         ${notes && html`
           <div class="row">
             <label><input type="checkbox" checked=${shown} onChange=${(e) => onShown(e.target.checked)} />
-              показывать все заметки возле сообщения, и невидимые тоже</label>
+              показывать все заметки возле сообщения, и скрытые тоже</label>
           </div>
           ${notes.length > 1 && html`<div class="row">
             <button onClick=${() => kindForAll("visible")}>Все видимыми</button>
-            <button onClick=${() => kindForAll("hidden")}>Все невидимыми</button>
+            <button onClick=${() => kindForAll("hidden")}>Все скрытыми</button>
           </div>`}
           ${notes.map((n) => html`<${AttachedNote} key=${n.id} note=${n} onChanged=${changed} onError=${onError} />`)}
           <${NewNote} messageId=${message.id} chatId=${chatId} hasNotes=${notes.length > 0}

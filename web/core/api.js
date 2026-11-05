@@ -1,4 +1,4 @@
-// HTTP client for the Tavern API. All calls return parsed JSON or throw ApiError.
+// HTTP client for the White House API. All calls return parsed JSON or throw ApiError.
 
 export class ApiError extends Error {
   constructor(status, code, message, details) {

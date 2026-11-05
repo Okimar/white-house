@@ -6,8 +6,19 @@
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { money, sumLine, tokens, spendingChanged } from "../core/spending.js";
+import { Icon, IconButton } from "./Icon.js";
+import { Pending } from "./State.js";
+import { notify } from "../core/notify.js";
 
 const PLACES = [["message", "под каждым сообщением"], ["chat", "за чат"], ["day", "за сегодня"], ["month", "за месяц"]];
+
+function requestWord(n) {
+  const last = n % 10;
+  const two = n % 100;
+  if (last === 1 && two !== 11) return "запрос";
+  if (last >= 2 && last <= 4 && (two < 12 || two > 14)) return "запроса";
+  return "запросов";
+}
 
 function limitText(limit, settings) {
   return `${limit} ${settings.currency.code || "$"}`;
@@ -42,17 +53,21 @@ export function SpendingSettings({ onError }) {
   const [prices, setPrices] = useState([]);
   const [report, setReport] = useState(null);
   const [dirty, setDirty] = useState(false);
+  const [raw, setRaw] = useState({}); // the text of a number field while it is typed: «0.» and «0,5» must survive
+  const [loadError, setLoadError] = useState("");
 
   const load = () => {
+    setLoadError("");
     api.get("/spending/settings").then((s) => {
       setSettings(s);
       setPrices(Object.entries(s.prices).map(([model, p]) => ({ model, in: p.in, out: p.out })));
+      setRaw({});
       setDirty(false);
-    }).catch((e) => onError(e.message));
+    }).catch((e) => setLoadError(e.message));
     api.get("/spending/report").then(setReport).catch((e) => onError(e.message));
   };
   useEffect(load, []);
-  if (!settings) return html`<p class="muted">Загрузка…</p>`;
+  if (!settings) return html`<${Pending} error=${loadError} onRetry=${load} />`;
 
   const change = (patch) => { setSettings({ ...settings, ...patch }); setDirty(true); };
   const setPrice = (i, patch) => { setPrices(prices.map((p, j) => (j === i ? { ...p, ...patch } : p))); setDirty(true); };
@@ -62,6 +77,10 @@ export function SpendingSettings({ onError }) {
     setDirty(true);
   };
   const num = (value) => Math.max(0, parseFloat(String(value).replace(",", ".")) || 0);
+  // A decimal field that keeps what was typed; `apply` gets the number.
+  const decimal = (key, current, label, apply, extra = {}) => html`<input class="num" type="text" inputmode="decimal"
+    aria-label=${label} value=${raw[key] ?? (current || "")} ...${extra}
+    onInput=${(e) => { setRaw({ ...raw, [key]: e.target.value }); apply(num(e.target.value)); }} />`;
   const save = async () => {
     const own = {};
     for (const p of prices) if (p.model.trim()) own[p.model.trim()] = { in: num(p.in), out: num(p.out) };
@@ -69,13 +88,14 @@ export function SpendingSettings({ onError }) {
       await api.put("/spending/settings", { ...settings, prices: own });
       load();
       spendingChanged();
+      notify("Сохранено", "ok");
     } catch (err) { onError(err.message); }
   };
   const cur = settings.currency.code || "$";
 
   return html`
     <section class="spending stack" data-slot="spending-settings">
-      <p class="muted">Расход считается всегда; галочки решают только, где его показывать.</p>
+      <p class="hint">Расход считается всегда; галочки решают только, где его показывать.</p>
       <h3>Где показывать</h3>
       <div class="row">
         ${PLACES.map(([id, label]) => html`<label key=${id}><input type="checkbox" checked=${settings.show[id]}
@@ -88,18 +108,17 @@ export function SpendingSettings({ onError }) {
       <div class="row">
         <input class="num" value=${settings.currency.code} placeholder="$" aria-label="Своя валюта" maxlength="8"
           onInput=${(e) => change({ currency: { ...settings.currency, code: e.target.value } })} />
-        <label>за 1 $ <input class="num" type="number" min="0" step="any" value=${settings.currency.rate || ""}
-          aria-label="Курс: сколько за доллар" disabled=${!settings.currency.code}
-          onInput=${(e) => change({ currency: { ...settings.currency, rate: num(e.target.value) } })} /></label>
-        <span class="muted">Пусто — в долларах. Сервисы берут доллары; курс вы пишете сами.</span>
+        <label>за 1 $ ${decimal("rate", settings.currency.rate, "Курс: сколько за доллар",
+          (rate) => change({ currency: { ...settings.currency, rate } }), { disabled: !settings.currency.code })}</label>
       </div>
+      <p class="hint">Пусто — в долларах. Сервисы берут доллары; курс вы пишете сами.</p>
 
       <h3>Лимит</h3>
       <div class="row">
-        <label>в день <input class="num" type="number" min="0" step="any" value=${settings.limits.day || ""}
-          placeholder="нет" onInput=${(e) => change({ limits: { ...settings.limits, day: num(e.target.value) } })} /> ${cur}</label>
-        <label>в месяц <input class="num" type="number" min="0" step="any" value=${settings.limits.month || ""}
-          placeholder="нет" onInput=${(e) => change({ limits: { ...settings.limits, month: num(e.target.value) } })} /> ${cur}</label>
+        <label>В день, ${cur} ${decimal("day", settings.limits.day, "Лимит в день",
+          (day) => change({ limits: { ...settings.limits, day } }), { placeholder: "нет" })}</label>
+        <label>В месяц, ${cur} ${decimal("month", settings.limits.month, "Лимит в месяц",
+          (month) => change({ limits: { ...settings.limits, month } }), { placeholder: "нет" })}</label>
         <select value=${settings.on_limit} aria-label="Что делать у лимита"
           onChange=${(e) => change({ on_limit: e.target.value })}>
           <option value="warn">только предупреждать</option>
@@ -107,36 +126,37 @@ export function SpendingSettings({ onError }) {
         </select>
       </div>
 
-      <h3>Свои цены <span class="muted">(долларов за миллион токенов; важнее цены сервиса)</span></h3>
+      <h3>Свои цены</h3>
+      <p class="hint">Долларов за миллион токенов. Своя цена важнее цены сервиса.</p>
       <ul class="list">
         ${prices.map((p, i) => html`<li key=${i} class="row">
           <input value=${p.model} placeholder="модель" aria-label="Модель" onInput=${(e) => setPrice(i, { model: e.target.value })} />
-          <label>запрос $<input class="num" type="number" min="0" step="any" value=${p.in}
+          <label>Запрос, $ <input class="num" type="text" inputmode="decimal" value=${p.in}
             onInput=${(e) => setPrice(i, { in: e.target.value })} /></label>
-          <label>ответ $<input class="num" type="number" min="0" step="any" value=${p.out}
+          <label>Ответ, $ <input class="num" type="text" inputmode="decimal" value=${p.out}
             onInput=${(e) => setPrice(i, { out: e.target.value })} /></label>
-          <button onClick=${() => { setPrices(prices.filter((_, j) => j !== i)); setDirty(true); }} aria-label="Убрать цену">✕</button>
+          <${IconButton} icon="trash-2" label="Убрать цену" onClick=${() => { setPrices(prices.filter((_, j) => j !== i)); setDirty(true); }} />
         </li>`)}
       </ul>
       <div class="row">
-        <button onClick=${() => { setPrices([...prices, { model: "", in: 0, out: 0 }]); setDirty(true); }}>＋ Цена</button>
+        <button onClick=${() => { setPrices([...prices, { model: "", in: 0, out: 0 }]); setDirty(true); }}><${Icon} name="plus" /> Цена</button>
         <span class="spacer"></span>
         <button class="primary" disabled=${!dirty} onClick=${save}>Сохранить</button>
       </div>
 
       ${report && html`
-        <h3>За последний месяц <span class="muted">(с ${report.since})</span></h3>
+        <h3>За последний месяц</h3>
+        <p class="hint">С ${report.since}</p>
         ${!report.models.length && html`<p class="muted">Запросов пока не было.</p>`}
         ${report.models.length > 0 && html`<div class="table-wrap"><table class="spend-table" data-slot="spending-report">
-          <thead><tr><th>Модель</th><th>Запросов</th><th>Токены ↑ / ↓</th><th>Стоимость</th><th>Цена за 1M</th><th></th></tr></thead>
+          <thead><tr><th>Модель</th><th>Запросов</th><th>Токены (запрос / ответ)</th><th>Стоимость</th><th>Цена за 1M</th><th></th></tr></thead>
           <tbody>${report.models.map((r) => html`<tr key=${r.connection_id + r.model}>
             <td>${r.model || "—"}<div class="muted">${r.connection_name}</div></td>
             <td>${r.requests}</td>
             <td>${tokens(r.prompt_tokens)} / ${tokens(r.completion_tokens)}</td>
-            <td>${money(r.cost, settings)}${r.unpriced ? html`<span class="muted" title="Запросы без известной цены"> +${r.unpriced}?</span>` : ""}</td>
+            <td>${money(r.cost, settings)}${r.unpriced ? html`<div class="muted">без цены: ${r.unpriced} ${requestWord(r.unpriced)}</div>` : ""}</td>
             <td>${priceText(r.price)}</td>
-            <td>${r.price.source !== "own" && html`<button onClick=${() => ownPrice(r)}
-              title="Указать для этой модели свою цену">своя</button>`}</td>
+            <td>${r.price.source !== "own" && html`<button onClick=${() => ownPrice(r)}>Своя цена</button>`}</td>
           </tr>`)}</tbody>
         </table></div>`}
         ${(report.plugins || []).length > 0 && html`<h3>Дополнения</h3>
@@ -147,7 +167,7 @@ export function SpendingSettings({ onError }) {
         </ul>`}
         ${report.assistant && html`<h3>Помощник</h3>
         <ul class="list spend-plugins" data-slot="spending-assistant">
-          <li class="row"><span>🪄 Помощник</span>
+          <li class="row"><span>Помощник</span>
             <span class="muted">запросов: ${report.assistant.requests}</span><span class="spacer"></span>
             <span class="muted">${sumLine(report.assistant, settings)}</span></li>
         </ul>`}

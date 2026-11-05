@@ -8,6 +8,11 @@
 // - PickVariants: the window that shows every version of a reply side by side ("pick" mode).
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
+import { Icon, IconButton } from "./Icon.js";
+import { ask } from "./Dialogs.js";
+import { Pending, EmptyNote } from "./State.js";
+import { notify } from "../core/notify.js";
+import { backdrop, useEscape } from "../core/keys.js";
 
 const PARTS = [["connection", "подключение"], ["model", "модель"], ["params", "настройки"], ["preset", "пресет"]];
 const REASONS = [
@@ -16,13 +21,13 @@ const REASONS = [
 ];
 
 export function useProfiles(onError) {
-  const [state, setState] = useState({ profiles: [], active: null });
-  const reload = () => api.get("/profiles").then(setState).catch((e) => onError(e.message));
+  const [state, setState] = useState({ profiles: [], active: null, loaded: false });
+  const reload = () => api.get("/profiles").then((d) => setState({ ...d, loaded: true })).catch((e) => onError(e.message));
   useEffect(() => { reload(); }, []);
   const apply = async (id) => {
     try {
       const d = await api.post(`/profiles/${id}/apply`, {});
-      setState({ profiles: d.profiles, active: d.active });
+      setState({ profiles: d.profiles, active: d.active, loaded: true });
       return d.connection;
     } catch (err) { onError(err.message); return null; }
   };
@@ -35,13 +40,13 @@ export function ProfileSwitch({ onChanged, onError }) {
   return html`<select class="profile-switch" data-slot="profile-switch" value=${active || ""}
     aria-label="Профиль подключения" title="Профиль подключения: переключает всё сразу"
     onChange=${async (e) => { if (e.target.value && await apply(e.target.value)) onChanged(); }}>
-    ${!active && html`<option value="">профиль…</option>`}
+    ${!active && html`<option value="">Выберите профиль</option>`}
     ${profiles.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
   </select>`;
 }
 
 export function Profiles({ onApplied, onError }) {
-  const { profiles, active, reload, apply } = useProfiles(onError);
+  const { profiles, active, loaded, reload, apply } = useProfiles(onError);
   const [name, setName] = useState("");
   const [parts, setParts] = useState({ connection: true, model: true, params: true, preset: true });
 
@@ -51,26 +56,32 @@ export function Profiles({ onApplied, onError }) {
       await api.post("/profiles", { name, parts });
       setName("");
       reload();
+      notify("Профиль сохранён", "ok");
     } catch (err) { onError(err.message); }
   };
   const recapture = async (p) => {
-    if (!confirm(`Записать в «${p.name}» то, что выбрано сейчас?`)) return;
-    await api.put(`/profiles/${p.id}`, { recapture: true }).catch((e) => onError(e.message));
+    if (!await ask(`Записать в «${p.name}» то, что выбрано сейчас?`, { ok: "Записать" })) return;
+    const saved = await api.put(`/profiles/${p.id}`, { recapture: true }).then(() => true).catch((e) => { onError(e.message); return false; });
     reload();
+    if (saved) notify("Профиль обновлён", "ok");
   };
   const toggle = async (p, part) => {
     const next = { ...p.parts, [part]: !p.parts[part] };
-    await api.put(`/profiles/${p.id}`, { parts: next }).catch((e) => onError(e.message));
+    const saved = await api.put(`/profiles/${p.id}`, { parts: next }).then(() => true).catch((e) => { onError(e.message); return false; });
     reload();
+    if (saved) notify("Сохранено", "ok");
   };
   const remove = async (p) => {
-    if (!confirm(`Удалить профиль «${p.name}»?`)) return;
+    if (!await ask(`Удалить профиль «${p.name}»?`, { ok: "Удалить", danger: true })) return;
     await api.del(`/profiles/${p.id}`).catch((e) => onError(e.message));
     reload();
   };
 
   return html`
-    <h3>Профили <span class="muted">(переключают всё одним нажатием)</span></h3>
+    <h3>Профили</h3>
+    <p class="hint">Профиль переключает подключение, модель, настройки и пресет одним нажатием.</p>
+    ${loaded && profiles.length === 0 && html`<${EmptyNote} title="Профилей пока нет"
+      hint="Выберите подключение, модель и пресет, дайте название и сохраните текущее как профиль." />`}
     <ul class="list profiles" data-slot="profiles">
       ${profiles.map((p) => html`<li key=${p.id} class=${"profile-row" + (p.id === active ? " active" : "")}>
         <button class=${p.id === active ? "primary" : ""} onClick=${async () => { if (await apply(p.id)) onApplied(); }}
@@ -78,8 +89,8 @@ export function Profiles({ onApplied, onError }) {
         ${PARTS.map(([k, label]) => html`<label key=${k}><input type="checkbox" checked=${p.parts[k]}
           onChange=${() => toggle(p, k)} />${label}</label>`)}
         <span class="spacer"></span>
-        <button onClick=${() => recapture(p)} title="Записать в профиль то, что выбрано сейчас">⟳</button>
-        <button onClick=${() => remove(p)} aria-label="Удалить профиль">✕</button>
+        <${IconButton} icon="refresh-cw" label="Записать в профиль то, что выбрано сейчас" onClick=${() => recapture(p)} />
+        <${IconButton} icon="trash-2" label="Удалить профиль" onClick=${() => remove(p)} />
       </li>`)}
     </ul>
     <form class="row" onSubmit=${save}>
@@ -107,13 +118,14 @@ export function FallbackSteps({ conn, connections, steps, phrases, onSteps, onPh
   const target = (s) => connections.find((c) => c.id === (s.connection || conn.id)) || conn;
 
   return html`
-    <h3>Если не получилось <span class="muted">(до первого слова ответа)</span></h3>
+    <h3>Если не получилось</h3>
+    <p class="hint">Шаги работают, пока модель ещё ничего не написала.</p>
     <ol class="fallback-steps" data-slot="fallback-steps">
       ${steps.map((s, i) => html`<li key=${i} class="fallback-step stack">
         <div class="row">${REASONS.map(([r, label]) => html`<label key=${r}>
           <input type="checkbox" checked=${s.on.includes(r)} onChange=${() => flip(i, r)} />${label}</label>`)}</div>
         <div class="row">
-          <span class="muted">→</span>
+          <${Icon} name="arrow-right" />
           <select value=${s.connection || ""} aria-label="Подключение" onChange=${(e) => set(i, { connection: e.target.value, key: "" })}>
             <option value="">это же подключение</option>
             ${connections.filter((c) => c.id !== conn.id).map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
@@ -125,19 +137,20 @@ export function FallbackSteps({ conn, connections, steps, phrases, onSteps, onPh
             ${target(s).keys.map((k) => html`<option key=${k.id} value=${k.id}>${k.label || "ключ"}${k.has_proxy ? " · " + k.proxy : ""}</option>`)}
           </select>
           <span class="spacer"></span>
-          <button disabled=${i === 0} onClick=${() => move(i, -1)} aria-label="Выше">↑</button>
-          <button disabled=${i === steps.length - 1} onClick=${() => move(i, 1)} aria-label="Ниже">↓</button>
-          <button onClick=${() => onSteps(steps.filter((_, j) => j !== i))} aria-label="Убрать шаг">✕</button>
+          <${IconButton} icon="arrow-up" label="Выше" disabled=${i === 0} onClick=${() => move(i, -1)} />
+          <${IconButton} icon="arrow-down" label="Ниже" disabled=${i === steps.length - 1} onClick=${() => move(i, 1)} />
+          <${IconButton} icon="trash-2" label="Удалить шаг" onClick=${() => onSteps(steps.filter((_, j) => j !== i))} />
         </div>
       </li>`)}
     </ol>
-    <button onClick=${() => onSteps([...steps, { on: ["refused"], connection: "", model: "", key: "" }])}>＋ Шаг</button>
+    <button onClick=${() => onSteps([...steps, { on: ["refused"], connection: "", model: "", key: "" }])}><${Icon} name="plus" /> Шаг</button>
     ${steps.some((s) => s.on.includes("refused")) && html`
-      <label class="stack">Фразы отказа: короткий ответ с такой фразой считается отказом (пусто — встроенный список)
-        <textarea rows="3" value=${phraseText} placeholder="по одной на строку"
+      <label class="stack">Фразы отказа
+        <textarea rows="3" value=${phraseText} placeholder="По одной на строку"
           onInput=${(e) => { setPhraseText(e.target.value); onPhrases(e.target.value.split("\n").filter((x) => x.trim())); }} />
       </label>
-      <p class="muted">Пока ждём отказ, короткий ответ появляется не сразу, а целиком: так его можно заменить.</p>`}`;
+      <p class="hint">Короткий ответ с такой фразой считается отказом. Пусто — встроенный список. Пока ждём отказ,
+        короткий ответ появляется не сразу, а целиком: так его можно заменить.</p>`}`;
 }
 
 const MODES = [
@@ -149,12 +162,21 @@ const MODES = [
 export function Parallel({ connections, onError }) {
   const [plan, setPlan] = useState(null);
   const [dirty, setDirty] = useState(false);
-  useEffect(() => { api.get("/parallel").then(setPlan).catch((e) => onError(e.message)); }, []);
-  if (!plan) return null;
+  const [loadError, setLoadError] = useState("");
+  const load = () => {
+    setLoadError("");
+    api.get("/parallel").then(setPlan).catch((e) => setLoadError(e.message));
+  };
+  useEffect(load, []);
+  if (!plan) return html`<h3>Несколько запросов сразу</h3><${Pending} error=${loadError} onRetry=${load} />`;
   const change = (patch) => { setPlan({ ...plan, ...patch }); setDirty(true); };
   const setTarget = (i, patch) => change({ targets: plan.targets.map((t, j) => (j === i ? { ...t, ...patch } : t)) });
   const save = async () => {
-    try { setPlan(await api.put("/parallel", plan)); setDirty(false); } catch (err) { onError(err.message); }
+    try {
+      setPlan(await api.put("/parallel", plan));
+      setDirty(false);
+      notify("Сохранено", "ok");
+    } catch (err) { onError(err.message); }
   };
   const total = plan.targets.reduce((n, t) => n + t.count, 0);
 
@@ -176,11 +198,11 @@ export function Parallel({ connections, onError }) {
             onInput=${(e) => setTarget(i, { model: e.target.value })} />
           <label>×<input type="number" class="num" min="1" max="8" value=${t.count} aria-label="Сколько раз"
             onChange=${(e) => setTarget(i, { count: Math.max(1, parseInt(e.target.value, 10) || 1) })} /></label>
-          <button onClick=${() => change({ targets: plan.targets.filter((_, j) => j !== i) })} aria-label="Убрать">✕</button>
+          <${IconButton} icon="trash-2" label="Убрать запрос" onClick=${() => change({ targets: plan.targets.filter((_, j) => j !== i) })} />
         </li>`)}
       </ul>
       <div class="row">
-        <button onClick=${() => change({ targets: [...plan.targets, { connection: "", model: "", count: 1 }] })}>＋ Запрос</button>
+        <button onClick=${() => change({ targets: [...plan.targets, { connection: "", model: "", count: 1 }] })}><${Icon} name="plus" /> Запрос</button>
         <span class="muted">${total ? `дополнительно: ${total} (до 8)` : "дополнительных запросов нет"}</span>
         <span class="spacer"></span>
         <button class="primary" disabled=${!dirty} onClick=${save}>Сохранить</button>
@@ -191,15 +213,19 @@ export function Parallel({ connections, onError }) {
 
 export function PickVariants({ messageId, onPick, onClose, onError }) {
   const [swipes, setSwipes] = useState(null);
-  useEffect(() => {
-    api.get(`/messages/${messageId}/swipes`).then((d) => setSwipes(d.swipes)).catch((e) => onError(e.message));
-  }, [messageId]);
+  const [loadError, setLoadError] = useState("");
+  useEscape(onClose);
+  const load = () => {
+    setLoadError("");
+    api.get(`/messages/${messageId}/swipes`).then((d) => setSwipes(d.swipes)).catch((e) => setLoadError(e.message));
+  };
+  useEffect(load, [messageId]);
   return html`
-    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="overlay" ...${backdrop(onClose)}>
       <div class="dialog wide" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Выбор ответа">
         <div class="side-head"><strong>Выберите ответ</strong><span class="spacer"></span>
-          <button onClick=${onClose} title="Закрыть">✕</button></div>
-        ${!swipes && html`<p class="muted">Загрузка…</p>`}
+          <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
+        ${!swipes && html`<${Pending} error=${loadError} onRetry=${load} />`}
         <div class="pick-grid" data-slot="pick-variants">
           ${(swipes || []).map((s) => html`<article key=${s.index} class="pick-card stack">
             <header class="muted">${s.meta.via || `Вариант ${s.index + 1}`}</header>

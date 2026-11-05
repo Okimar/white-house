@@ -8,6 +8,7 @@ import { html, useState, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
 import { usePluginUi } from "../core/plugins.js";
+import { Icon, IconButton } from "./Icon.js";
 
 const MAX_IMAGES = 8;
 
@@ -25,7 +26,12 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
     const pictures = images;
     setText("");
     setImages([]);
-    await onSend(value, pictures);
+    const sent = await onSend(value, pictures);
+    // Not sent (network, busy, spending limit, a failed command): nothing typed may be lost.
+    if (sent === false) {
+      setText((current) => current || value);
+      setImages((current) => (current.length ? current : pictures));
+    }
     if (box.current) box.current.focus();
   };
 
@@ -64,34 +70,39 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
 
   return html`
     <form class="composer" data-slot="composer" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
-      <label class="role-pick" title="От кого придут следующие сообщения модели">
-        <span class="muted role-label">Ответ от</span>
-        <select value=${role} aria-label="От кого придут следующие сообщения модели"
-          onChange=${(e) => onRole(e.target.value)}>
-          ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.icon} ${r.label}</option>`)}
-        </select>
-      </label>
       ${images.length > 0 && html`<div class="composer-images" data-slot="composer-images">
         ${images.map((name) => html`<span key=${name} class="composer-image">
           <img src=${"/assets/" + encodeURIComponent(name)} alt="прикреплённая картинка" />
-          <button type="button" aria-label="Убрать картинку" onClick=${() => setImages(images.filter((n) => n !== name))}>✕</button>
+          <${IconButton} icon="x" label="Убрать картинку" onClick=${() => setImages(images.filter((n) => n !== name))} />
         </span>`)}
       </div>`}
-      <button type="button" class="attach" data-slot="attach-button" title="Прикрепить картинку"
-        aria-label="Прикрепить картинку" disabled=${disabled || uploading || images.length >= MAX_IMAGES}
-        onClick=${() => picker.current && picker.current.click()}>${uploading ? "…" : "📎"}</button>
-      ${plugins.composerButtons.map((b, i) => html`<button key=${b.owner + i} type="button" class="attach"
-        data-slot="composer-plugin-button" data-plugin=${b.owner} title=${b.title} aria-label=${b.title}
-        disabled=${disabled || running} onClick=${() => b.onClick()}>${b.icon}</button>`)}
-      <input ref=${picker} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
-        onChange=${(e) => { attach(e.target.files); e.target.value = ""; }} />
-      <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
+      <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение" data-slot="composer-input"
         aria-label="Сообщение" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown} onPaste=${onPaste}></textarea>
-      ${running
-        ? html`<button type="button" class="danger" data-slot="stop-button" onClick=${onStop}>Стоп</button>`
-        : html`<button type="submit" class="primary" data-slot="send-button"
-            disabled=${disabled || uploading || (!text.trim() && !images.length)}>Отправить</button>`}
+      <div class="composer-tools">
+        <${IconButton} icon=${uploading ? "loader-circle" : "paperclip"} class="attach" data-slot="attach-button"
+          label="Прикрепить картинку" disabled=${disabled || uploading || images.length >= MAX_IMAGES}
+          onClick=${() => picker.current && picker.current.click()} />
+        ${plugins.composerButtons.map((b, i) => html`<button key=${b.owner + i} type="button" class="attach icon-btn"
+          data-slot="composer-plugin-button" data-plugin=${b.owner} title=${b.title} aria-label=${b.title}
+          disabled=${disabled || running} onClick=${() => b.onClick()}>${b.icon}</button>`)}
+        <input ref=${picker} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
+          onChange=${(e) => { attach(e.target.files); e.target.value = ""; }} />
+        <label class="role-pick" title="От чьего имени модель пишет следующее сообщение">
+          <span class="muted role-label">Ответ от</span>
+          <select value=${role} aria-label="От чьего имени модель пишет следующее сообщение"
+            onChange=${(e) => onRole(e.target.value)}>
+            ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
+          </select>
+        </label>
+        <span class="spacer"></span>
+        ${running
+          ? html`<button type="button" class="danger" data-slot="stop-button" onClick=${onStop}>
+              <${Icon} name="square" /> Стоп</button>`
+          : html`<button type="submit" class="primary" data-slot="send-button"
+              disabled=${disabled || uploading || (!text.trim() && !images.length)}>
+              <${Icon} name="send-horizontal" /> Отправить</button>`}
+      </div>
     </form>
   `;
 }

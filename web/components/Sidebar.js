@@ -1,9 +1,15 @@
-// Left panel: characters (import a card from a JSON file), lorebooks and the chats.
+// Left panel: chats, characters (import a card from a JSON or PNG file) and lorebooks.
+// On a phone it is a sheet under the top bar showing one section (`section`), chosen by the small icons
+// in the bar. A press on a character only opens its list of actions: a new chat is an explicit choice.
 import { html, useRef } from "../vendor/preact-htm.mjs";
 import { LorebookShelf } from "./Lorebooks.js";
+import { IconButton } from "./Icon.js";
+import { MenuButton, openMenu } from "./Menu.js";
+import { ask, askText } from "./Dialogs.js";
+import { EmptyNote } from "./State.js";
 
 export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat, onRenameChat,
-  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, open, onClose,
+  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, section,
   settings, onError }) {
   const fileInput = useRef(null);
   const chatFileInput = useRef(null);
@@ -14,59 +20,76 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
     if (file) await onImport(file);
   };
 
+  const characterActions = (c) => [
+    { icon: "message-square-plus", label: "Новый чат", onClick: () => onNewChat(c.id) },
+    { icon: "pencil", label: "Карточка персонажа", onClick: () => onEditCharacter(c.id) },
+    { icon: "download", label: "Скачать (PNG)", onClick: () => onExportCharacter(c.id) },
+    { icon: "trash-2", label: "Удалить", danger: true, onClick: async () => {
+      if (await ask(`Удалить персонажа «${c.name}»?`, { ok: "Удалить", danger: true, hint: "Чаты останутся." })) onDeleteCharacter(c.id);
+    } },
+  ];
+
+  const chatActions = (c) => [
+    { icon: "pencil", label: "Переименовать", onClick: async () => {
+      const title = ((await askText("Название чата", { value: c.title })) || "").trim();
+      if (title && title !== c.title) onRenameChat(c.id, title);
+    } },
+    { icon: "download", label: "Скачать", href: `/api/chats/${c.id}/export.jsonl` },
+    { icon: "trash-2", label: "Удалить", danger: true, onClick: async () => {
+      if (await ask(`Удалить чат «${c.title}»?`, { ok: "Удалить", danger: true })) onDeleteChat(c.id);
+    } },
+  ];
+
   return html`
-    <aside class=${"sidebar" + (open ? " open" : "")} data-slot="sidebar">
-      <div class="side-head">
-        <strong>Tavern</strong>
+    <aside class="sidebar" data-slot="sidebar" data-section=${section || ""}>
+      <div class="side-head only-wide">
+        <strong class="brand">White House</strong>
         <span class="spacer"></span>
-        <button title="Помощник" data-slot="assistant-button" onClick=${onAssistant}>🪄</button>
-        <button title="Настройки" onClick=${onSettings}>⚙</button>
-        <button class="only-mobile" title="Закрыть" onClick=${onClose}>✕</button>
+        <${IconButton} icon="wand" label="Помощник" data-slot="assistant-button" onClick=${onAssistant} />
+        <${IconButton} icon="settings" label="Настройки" onClick=${onSettings} />
       </div>
 
-      <h2>Персонажи</h2>
-      <ul class="list">
-        ${characters.map((c) => html`
-          <li key=${c.id}>
-            <button class="item" onClick=${() => onNewChat(c.id)} title="Начать новый чат">
-              ${c.name}
-            </button>
-            <button title="Карточка персонажа" onClick=${() => onEditCharacter(c.id)}>✎</button>
-            <button title="Экспортировать PNG" onClick=${() => onExportCharacter(c.id)}>↓</button>
-            <button title="Удалить персонажа"
-              onClick=${() => confirm(`Удалить персонажа «${c.name}»? Чаты останутся.`) && onDeleteCharacter(c.id)}>🗑</button>
-          </li>`)}
-      </ul>
-      <input ref=${fileInput} type="file" accept=".json,.png,application/json,image/png" hidden onChange=${pickFile} />
-      <input ref=${chatFileInput} type="file" accept=".jsonl,application/x-ndjson" hidden
-        onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
-      <div class="row">
-        <button onClick=${() => onEditCharacter(null)}>+ Персонаж</button>
-        <button onClick=${() => fileInput.current.click()}>Импорт карточки</button>
-        <button onClick=${() => chatFileInput.current.click()}>Импорт чата</button>
-        ${chatId && html`<a class="button" href=${`/api/chats/${chatId}/export.jsonl`}
-          title="Скачать открытый чат (JSONL)">Экспорт чата</a>`}
-        <button onClick=${() => onNewChat(null)}>Чат без персонажа</button>
-      </div>
+      <section class="side-section" data-name="chats" data-slot="chats">
+        <div class="section-head">
+          <h2>Чаты</h2><span class="spacer"></span>
+          <${MenuButton} label="Новый чат или импорт" icon="plus" items=${() => [
+            { icon: "message-square", label: "Чат без персонажа", onClick: () => onNewChat(null) },
+            { icon: "upload", label: "Импорт чата", onClick: () => chatFileInput.current.click() },
+          ]} />
+        </div>
+        <input ref=${chatFileInput} type="file" accept=".jsonl,application/x-ndjson" hidden
+          onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
+        ${chats.length === 0 && html`<${EmptyNote} hint="Чатов пока нет. Новый чат начинается с персонажа: нажмите на него в разделе «Персонажи»." />`}
+        <ul class="list">
+          ${chats.map((c) => html`
+            <li key=${c.id} class=${c.id === chatId ? "active" : ""}>
+              <button class="item" aria-current=${c.id === chatId ? "true" : null} onClick=${() => onOpenChat(c.id)}
+                title=${"Изменён: " + new Date(c.updated_at).toLocaleString("ru-RU")}>${c.title}</button>
+              <${MenuButton} label=${"Действия с чатом " + c.title} data-slot="chat-rename" items=${() => chatActions(c)} />
+            </li>`)}
+        </ul>
+      </section>
 
-      <${LorebookShelf} settings=${settings} onError=${onError} />
+      <section class="side-section" data-name="characters" data-slot="characters">
+        <div class="section-head">
+          <h2>Персонажи</h2><span class="spacer"></span>
+          <${IconButton} icon="plus" label="Новый персонаж" onClick=${() => onEditCharacter(null)} />
+          <${IconButton} icon="upload" label="Импорт карточки" onClick=${() => fileInput.current.click()} />
+        </div>
+        <input ref=${fileInput} type="file" accept=".json,.png,application/json,image/png" hidden onChange=${pickFile} />
+        ${characters.length === 0 && html`<${EmptyNote} hint="Создайте персонажа или загрузите карточку, чтобы начать чат." />`}
+        <ul class="list">
+          ${characters.map((c) => html`
+            <li key=${c.id}>
+              <button class="item" aria-haspopup="menu" title="Действия с персонажем"
+                onClick=${(e) => openMenu(e.currentTarget, characterActions(c))}>${c.name}</button>
+            </li>`)}
+        </ul>
+      </section>
 
-      <h2>Чаты</h2>
-      <ul class="list">
-        ${chats.length === 0 && html`<li class="muted">Чатов пока нет</li>`}
-        ${chats.map((c) => html`
-          <li key=${c.id} class=${c.id === chatId ? "active" : ""}>
-            <button class="item" onClick=${() => onOpenChat(c.id)}
-              title=${"Изменён: " + new Date(c.updated_at).toLocaleString()}>${c.title}</button>
-            <button title="Переименовать чат" data-slot="chat-rename" onClick=${() => {
-              const title = (prompt("Название чата", c.title) || "").trim();
-              if (title && title !== c.title) onRenameChat(c.id, title);
-            }}>✎</button>
-            <a class="button" href=${`/api/chats/${c.id}/export.jsonl`} title="Скачать чат (JSONL)">↓</a>
-            <button title="Удалить чат"
-              onClick=${() => confirm(`Удалить чат «${c.title}»?`) && onDeleteChat(c.id)}>🗑</button>
-          </li>`)}
-      </ul>
+      <section class="side-section" data-name="lorebooks">
+        <${LorebookShelf} settings=${settings} onError=${onError} />
+      </section>
     </aside>
   `;
 }

@@ -6,6 +6,11 @@
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { money } from "../core/spending.js";
+import { notify } from "../core/notify.js";
+import { backdrop, useEscape } from "../core/keys.js";
+import { Icon, IconButton } from "./Icon.js";
+import { ask } from "./Dialogs.js";
+import { Pending, EmptyNote, useLoad } from "./State.js";
 
 const USES = {
   commands: "добавляет команды в чат (/…)",
@@ -20,14 +25,15 @@ const USES = {
 const SOURCE = { builtin: "встроенное", folder: "папка", file: "из файла", github: "GitHub" };
 
 function ApproveDialog({ plugin, onYes, onNo }) {
-  return html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && onNo()}>
+  useEscape(onNo);
+  return html`<div class="overlay" ...${backdrop(onNo)}>
     <div class="dialog" data-slot="dialog" role="alertdialog" aria-modal="true" aria-label="Включить дополнение">
-      <h2>Включить «${plugin.name}»?</h2>
+      <p class="ask-text">Включить «${plugin.name}»?</p>
       <p class="muted">${plugin.author ? `Автор: ${plugin.author}. ` : ""}Версия ${plugin.version}.
         ${plugin.source.url ? html` Источник: ${plugin.source.url}` : ""}</p>
       ${plugin.uses.length > 0 && html`<p>Оно заявляет о себе, что:</p>
         <ul>${plugin.uses.map((u) => html`<li key=${u}>${USES[u] || u}</li>`)}</ul>`}
-      <p class="warn" data-slot="plugin-warning">⚠ Дополнение получит полный доступ к Tavern и к файлам на этом
+      <p class="warn" data-slot="plugin-warning"><${Icon} name="triangle-alert" /> Дополнение получит полный доступ к White House и к файлам на этом
         устройстве, в том числе к вашим ключам. Список выше — только его слова. Ставьте дополнения
         только из мест, которым доверяете.</p>
       <div class="row">
@@ -43,7 +49,8 @@ let connectionsPromise = null;
 function useConnections() {
   const [list, setList] = useState([]);
   useEffect(() => {
-    connectionsPromise ||= api.get("/connections").then((d) => d.connections).catch(() => []);
+    connectionsPromise ||= api.get("/connections").then((d) => d.connections)
+      .catch((e) => { notify(e.message, "error"); return []; });
     connectionsPromise.then(setList);
     return () => { connectionsPromise = null; };
   }, []);
@@ -63,13 +70,16 @@ function ListField({ field, value, onSave }) {
   const rows = value || [];
   const blank = () => Object.fromEntries(field.fields.map((f) => [f.key, f.default]));
   const put = (i, key, v) => onSave(rows.map((r, j) => (j === i ? { ...r, [key]: v } : r)));
+  const dropRow = async (i) => {
+    if (await ask("Убрать эту строку?", { ok: "Убрать", danger: true })) onSave(rows.filter((_, j) => j !== i));
+  };
   return html`<fieldset class="setting-list" data-slot="plugin-setting-list"><legend>${field.label}</legend>
     ${rows.map((row, i) => html`<div key=${i} class="setting-row">
       ${field.fields.map((f) => html`<${SettingField} key=${f.key} field=${f} value=${row[f.key]}
         onSave=${(v) => put(i, f.key, v)} />`)}
-      <button title="Убрать строку" onClick=${() => confirm("Убрать эту строку?") && onSave(rows.filter((_, j) => j !== i))}>🗑</button>
+      <${IconButton} icon="trash-2" label="Убрать строку" class="danger-text" onClick=${() => dropRow(i)} />
     </div>`)}
-    <button onClick=${() => onSave([...rows, blank()])}>+ Добавить</button>
+    <button onClick=${() => onSave([...rows, blank()])}><${Icon} name="plus" /> Добавить</button>
   </fieldset>`;
 }
 
@@ -141,13 +151,16 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
   const saveAccess = (patch) => run(() => api.put(`/plugins/${plugin.id}/access`, patch));
   const checkUpdate = () => run(async () => setUpdate(await api.get(`/plugins/${plugin.id}/update`)));
   const doUpdate = () => run(async () => { await api.post(`/plugins/${plugin.id}/update`); setUpdate(null); });
-  const remove = () => {
-    if (!confirm(`Удалить дополнение «${plugin.name}»?`)) return;
-    const data = plugin.data_count > 0 && confirm(`Удалить и его данные в чатах (записей: ${plugin.data_count})?`);
+  const remove = async () => {
+    if (!(await ask(`Удалить дополнение «${plugin.name}»?`, { ok: "Удалить", danger: true }))) return;
+    const data = plugin.data_count > 0
+      && await ask(`Удалить и его данные в чатах (записей: ${plugin.data_count})?`,
+        { ok: "Удалить данные", cancel: "Оставить данные", danger: true });
     run(() => api.del(`/plugins/${plugin.id}${data ? "?data=1" : ""}`));
   };
-  const rollback = () => {
-    if (!confirm(`Вернуть прошлую версию «${plugin.name}»? Нынешняя сохранится, к ней можно будет вернуться так же.`)) return;
+  const rollback = async () => {
+    if (!(await ask(`Вернуть прошлую версию «${plugin.name}»?`,
+      { ok: "Вернуть", hint: "Нынешняя сохранится, к ней можно будет вернуться так же." }))) return;
     run(() => api.post(`/plugins/${plugin.id}/rollback`, {}));
   };
   const github = plugin.source.kind === "github";
@@ -156,17 +169,18 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
     <div class="row">
       <label class="plugin-switch"><input type="checkbox" checked=${plugin.enabled} disabled=${busy}
         aria-label=${"Включить " + plugin.name} onChange=${(e) => toggle(e.target.checked)} />
-        <strong>${plugin.name}</strong></label>
+        <strong>${plugin.name}</strong>
+        <span class="muted">${plugin.enabled ? "Включено" : "Выключено"}</span></label>
       <span class="muted">${plugin.version} · ${SOURCE[plugin.source.kind] || plugin.source.kind}
         ${plugin.author ? ` · ${plugin.author}` : ""}</span>
       <span class="spacer"></span>
       <button aria-expanded=${open} onClick=${() => setOpen(!open)}>${open ? "Свернуть" : "Подробнее"}</button>
     </div>
     ${plugin.error && html`<p class="error" data-slot="plugin-error">${plugin.error}</p>`}
-    ${plugin.server_off && plugin.enabled && html`<p class="muted">Запущено ключом --no-plugins: серверная часть не работает.</p>`}
+    ${plugin.server_off && plugin.enabled && html`<p class="muted">White House запущен без дополнений: серверная часть не работает.</p>`}
     ${open && html`<div class="plugin-more">
       ${plugin.description && html`<p>${plugin.description}</p>`}
-      ${plugin.uses.length > 0 && html`<p class="muted">Заявляет: ${plugin.uses.map((u) => USES[u] || u).join("; ")}.</p>`}
+      ${plugin.uses.length > 0 && html`<p class="muted">Заявляет: ${plugin.uses.map((u) => USES[u] || u).join("; ")}</p>`}
       ${plugin.commands.length > 0 && html`<p class="muted">Команды: ${plugin.commands.map((c) => "/" + c).join(", ")}</p>`}
       ${plugin.settings.length > 0 && html`<h3>Настройки</h3>
         <div class="plugin-settings">${plugin.settings.map((f) => html`<div key=${f.key}>
@@ -179,11 +193,11 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
         ${update && (update.update
           ? html`<button class="primary" disabled=${busy} onClick=${doUpdate}>Обновить</button>
               <span class="muted">После обновления дополнение выключится до вашего подтверждения.</span>`
-          : html`<span class="muted">Новее нет.</span>`)}
-        ${plugin.versions > 0 && html`<button disabled=${busy} onClick=${rollback}
-          title=${`Сохранено прошлых версий: ${plugin.versions}`}>Вернуть прошлую версию</button>`}
+          : html`<span class="muted">Новее нет</span>`)}
+        ${plugin.versions > 0 && html`<button disabled=${busy} onClick=${rollback}>
+          Вернуть прошлую версию (${plugin.versions})</button>`}
         <span class="spacer"></span>
-        ${!plugin.builtin && html`<button class="danger" disabled=${busy} onClick=${remove}>Удалить</button>`}
+        ${!plugin.builtin && html`<button class="danger" disabled=${busy} onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>`}
       </div>
     </div>`}
     ${approving && html`<${ApproveDialog} plugin=${plugin} onYes=${approve} onNo=${() => setApproving(false)} />`}
@@ -191,17 +205,16 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
 }
 
 export function Plugins({ onError }) {
-  const [data, setData] = useState(null);
+  const list = useLoad(() => api.get("/plugins"), []);
+  const data = list.data;
   const [spending, setSpending] = useState(null);
   const [url, setUrl] = useState("");
   const [installing, setInstalling] = useState(false);
   const picker = useRef(null);
 
-  const load = () => {
-    api.get("/plugins").then(setData).catch((e) => onError(e.message));
-    api.get("/spending/settings").then(setSpending).catch(() => {});
-  };
-  useEffect(load, []);
+  const loadSpending = () => api.get("/spending/settings").then(setSpending).catch((e) => onError(e.message));
+  const load = () => { list.reload(); loadSpending(); };
+  useEffect(() => { loadSpending(); }, []);
 
   // Installing over an installed plugin asks first, then repeats with replace.
   const install = async (send) => {
@@ -212,8 +225,9 @@ export function Plugins({ onError }) {
       } catch (e) {
         if (e.code !== "plugin_exists") throw e;
         const d = e.details || {};
-        if (!confirm(`Дополнение уже установлено (версия ${d.version} → ${d.new_version}). Заменить? ` +
-          "Оно выключится до вашего подтверждения.")) return;
+        const replace = await ask(`Дополнение уже установлено (версия ${d.version}, новая ${d.new_version}). Заменить?`,
+          { ok: "Заменить", hint: "Оно выключится до вашего подтверждения." });
+        if (!replace) return;
         await send(true);
       }
       setUrl("");
@@ -231,21 +245,24 @@ export function Plugins({ onError }) {
     if (url.trim()) install((replace) => api.post("/plugins/install-url", { url: url.trim(), replace }));
   };
 
-  if (!data) return html`<p class="muted">Загрузка…</p>`;
+  if (!data) return html`<${Pending} error=${list.error} onRetry=${list.reload} />`;
   return html`<section class="plugins" data-slot="plugins">
-    <p class="muted">Дополнения добавляют в Tavern новое: команды, кнопки, свои способы писать ответы.
-      Новое дополнение появляется выключенным. Положить его можно и вручную, папкой в data/plugins.</p>
-    ${data.server_off && html`<p class="warn">Tavern запущен с ключом --no-plugins: дополнения не работают.</p>`}
+    <p class="muted">Дополнения добавляют в White House новое: команды, кнопки, свои способы писать ответы.
+      Новое дополнение появляется выключенным. Положить его можно и вручную, в папку дополнений рядом с вашими данными.</p>
+    ${data.server_off && html`<p class="warn">White House запущен без дополнений: они не работают.</p>`}
     <div class="row">
       <button disabled=${installing} onClick=${() => picker.current && picker.current.click()}>Установить из файла</button>
       <input ref=${picker} type="file" accept=".zip,.tavern-plugin" hidden
         onChange=${(e) => { if (e.target.files[0]) fromFile(e.target.files[0]); e.target.value = ""; }} />
       <form class="row grow" onSubmit=${fromUrl}>
-        <input value=${url} placeholder="https://github.com/автор/дополнение" aria-label="Ссылка на GitHub"
-          onInput=${(e) => setUrl(e.target.value)} />
-        <button type="submit" disabled=${installing || !url.trim()}>${installing ? "Ставлю…" : "Установить по ссылке"}</button>
+        <label class="stack">Ссылка на GitHub
+          <input value=${url} placeholder="https://github.com/автор/дополнение"
+            onInput=${(e) => setUrl(e.target.value)} /></label>
+        <button type="submit" disabled=${installing || !url.trim()}>${installing ? "Устанавливаю…" : "Установить по ссылке"}</button>
       </form>
     </div>
+    ${data.plugins.length === 0 && html`<${EmptyNote} title="Дополнений пока нет"
+      hint="Установите первое из файла или по ссылке на GitHub." />`}
     <ul class="list plugin-list">
       ${data.plugins.map((p) => html`<${PluginCard} key=${p.id} plugin=${p} spending=${spending}
         onChanged=${load} onError=${onError} />`)}
@@ -254,11 +271,11 @@ export function Plugins({ onError }) {
 }
 
 export function PluginAsks({ asks, onError }) {
-  const ask = asks[0];
-  const answer = (allow) => api.post(`/plugins/asks/${ask.id}`, { allow }).catch((e) => onError(e.message));
+  const first = asks[0];
+  const answer = (allow) => api.post(`/plugins/asks/${first.id}`, { allow }).catch((e) => onError(e.message));
   return html`<div class="overlay">
     <div class="dialog" data-slot="plugin-ask" role="alertdialog" aria-modal="true" aria-label="Запрос дополнения">
-      <h2>Дополнение «${ask.name}» хочет обратиться к модели</h2>
+      <p class="ask-text">Дополнение «${first.name}» хочет обратиться к модели</p>
       <p class="muted">Это один запрос за ваш счёт. Спрашивать каждый раз можно перестать в настройках → «Дополнения».
         ${asks.length > 1 ? ` Ждут ответа: ${asks.length}.` : ""}</p>
       <div class="row">

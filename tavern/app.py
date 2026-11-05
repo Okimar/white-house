@@ -38,6 +38,16 @@ from tavern.security import AccessControl
 
 log = logging.getLogger(__name__)
 
+
+class WebFiles(StaticFiles):
+    """The page's own files. Without this a browser keeps old modules after an update and mixes them with
+    new ones; "no-cache" makes it ask first, and an unchanged file still costs only a short answer."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
 # The page may load code, styles, pictures and fonts only from this server. A theme (possibly
 # downloaded from someone else) therefore cannot send chats anywhere or pull in remote scripts.
 CONTENT_SECURITY_POLICY = (
@@ -115,7 +125,7 @@ def create_app(ctx: AppContext) -> Callable[..., Any]:
         routes=[
             Mount("/api", routes=api_routes()),
             *static_api.routes,
-            Mount("/", app=StaticFiles(directory=WEB_DIR, html=True), name="web"),
+            Mount("/", app=WebFiles(directory=WEB_DIR, html=True), name="web"),
         ],
         exception_handlers={AppError: handle_app_error, Exception: handle_unexpected},
     )

@@ -1,0 +1,61 @@
+"""Pure logic of the page, run in Node (skipped where it is missing, like Termux): which buttons of a
+message stay on its panel, and that every icon the page asks for exists (an unknown name draws nothing)."""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+WEB = Path(__file__).resolve().parents[2] / "web"
+NODE = shutil.which("node")
+needs_node = pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+
+
+def run_module(code: str) -> object:
+    result = subprocess.run([NODE, "--input-type=module", "-e", code], capture_output=True, timeout=30, cwd=WEB)
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    return json.loads(result.stdout)
+
+
+def split(available: list[str], options: dict) -> dict:
+    return run_module(
+        'import { splitActions } from "./core/messageActions.js";'
+        f"console.log(JSON.stringify(splitActions({json.dumps(available)}, {json.dumps(options)})))"
+    )
+
+
+@needs_node
+def test_by_default_only_regenerate_stays_on_the_panel() -> None:
+    assert split(["edit", "regenerate", "delete"], {}) == {"bar": ["regenerate"], "menu": ["edit", "delete"]}
+
+
+@needs_node
+def test_always_keeps_everything_on_the_panel() -> None:
+    assert split(["edit", "delete"], {"mode": "always", "pinned": []}) == {"bar": ["edit", "delete"], "menu": []}
+
+
+@needs_node
+def test_pinned_and_status_stay_on_the_panel_in_the_menu_mode() -> None:
+    got = split(["edit", "exclude", "notes", "delete"], {"pinned": ["edit"], "status": ["notes"]})
+    assert got == {"bar": ["edit", "notes"], "menu": ["exclude", "delete"]}
+
+
+@needs_node
+def test_every_icon_named_in_the_page_exists() -> None:
+    known = set(run_module(
+        'import { ICONS } from "./vendor/lucide-icons.mjs"; console.log(JSON.stringify(Object.keys(ICONS)))'
+    ))
+    pattern = re.compile(r'\bicon="([a-z0-9-]+)"|<\$\{Icon\} name="([a-z0-9-]+)"|\bicon: "([a-z0-9-]+)"')
+    used: set[str] = set()
+    for path in WEB.rglob("*.js"):
+        if "vendor" in path.parts or "themes" in path.parts:
+            continue
+        for match in pattern.finditer(path.read_text(encoding="utf-8")):
+            used.add(next(g for g in match.groups() if g))
+    assert used, "the pattern found no icons"
+    assert not sorted(used - known), sorted(used - known)

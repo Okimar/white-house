@@ -1,8 +1,11 @@
 // Settings tab "Шаблоны": instruct templates for connections in text mode. Built-in ones are read-only
-// (make a copy to change one); your own ones are edited field by field with a live preview of a short
+// (duplicate it to change one); your own ones are edited field by field with a live preview of a short
 // sample conversation. Import takes our files and SillyTavern instruct/context files; export gives both.
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
+import { notify } from "../core/notify.js";
+import { Icon } from "./Icon.js";
+import { ask } from "./Dialogs.js";
 
 const FIELDS = [
   ["bos", "В самом начале"], ["story_string", "Обёртка системного текста ({{system}})"],
@@ -33,6 +36,15 @@ export function Templates({ onError }) {
     FIELDS.forEach(([k]) => { out[k] = d[k] || ""; });
     return out;
   };
+  const dirty = Boolean(draft && open && !open.builtin
+    && JSON.stringify(asTemplate(draft)) !== JSON.stringify(asTemplate({ ...open, stopText: (open.stop || []).join("\n") })));
+  // Leaving a template with edits asks first.
+  const discardOk = async () => !dirty || ask("Выбросить несохранённые правки?", { ok: "Выбросить", danger: true });
+  const go = async (id, select) => {
+    if (id === openId) return;
+    if (!(await discardOk())) { if (select) select.value = openId || ""; return; }
+    setOpenId(id);
+  };
 
   // The preview follows the draft as it is typed.
   useEffect(() => {
@@ -48,18 +60,20 @@ export function Templates({ onError }) {
     try {
       await api.put(`/templates/${draft.id}`, asTemplate(draft));
       await reload();
+      notify("Сохранено", "ok");
     } catch (err) { onError(err.message); }
   };
 
   const copy = async () => {
     try {
-      const made = await api.post("/templates", { ...asTemplate(draft), name: draft.name + " (копия)" });
+      const made = await api.post("/templates", { ...asTemplate(draft), name: draft.name + " (дубликат)" });
       await reload();
       setOpenId(made.id);
     } catch (err) { onError(err.message); }
   };
 
   const create = async () => {
+    if (!(await discardOk())) return;
     try {
       const made = await api.post("/templates", { name: "Новый шаблон" });
       await reload();
@@ -68,7 +82,7 @@ export function Templates({ onError }) {
   };
 
   const remove = async () => {
-    if (!confirm(`Удалить шаблон «${draft.name}»?`)) return;
+    if (!(await ask(`Удалить шаблон «${draft.name}»?`, { ok: "Удалить", danger: true }))) return;
     await api.del(`/templates/${draft.id}`).catch((e) => onError(e.message));
     setOpenId(null);
     reload();
@@ -77,7 +91,7 @@ export function Templates({ onError }) {
   const importFile = async (e) => {
     const file = e.target.files[0];
     e.target.value = "";
-    if (!file) return;
+    if (!file || !(await discardOk())) return;
     try {
       const data = JSON.parse(await file.text());
       const into = mergeInto && open && !open.builtin ? `?into=${open.id}` : "";
@@ -92,31 +106,33 @@ export function Templates({ onError }) {
 
   return html`
     <h2>Шаблоны разметки</h2>
-    <p class="muted">Нужны подключениям в режиме «text»: весь разговор уходит в модель одним текстом,
-      обёрнутым в метки, на которых модель училась. «auto» в подключении выбирает шаблон по названию модели.</p>
+    <p class="hint">Нужны подключениям в текстовом режиме: весь разговор уходит в модель одним текстом,
+      обёрнутым в метки, на которых модель училась. Вариант «Автоматически» в подключении выбирает шаблон по названию модели.</p>
     <div class="row">
-      <select value=${openId || ""} aria-label="Шаблон" onChange=${(e) => setOpenId(e.target.value || null)}>
+      <select value=${openId || ""} aria-label="Шаблон" onChange=${(e) => go(e.target.value || null, e.target)}>
         <option value="">— выберите шаблон —</option>
         <optgroup label="Свои">${templates.filter((t) => !t.builtin).map((t) =>
           html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}</optgroup>
         <optgroup label="Встроенные">${templates.filter((t) => t.builtin).map((t) =>
           html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}</optgroup>
       </select>
-      <button onClick=${create}>＋ Новый</button>
-      <button onClick=${() => fileInput.current.click()} title="Наш файл или файлы SillyTavern (instruct, context)">Импорт</button>
+      <button onClick=${create}><${Icon} name="plus" /> Новый</button>
+      <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
       ${open && !open.builtin && html`<label><input type="checkbox" checked=${mergeInto}
         onChange=${(e) => setMergeInto(e.target.checked)} /> добавить файл ST в этот шаблон</label>`}
       <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${importFile} />
     </div>
+    <p class="hint">Импорт принимает наш файл и файлы SillyTavern (instruct, context).</p>
+    ${!draft && html`<p class="muted">Выберите шаблон, чтобы посмотреть его или изменить.</p>`}
     ${draft && html`
       <section class="template-editor stack" data-slot="template-editor">
         <div class="row">
           <input value=${draft.name} disabled=${readOnly} aria-label="Название шаблона" onInput=${set("name")} />
           ${readOnly && html`<span class="badge">встроенный</span>`}
           <span class="spacer"></span>
-          <a class="button" href=${`/api/templates/${draft.id}/export`} title="Файл Таверны">↓</a>
-          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-instruct`}>↓ ST instruct</a>
-          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-context`}>↓ ST context</a>
+          <a class="button" href=${`/api/templates/${draft.id}/export`}><${Icon} name="download" /> Файл White House</a>
+          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-instruct`}><${Icon} name="download" /> ST instruct</a>
+          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-context`}><${Icon} name="download" /> ST context</a>
         </div>
         <label class="stack">Названия моделей для «auto» (регулярное выражение)
           <input value=${draft.models} disabled=${readOnly} onInput=${set("models")} class="mono" /></label>
@@ -131,9 +147,11 @@ export function Templates({ onError }) {
           у модели нет роли «система» — отправлять системный текст как сообщение пользователя</label>
         <div class="row">
           ${readOnly
-            ? html`<button class="primary" onClick=${copy}>Сделать копию для правки</button>`
-            : html`<button class="primary" onClick=${save}>Сохранить</button>
-                   <button onClick=${copy}>Копия</button><button onClick=${remove}>Удалить</button>`}
+            ? html`<button class="primary" onClick=${copy}>Дублировать для правки</button>`
+            : html`<button class="primary" disabled=${!dirty} onClick=${save}>Сохранить</button>
+                   <button onClick=${copy}><${Icon} name="copy" /> Дублировать</button>
+                   <button class="danger-text" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
+                   ${dirty && html`<span class="muted">Есть несохранённые изменения</span>`}`}
         </div>
         <h3>Как это увидит модель</h3>
         ${preview && (preview.error
