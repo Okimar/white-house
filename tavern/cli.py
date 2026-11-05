@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -118,6 +119,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     from tavern.app import create_app
+    from tavern.config import with_server_overrides
     from tavern.context import open_context
     from tavern.logs import setup_logging
     from tavern.sandbox import make_sandbox, remove_sandbox
@@ -136,15 +138,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
         ctx = open_context(paths, server_overrides=overrides, sandbox=args.sandbox,
                            load_plugins=not args.no_plugins)
         setup_logging(ctx.config.log_level, paths.logs / "tavern.log")
-        busy_url = _already_running(ctx.config.server.host, ctx.config.server.port)
-        if busy_url:
-            print(f"White House уже запущен: {busy_url}\n"
-                  "Откройте этот адрес в браузере. Если окна нет, останови старый запуск: "
-                  "pkill -f 'python -m tavern' и запусти снова (или другой порт: white-house --port 8001).",
-                  file=sys.stderr)
-            if ctx.config.server.open_browser:
-                open_url(busy_url)
-            return 0
+        # The data dir lock above already refused a second copy of ourselves on this data, so whoever
+        # holds the port is someone else (SillyTavern also defaults to 8000): step aside, don't fail.
+        wanted = ctx.config.server.port
+        port = _free_port(ctx.config.server.host, wanted)
+        if port != wanted:
+            print(f"Порт {wanted} занят другой программой, White House запускается на порту {port}.",
+                  file=sys.stderr, flush=True)
+            # Through the config, because the Google Drive sign-in builds its address from it.
+            ctx.config = with_server_overrides(ctx.config, port=port)
         ctx.plugins.start()
         if not args.sandbox:  # a sandbox is thrown away: copies of it would only fill the real disk
             ctx.backups.start_scheduler()
@@ -183,17 +185,23 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 remove_sandbox(paths)
 
 
-def _already_running(host: str, port: int) -> str | None:
-    """The address if something already listens on it (most likely our own earlier start)."""
-    import socket
-
-    url = _local_url(host, port)
+def _port_busy(host: str, port: int) -> bool:
+    """Does anything listen there? Connecting, not binding: a bind test also fails for a few
+    minutes after our own restart (TIME_WAIT), and that port is really free."""
     probe = "127.0.0.1" if host in {"0.0.0.0", "", "localhost"} else "::1" if host == "::" else host
     try:
         with socket.create_connection((probe, port), timeout=0.5):
-            return url
+            return True
     except OSError:
-        return None
+        return False
+
+
+def _free_port(host: str, port: int, tries: int = 50) -> int:
+    """The wanted port, or the nearest free one above it."""
+    for candidate in range(port, min(port + tries, 65536)):
+        if not _port_busy(host, candidate):
+            return candidate
+    raise TavernError(f"Порты {port}-{port + tries - 1} заняты. Укажите другой: --port НОМЕР")
 
 
 def _local_url(host: str, port: int) -> str:

@@ -55,3 +55,38 @@ def test_serve_starts_answers_and_stops(tmp_path):
         proc.terminate()
         output, _ = proc.communicate(timeout=10)
     assert "ready in" in output
+
+
+def test_port_held_by_another_program_moves_to_the_next_one(tmp_path):
+    """SillyTavern on the same port (both default to 8000) must not stop us from starting."""
+    with socket.socket() as other:
+        other.bind(("127.0.0.1", 0))
+        other.listen()
+        port = other.getsockname()[1]
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "tavern", "--data-dir", str(tmp_path / "data"),
+             "--port", str(port), "--no-browser"],
+            cwd=REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        try:
+            deadline = time.monotonic() + 20
+            body = None
+            with httpx.Client(trust_env=False, timeout=1) as http:
+                while time.monotonic() < deadline and proc.poll() is None and body is None:
+                    # Nearest free one is normally port + 1; look a little higher in case it is taken.
+                    for candidate in range(port + 1, port + 5):
+                        try:
+                            reply = http.get(f"http://127.0.0.1:{candidate}/api/health")
+                            if reply.status_code == 200:
+                                body = reply.json()
+                                break
+                        except httpx.TransportError:
+                            pass
+                    time.sleep(0.1)
+            assert body is not None, "server did not come up on a nearby port"
+            assert body["status"] == "ok"
+        finally:
+            proc.terminate()
+            output, _ = proc.communicate(timeout=10)
+    assert f"Порт {port} занят" in output
