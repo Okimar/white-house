@@ -136,6 +136,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
         ctx = open_context(paths, server_overrides=overrides, sandbox=args.sandbox,
                            load_plugins=not args.no_plugins)
         setup_logging(ctx.config.log_level, paths.logs / "tavern.log")
+        busy_url = _already_running(ctx.config.server.host, ctx.config.server.port)
+        if busy_url:
+            print(f"White House уже запущен: {busy_url}\n"
+                  "Откройте этот адрес в браузере (или другой порт: --port 8001).", file=sys.stderr)
+            if ctx.config.server.open_browser:
+                open_url(busy_url)
+            return 0
         ctx.plugins.start()
         if not args.sandbox:  # a sandbox is thrown away: copies of it would only fill the real disk
             ctx.backups.start_scheduler()
@@ -172,6 +179,19 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 log.info("Sandbox kept at %s", paths.root)
             else:
                 remove_sandbox(paths)
+
+
+def _already_running(host: str, port: int) -> str | None:
+    """The address if something already listens on it (most likely our own earlier start)."""
+    import socket
+
+    url = _local_url(host, port)
+    probe = "127.0.0.1" if host in {"0.0.0.0", "", "localhost"} else "::1" if host == "::" else host
+    try:
+        with socket.create_connection((probe, port), timeout=0.5):
+            return url
+    except OSError:
+        return None
 
 
 def _local_url(host: str, port: int) -> str:
