@@ -139,7 +139,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         busy_url = _already_running(ctx.config.server.host, ctx.config.server.port)
         if busy_url:
             print(f"White House уже запущен: {busy_url}\n"
-                  "Откройте этот адрес в браузере (или другой порт: --port 8001).", file=sys.stderr)
+                  "Откройте этот адрес в браузере. Если окна нет, останови старый запуск: "
+                  "pkill -f 'python -m tavern' и запусти снова (или другой порт: white-house --port 8001).",
+                  file=sys.stderr)
             if ctx.config.server.open_browser:
                 open_url(busy_url)
             return 0

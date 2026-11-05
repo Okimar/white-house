@@ -33,5 +33,6 @@ mkdir -p "$BIN"
 printf '#!/usr/bin/env bash\nexec "%s/start.sh" "$@"\n' "$DIR" > "$BIN/white-house"
 chmod +x "$BIN/white-house"
 
-say "Готово! Запуск: white-house"
-say "Потом откройте в браузере: http://127.0.0.1:8000/"
+say "Готово! В следующий раз запуск: white-house (из любой папки)"
+say "Запускаю сейчас: здесь пойдёт лог, окно откроется в браузере. Остановить: Ctrl+C"
+exec "$DIR/start.sh"
