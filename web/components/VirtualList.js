@@ -23,7 +23,18 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
   const [, redraw] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 600 });
 
-  const heightOf = (id) => heights.current.get(id) ?? ESTIMATE;
+  // The user's finger (or its inertia) owns the scroll position: code must not write scrollTop then,
+  // or the browser drops the touch and the list "sticks" and has to be dragged very hard.
+  const touching = useRef(false);
+  const userUntil = useRef(0);
+  const userScrolling = () => touching.current || Date.now() < userUntil.current;
+  const markUser = (ms) => { userUntil.current = Date.now() + ms; };
+
+  // Unmeasured items are guessed from the measured ones, so corrections stay small.
+  let sum = 0;
+  for (const h of heights.current.values()) sum += h;
+  const estimate = heights.current.size ? Math.min(400, Math.max(40, sum / heights.current.size)) : ESTIMATE;
+  const heightOf = (id) => heights.current.get(id) ?? estimate;
   const offsets = [];
   let total = 0;
   for (const item of items) {
@@ -70,6 +81,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
     const el = box.current;
     if (!el) return;
     if (jump.current && Date.now() > jump.current.until) jump.current = null;
+    if (userScrolling() && !jump.current) return; // onScroll keeps the anchor fresh meanwhile
     const jumpIndex = jump.current ? items.findIndex((i) => i.id === jump.current.id) : -1;
     if (jumpIndex >= 0) {
       stuck.current = false;
@@ -113,7 +125,11 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
   };
 
   return html`
-    <div class="vlist" ref=${box} onScroll=${onScroll}>
+    <div class="vlist" ref=${box} onScroll=${onScroll}
+      onTouchStart=${() => { touching.current = true; stuck.current = false; }}
+      onTouchEnd=${() => { touching.current = false; markUser(700); }}
+      onTouchCancel=${() => { touching.current = false; markUser(700); }}
+      onWheel=${(e) => { markUser(200); if (e.deltaY < 0) stuck.current = false; }}>
       <div style=${{ height: start + "px" }}></div>
       ${items.slice(from, to).map((item) => html`
         <div class="vitem" key=${item.id} data-id=${item.id} ref=${measure}>${renderItem(item)}</div>
