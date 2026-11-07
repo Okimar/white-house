@@ -3,6 +3,7 @@
 // and a duplicate of a built-in one replaces it for the assistant. Each can be switched off. The text is
 // English (models follow it best). A skill opened from the assistant's «Инструкция» line is remembered in
 // localStorage "tavern.skill" and shown here first. The programmer's guides are folded (closed by default).
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -179,9 +180,9 @@ export function Skills({ onError }) {
         <label>Когда брать<br />
           <input value=${draft.description} onInput=${(e) => setDraft({ ...draft, description: e.target.value })} />
           <span class="hint">По этой строке помощник выбирает инструкцию; лучше по-английски.</span></label>
-        <label>Для кого<br /><select value=${draft.audience} onChange=${(e) => setDraft({ ...draft, audience: e.target.value })}>
+        <label>Для кого<br /><${Select} value=${draft.audience} onChange=${(e) => setDraft({ ...draft, audience: e.target.value })}>
           ${Object.entries(AUDIENCE).map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-        </select></label>
+        </${Select}></label>
         ${skill.based_on && html`<p class="muted">Дубликат встроенной «${skill.based_on}»: пока включена, помощник читает её вместо встроенной.</p>`}
         <label>Текст<br />
           <textarea class="skills-text" rows="18" value=${draft.body} onInput=${(e) => setDraft({ ...draft, body: e.target.value })}></textarea>

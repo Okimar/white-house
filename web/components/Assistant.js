@@ -6,6 +6,7 @@
 // the report. Writing while it works adds to the plan. The «Настройки» item of the header menu holds
 // its model, the model of each role, the critic, how much of the work to show, its limits and
 // «Что я о вас знаю». The saved position is clamped to the screen whenever it is applied.
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api, followRun } from "../core/api.js";
 import { money } from "../core/spending.js";
@@ -146,18 +147,18 @@ function AssistantSettings({ overview, onSaved, onMemory, onOpenSkills, onError 
   const number = (key) => (e) => { const v = Number(e.target.value); if (v !== s[key] && v >= 0) save({ [key]: v }); };
   const role = (name, changes) => save({ roles: { ...s.roles, [name]: { ...s.roles[name], ...changes } } });
   return html`<div class="assistant-settings" data-slot="assistant-settings">
-    <label>Модель помощника<br /><select value=${s.source} onChange=${(e) => save({ source: e.target.value })}>
+    <label>Модель помощника<br /><${Select} value=${s.source} onChange=${(e) => save({ source: e.target.value })}>
       ${overview.sources.map((o) => html`<option key=${o.id} value=${o.id}>${o.label}</option>`)}
-    </select></label>
+    </${Select}></label>
     <details>
       <summary>Модели для большой работы</summary>
       <p class="hint">Пусто — модель помощника.</p>
       ${ROLE_LABELS.map(([name, label, hint]) => html`<div class="assistant-role" key=${name}>
         <span><strong>${label}</strong><br /><small class="muted">${hint}</small></span>
-        <select aria-label=${label + ": подключение"} value=${s.roles[name].source}
+        <${Select} aria-label=${label + ": подключение"} value=${s.roles[name].source}
           onChange=${(e) => role(name, { source: e.target.value })}>
           ${overview.sources.map((o) => html`<option key=${o.id} value=${o.id}>${o.id ? o.label : "Как у помощника"}</option>`)}
-        </select>
+        </${Select}>
         <input list="assistant-models" aria-label=${label + ": модель"} placeholder="как у подключения"
           value=${s.roles[name].model} onChange=${(e) => role(name, { model: e.target.value.trim() })} />
       </div>`)}
@@ -180,17 +181,17 @@ function AssistantSettings({ overview, onSaved, onMemory, onOpenSkills, onError 
       (это он делает только с вашего «Разрешить», кроме режима авто). Слова поиска уходят поисковому сервису, адреса страниц —
       этим сайтам; больше ничего из приложения наружу не отправляется. Адреса вашей сети и этого устройства для него закрыты.</p>
     ${s.web !== false && html`<div class="row">
-      <label>Поиск<br /><select value=${s.web_engine || "duckduckgo"} onChange=${(e) => save({ web_engine: e.target.value })}>
+      <label>Поиск<br /><${Select} value=${s.web_engine || "duckduckgo"} onChange=${(e) => save({ web_engine: e.target.value })}>
         <option value="duckduckgo">DuckDuckGo (без ключа)</option>
         <option value="searxng">Свой SearXNG</option>
-      </select></label>
+      </${Select}></label>
       ${s.web_engine === "searxng" && html`<label>Адрес SearXNG<br /><input defaultValue=${s.web_url || ""}
         placeholder="http://192.168.1.5:8080" onChange=${(e) => save({ web_url: e.target.value.trim() })} /></label>`}
     </div>`}
-    <label>Ход работы<br /><select value=${s.progress} onChange=${(e) => save({ progress: e.target.value })}>
+    <label>Ход работы<br /><${Select} value=${s.progress} onChange=${(e) => save({ progress: e.target.value })}>
       <option value="full">Показывать всё</option>
       <option value="minimal">Только короткие строки</option>
-    </select></label>
+    </${Select}></label>
     <div class="row">
       <label>Шагов на одну просьбу<br /><input type="number" min="1" max="50" value=${s.max_steps}
         onChange=${number("max_steps")} /></label>

@@ -2,6 +2,7 @@
 // the chat's notes window with tabs for the three levels and edits by message numbers;
 // NotesByNumbers is the window over the chat that shows picked messages with their kept notes.
 // Every change goes to the server at once; agents change the same things through the same API.
+import { Select } from "./Select.js";
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
@@ -20,15 +21,15 @@ const KINDS = [["visible", "Видимая"], ["hidden", "Скрытая"]];
 const COLLAPSE_FROM = 8; // with more picked messages than this, they start folded
 
 function RoleSelect({ value, onChange }) {
-  return html`<select value=${value} aria-label="От кого" onChange=${(e) => onChange(e.target.value)}>
+  return html`<${Select} value=${value} aria-label="От кого" onChange=${(e) => onChange(e.target.value)}>
     ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
-  </select>`;
+  </${Select}>`;
 }
 
 function KindSelect({ value, onChange }) {
-  return html`<select value=${value} aria-label="Вид заметки" onChange=${(e) => onChange(e.target.value)}>
+  return html`<${Select} value=${value} aria-label="Вид заметки" onChange=${(e) => onChange(e.target.value)}>
     ${KINDS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-  </select>`;
+  </${Select}>`;
 }
 
 function NumberField({ label, value, min, onChange }) {
@@ -67,9 +68,9 @@ function NoteRow({ note, onSave, onDelete }) {
         <${NumberField} label="Пропускать ответов" value=${note.interval} min=${0}
           onChange=${(interval) => onSave({ interval })} />
         <${RoleSelect} value=${note.role} onChange=${(role) => onSave({ role })} />
-        <select value=${note.mode} aria-label="Вид заметки" onChange=${(e) => onSave({ mode: e.target.value })}>
+        <${Select} value=${note.mode} aria-label="Вид заметки" onChange=${(e) => onSave({ mode: e.target.value })}>
           ${MODES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-        </select>
+        </${Select}>
       </div>
       <p class="hint">Глубина: за сколько сообщений до конца чата вставить, 0 — в самом конце. Пропуск: сколько ответов
         пропустить между вставками, 0 — вставлять в каждый ответ.</p>

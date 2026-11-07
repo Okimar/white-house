@@ -1,5 +1,6 @@
 // App shell: wires the sidebar, the chat view, the settings dialog and the active theme together.
 // Elements carry data-slot names so themes can style them; keep those names stable.
+import { Select } from "./components/Select.js";
 import { html, render, useState, useEffect, useCallback, useRef } from "./vendor/preact-htm.mjs";
 import { api } from "./core/api.js";
 import { useChat } from "./core/chat.js";
@@ -603,9 +604,9 @@ function App() {
                 <span>Отмечено: ${selected.size}</span>
                 <input value=${numbers} placeholder="Номера: 1-5, 8" aria-label="Номера сообщений"
                   onInput=${(e) => setNumbers(e.target.value)} />
-                <select value=${bulkRole} aria-label="Новая роль" onChange=${(e) => setBulkRole(e.target.value)}>
+                <${Select} value=${bulkRole} aria-label="Новая роль" onChange=${(e) => setBulkRole(e.target.value)}>
                   ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
-                </select>
+                </${Select}>
                 <button class="primary" disabled=${chat.running} onClick=${() => applyRoles(false)}>Применить</button>
                 <button disabled=${chat.running}
                   onClick=${async () => { if (await ask("Сменить роль у всех сообщений текущей ветки?", { ok: "Сменить" })) applyRoles(true); }}>Всем сообщениям</button>

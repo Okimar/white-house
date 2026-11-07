@@ -1,6 +1,7 @@
 // Settings tab "Шаблоны": instruct templates for connections in text mode. Built-in ones are read-only
 // (duplicate it to change one); your own ones are edited field by field with a live preview of a short
 // sample conversation. Import takes our files and SillyTavern instruct/context files; export gives both.
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -111,13 +112,13 @@ export function Templates({ onError }) {
     <p class="hint">Нужны подключениям в текстовом режиме: весь разговор уходит в модель одним текстом,
       обёрнутым в метки, на которых модель училась. Вариант «Автоматически» в подключении выбирает шаблон по названию модели.</p>
     <div class="row">
-      <select value=${openId || ""} aria-label="Шаблон" onChange=${(e) => go(e.target.value || null, e.target)}>
+      <${Select} value=${openId || ""} aria-label="Шаблон" onChange=${(e) => go(e.target.value || null, e.target)}>
         <option value="">— выберите шаблон —</option>
         <optgroup label="Свои">${templates.filter((t) => !t.builtin).map((t) =>
           html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}</optgroup>
         <optgroup label="Встроенные">${templates.filter((t) => t.builtin).map((t) =>
           html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}</optgroup>
-      </select>
+      </${Select}>
       <button onClick=${create}><${Icon} name="plus" /> Новый</button>
       <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
       ${open && !open.builtin && html`<label><input type="checkbox" checked=${mergeInto}

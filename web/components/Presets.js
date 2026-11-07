@@ -1,6 +1,7 @@
 // Settings tab "Промпт": prompt presets. Pick the general preset, duplicate, delete, import/export
 // SillyTavern files, and edit a preset: the list of blocks (order, on/off, role, place) and the
 // model settings. The built-in preset is read-only; duplicate it to change it.
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -65,11 +66,11 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
         ${block.kind === "history" ? html`
           <div class="row">
             <label>Отправлять
-              <select value=${block.history.mode} disabled=${readOnly}
+              <${Select} value=${block.history.mode} disabled=${readOnly}
                 onChange=${(e) => set({ history: { ...block.history, mode: e.target.value } })}>
                 <option value="all">всю историю</option>
                 <option value="last">последние N сообщений</option>
-              </select></label>
+              </${Select}></label>
             ${block.history.mode === "last" && html`<label>N
               <input type="number" min="1" value=${block.history.count} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, count: Number(e.target.value) || 1 } })} /></label>`}
@@ -85,14 +86,14 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
         : html`
           <div class="row">
             <label>От кого
-              <select value=${block.role} disabled=${readOnly} onChange=${(e) => set({ role: e.target.value })}>
+              <${Select} value=${block.role} disabled=${readOnly} onChange=${(e) => set({ role: e.target.value })}>
                 ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
-              </select></label>
+              </${Select}></label>
             <label>Где
-              <select value=${block.position} disabled=${readOnly} onChange=${(e) => set({ position: e.target.value })}>
+              <${Select} value=${block.position} disabled=${readOnly} onChange=${(e) => set({ position: e.target.value })}>
                 <option value="top">на своём месте в списке</option>
                 <option value="depth">внутри чата, на глубине</option>
-              </select></label>
+              </${Select}></label>
             ${block.position === "depth" && html`<label>Глубина
               <input type="number" min="0" max="1000" value=${block.depth} disabled=${readOnly}
                 onInput=${(e) => set({ depth: Number(e.target.value) || 0 })} /></label>`}
@@ -146,10 +147,10 @@ function RetrievalSettings({ settings, onChanged, onError }) {
       <button disabled=${!dirty} onClick=${saveRetrieval}>Сохранить поиск</button>
     </div>
     <label class="stack">Подключение для поиска по смыслу (векторы)
-      <select value=${settings.embedding_connection || ""} onChange=${(e) => save({ embedding_connection: e.target.value })}>
+      <${Select} value=${settings.embedding_connection || ""} onChange=${(e) => save({ embedding_connection: e.target.value })}>
         <option value="">— нет, только ключевые слова —</option>
         ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name} · ${c.model || "модель не задана"}</option>`)}
-      </select></label>`;
+      </${Select}></label>`;
 }
 
 function ExportDialog({ preset, onClose }) {
@@ -332,14 +333,14 @@ export function Presets({ settings, onChanged, onError }) {
             value=${current.data.params[key] ?? ""} onInput=${(e) => setParam(key, e.target.value)} />
           ${english && html`<span class="hint">${english}</span>`}</label>`)}
         <label class="stack">Уровень размышлений
-          <select disabled=${readOnly} value=${current.data.params.reasoning_effort || ""}
+          <${Select} disabled=${readOnly} value=${current.data.params.reasoning_effort || ""}
             onChange=${(e) => { const params = { ...current.data.params };
               if (e.target.value) params.reasoning_effort = e.target.value; else delete params.reasoning_effort;
               edit({ ...current.data, params }); }}>
             <option value="">как у модели</option>
             <option value="minimal">минимальный</option><option value="low">низкий</option>
             <option value="medium">средний</option><option value="high">высокий</option>
-          </select>
+          </${Select}>
           <span class="hint">Сколько модель думает перед ответом (Gemini 3 и другие думающие модели).</span></label>
         <label class="stack">Размер памяти (токены)
           <input type="number" min="0" disabled=${readOnly} value=${current.data.max_context_tokens}

@@ -5,6 +5,7 @@
 // else goes with it (later work of that conversation) and which other conversations touched the same things.
 // The list is paged (the server cuts it by commits), so thousands of changes stay light.
 // onOpenConversation(id) opens that conversation in the assistant window (Settings passes it on from main.js).
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -168,10 +169,10 @@ export function Changes({ onError, onOpenConversation, onChanged }) {
     <div class="row changes-filters">
       <label>с <input type="date" value=${from} max=${to || undefined} onInput=${(e) => setFrom(e.target.value)} /></label>
       <label>по <input type="date" value=${to} min=${from || undefined} onInput=${(e) => setTo(e.target.value)} /></label>
-      <label>беседа <select value=${conv} onChange=${(e) => setConv(e.target.value)}>
+      <label>беседа <${Select} value=${conv} onChange=${(e) => setConv(e.target.value)}>
         <option value="">все</option>
         ${state.conversations.map((c) => html`<option key=${c.id} value=${c.id}>${c.title || "Без названия"}${c.deleted ? " (беседа удалена)" : ""} (${c.count})</option>`)}
-      </select></label>
+      </${Select}></label>
       ${filtered && html`<button type="button" onClick=${() => { setFrom(""); setTo(""); setConv(""); }}>Сбросить</button>`}
     </div>
     ${state.error && html`<${Pending} error=${state.error} onRetry=${() => load(false)} />`}

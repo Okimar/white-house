@@ -1,5 +1,6 @@
 // "Оформление" tab: pick a theme, copy, share as a file, delete, roll back to an earlier version,
 // allow a theme's effects script, and give characters their own theme.
+import { Select } from "./Select.js";
 import { html, useState, useRef, useEffect } from "../vendor/preact-htm.mjs";
 import { api, ApiError } from "../core/api.js";
 import { IconButton } from "./Icon.js";
@@ -205,11 +206,11 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
           const chosen = byId[(settings.character_themes || {})[c.id]];
           return html`<li key=${c.id}>
             <span class="item">${c.name}</span>
-            <select aria-label=${"Тема для " + c.name} value=${chosen ? chosen.id : ""}
+            <${Select} aria-label=${"Тема для " + c.name} value=${chosen ? chosen.id : ""}
               onChange=${(e) => setCharacterTheme(c.id, e.target.value)}>
               <option value="">Общая</option>
               ${themes.filter((t) => !t.error).map((t) => html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}
-            </select>
+            </${Select}>
             ${chosen && chosen.script && !scriptAllowed(chosen, settings) && html`<button
               title="Тема запускает свой скрипт: он получает доступ ко всему приложению"
               onClick=${() => allowScript(chosen)}>Разрешить эффекты</button>`}

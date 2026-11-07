@@ -30,6 +30,7 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/core/chat.js` | `useChat(chatId, onError)`: messages, paging, send(text, replyRole)/continue(role)/regenerate/stop, edit/swipe/remove, branches/selectBranch, search, setRoles (ids / numbers / all) |
 | `web/components/Icon.js` | `Icon`, `IconButton` (a label is required): one set of line icons, `web/vendor/lucide-icons.mjs` (ADR 0014). No emoji as icons; plugins' own `icon` text stays |
 | `web/components/Menu.js` | `openMenu(anchor, items)`, `MenuButton`: a drop-down at the end of body, so no list or dialog cuts it off |
+| `web/components/Select.js` | `<${Select} value onChange aria-label>` + `<option>` / `<optgroup>` children: our own drop-down in place of the native `<select>` (never use `<select>`; a test checks). `onChange` gets `{target:{value}}`; list under the field or above, filter field over 10 options, keys, themed (`select-list` slot) |
 | `web/components/Dialogs.js` | `await ask(text, {ok, danger, hint})`, `await askText(text, {value})`: use these, never `confirm()` / `prompt()`; `DialogHost` is in the shell |
 | `web/components/State.js` | `useLoad`, `Pending` (a failed load shows why and «Повторить», never an endless «Загрузка…»), `EmptyNote` |
 | `web/core/notify.js`, `web/core/keys.js` | `notify(text, "ok"/"info"/"error")`: only errors are red. `useEscape(close)`, `backdrop(close)` for every window: Esc closes the newest, a text selection dragged out of a window does not close it |

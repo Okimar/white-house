@@ -1,5 +1,6 @@
 // Settings dialog, in tabs: your name, API connections (Connections.js), templates, spending (Spending.js),
 // prompt, lorebooks, themes, pictures, plugins (Plugins.js), backups and the doctor (Backups.js).
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { Themes } from "./Themes.js";
@@ -119,18 +120,18 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
         ${tab === "main" && html`
         <h2>Меню</h2>
-        <select value=${layout.mode} aria-label="Где показывать меню" data-slot="menu-mode"
+        <${Select} value=${layout.mode} aria-label="Где показывать меню" data-slot="menu-mode"
           onChange=${(e) => setMenuMode(e.target.value)}>
           <option value="top">Сверху: значки, списки выпадают</option>
           <option value="side">Сбоку: панель слева</option>
-        </select>
+        </${Select}>
         <p class="hint">Выбор действует на этом устройстве. Меню можно свернуть кнопкой в левом верхнем углу, чтобы чату хватило места.</p>
         <h2>Кнопки сообщения</h2>
-        <select value=${settings.message_actions || "menu"} aria-label="Как показывать кнопки сообщения"
+        <${Select} value=${settings.message_actions || "menu"} aria-label="Как показывать кнопки сообщения"
           onChange=${(e) => saveSetting({ message_actions: e.target.value })}>
           <option value="menu">В выпадающем списке сбоку</option>
           <option value="always">Все всегда на панели</option>
-        </select>
+        </${Select}>
         <p class="hint">Отмеченные кнопки всегда на панели сообщения, остальные в списке.</p>
         <div class="check-grid">
           ${MESSAGE_ACTIONS.map((a) => html`<label key=${a.id}><input type="checkbox" checked=${pinned.includes(a.id)}
@@ -138,28 +139,28 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         </div>
         <h2>Мой персонаж по умолчанию</h2>
         <p class="muted">Входит в каждый новый чат с пометкой «это я». Его имя подставляется вместо {{user}}.</p>
-        <select value=${settings.default_me || ""} onChange=${(e) => saveDefaultMe(e.target.value)}>
+        <${Select} value=${settings.default_me || ""} onChange=${(e) => saveDefaultMe(e.target.value)}>
           <option value="">— нет —</option>
           ${characters.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-        </select>
+        </${Select}>
         <h2>Имя, если в чате нет «моего» персонажа</h2>
         <div class="row">
           <input value=${userName} placeholder="User" onInput=${(e) => setUserName(e.target.value)} />
           <button onClick=${saveName}>Сохранить</button>
         </div>
         <h2>Заметки возле сообщения</h2>
-        <select value=${settings.notes_display || "few"} aria-label="Сколько заметок показывать возле сообщения"
+        <${Select} value=${settings.notes_display || "few"} aria-label="Сколько заметок показывать возле сообщения"
           onChange=${(e) => saveSetting({ notes_display: e.target.value })}>
           <option value="few">Две последние и «ещё N»</option>
           <option value="all">Все подряд</option>
-        </select>
+        </${Select}>
         <h2>Размышления модели</h2>
-        <select value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
+        <${Select} value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
           onChange=${(e) => saveSetting({ thinking_display: e.target.value })}>
           <option value="folded">Свёрнуты, открываются по нажатию</option>
           <option value="open">Развёрнуты</option>
           <option value="hidden">Скрыты</option>
-        </select>
+        </${Select}>
         <p class="hint">Отправлять ли прошлые размышления модели, настраивается в пресете: блок «История чата».</p>
         <h2>Удаление</h2>
         <label><input type="checkbox" checked=${Boolean(settings.skip_delete_confirm)}

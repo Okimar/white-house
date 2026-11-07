@@ -118,7 +118,7 @@ body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
 .bulk-roles { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%; }
 .bulk-roles input { width: 140px; }
 .role-pick { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-sm); }
-.role-pick select { font-size: var(--text-sm); }
+.role-pick select, .role-pick .select-btn { font-size: var(--text-sm); }
 .msg header { display: flex; gap: 4px; align-items: center; min-height: var(--tap); }
 .msg-name { font-size: var(--text-sm); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-actions { display: inline-flex; flex: none; }
@@ -165,7 +165,7 @@ button.link { border: 0; background: transparent; color: var(--accent); padding:
 .dialog label.stack { display: flex; align-items: stretch; }
 
 /* Chat members and character cards */
-[data-slot="speaker-settings"] select, [data-slot="speaker-settings"] input:not([type]) { max-width: 100%; min-width: 0; }
+[data-slot="speaker-settings"] select, [data-slot="speaker-settings"] .select-btn, [data-slot="speaker-settings"] input:not([type]) { max-width: 100%; min-width: 0; }
 .speakers { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .speakers button { gap: 4px; }
 .speakers .muted-member { opacity: .55; }
@@ -308,7 +308,7 @@ input.num { width: 4.5em; }
 /* Zoomed far out: bubbles are plain (no ports, numbers, shadows, transitions), so hundreds stay cheap to paint. */
 .tree-map.far .bubble { box-shadow: none; transition: none; }
 .tree-map.far .bubble-port, .tree-map.far .bubble-order, .tree-map.far .bubble-vec, .tree-map.far .bubble-chance { display: none; }
-.tree-map.far .tree-lines path { stroke-dasharray: none; }
+.tree-map.far .tree-lines path, .tree-map.moving .tree-lines path.tree-refs { stroke-dasharray: none; stroke-linecap: butt; }
 .tree-map.far .bubble.selected { box-shadow: 0 0 0 3px var(--accent); }
 .mode-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--mode-color); flex: none; }
 .mode-pick { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -527,11 +527,11 @@ input.num { width: 4.5em; }
 .assistant.folded { height: auto; }
 .assistant-head { display: flex; align-items: center; gap: 4px; padding: 8px 8px; border-bottom: 1px solid var(--line);
   cursor: move; touch-action: none; user-select: none; }
-.assistant-head select { flex: 1 1 80px; min-width: 0; max-width: 180px; }
+.assistant-head select, .assistant-head .select-btn { flex: 1 1 80px; min-width: 0; max-width: 180px; }
 .assistant-head .spacer { flex: 0 1 auto; }
 .assistant-settings { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); }
 .assistant-settings .row { gap: 8px; flex-wrap: wrap; align-items: flex-end; }
-.assistant-settings select { max-width: 100%; }
+.assistant-settings select, .assistant-settings .select-btn { max-width: 100%; }
 .assistant-settings input[type="number"] { width: 8em; }
 .assistant-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
 .assistant-msg { white-space: pre-wrap; padding: 8px 8px; border-radius: var(--radius-sm); background: var(--panel); }
@@ -581,7 +581,7 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 .skills-item.open { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: var(--radius-sm); }
 .skills-item.off .link { opacity: .6; }
 .skills-view { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.skills-view input, .skills-view select { width: 100%; }
+.skills-view input, .skills-view select, .skills-view .select-btn { width: 100%; }
 .skills-text { width: 100%; white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--text-sm);
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px;
   max-height: 60vh; overflow: auto; margin: 0; }
@@ -634,6 +634,25 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 .menu .icon { color: var(--text2); }
 .menu .danger-text .icon { color: var(--danger); }
 .menu-emoji { width: 16px; text-align: center; flex: none; }
+/* Own drop-down instead of the native <select> (components/Select.js). Theme places: select (the field), select-list (the open list),
+   select-filter, select-option. */
+.select-btn { justify-content: space-between; gap: 8px; min-width: 0; max-width: 100%; text-align: left; font-weight: normal; background: var(--panel); }
+.select-btn .icon { flex: none; color: var(--text2); }
+.select-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-list { position: fixed; z-index: 70; box-sizing: border-box; max-width: calc(100vw - 16px); display: flex; flex-direction: column; padding: 4px;
+  background: var(--dialog-bg); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--menu-shadow); }
+.select-list:focus { outline: none; }
+.select-filter { flex: none; width: 100%; box-sizing: border-box; margin-bottom: 4px; }
+.select-options { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+.select-option { display: flex; align-items: center; gap: 8px; min-height: var(--tap); padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer;
+  overflow-wrap: anywhere; color: var(--fg); }
+.select-option.active { background: var(--raised); }
+.select-option.selected { font-weight: 600; }
+.select-option[aria-disabled="true"] { opacity: .45; cursor: default; }
+.select-check { flex: none; width: 16px; display: inline-flex; color: var(--accent); }
+.select-label { flex: 1 1 auto; min-width: 0; }
+.select-group { padding: 8px 8px 2px; font-size: var(--text-sm); color: var(--text2); }
+.select-empty { padding: 8px; }
 .ask-overlay { z-index: 50; }
 .dialog.ask { width: min(440px, 100%); display: flex; flex-direction: column; gap: 12px; }
 .ask-text { margin: 0; font-size: var(--text-md); font-weight: 500; }
@@ -811,7 +830,7 @@ a.button.icon-btn:hover { color: var(--fg); }
 .book-picker .pick-name, .check-grid label, .dialog label { overflow-wrap: anywhere; min-width: 0; }
 .book-picker label { align-items: flex-start; }
 .book-picker input[type="checkbox"] { flex: none; margin-top: 8px; }
-.dialog select, .settings-body select { max-width: 100%; text-overflow: ellipsis; }
+.dialog select, .dialog .select-btn, .settings-body select, .settings-body .select-btn { max-width: 100%; text-overflow: ellipsis; }
 .speakers { min-width: 0; max-width: 100%; }
 .speakers button { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .speakers button { display: inline-flex; align-items: center; }
@@ -869,7 +888,7 @@ a.button.icon-btn:hover { color: var(--fg); }
 /* Settings tab «Изменения»: what the assistant changed, by day and by request */
 .changes { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .changes-filters { flex-wrap: wrap; gap: 8px; align-items: center; }
-.changes-filters select { max-width: 100%; }
+.changes-filters select, .changes-filters .select-btn { max-width: 100%; }
 .changes-day h3 { margin: 12px 0 6px; }
 .changes-commit { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 8px; min-width: 0; background: var(--panel); }
 .changes-commit.undone { opacity: .7; }
@@ -966,7 +985,7 @@ a.button.icon-btn:hover { color: var(--fg); }
 .search-window .tabs { margin: 0; }
 .search-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .search-filters label { flex-direction: column; align-items: stretch; gap: 4px; font-size: var(--text-xs); color: var(--muted); min-width: 0; }
-.search-filters select, .search-filters input { max-width: 100%; min-width: 0; }
+.search-filters select, .search-filters .select-btn, .search-filters input { max-width: 100%; min-width: 0; }
 .search-form { display: flex; align-items: center; gap: 8px; }
 .search-form input { flex: 1; min-width: 0; }
 .search-results-list { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; }

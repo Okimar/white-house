@@ -3,6 +3,7 @@
 // matter; "в кавычках" is an exact phrase); «Спросить нейронку» describes what is wanted in plain words and
 // the model picks from the candidates (a few requests, told before). A tap on a result opens that chat at
 // that message (main.js does the jump) or the assistant's conversation at its message.
+import { Select } from "./Select.js";
 import { html, useEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { backdrop, useEscape } from "../core/keys.js";
@@ -128,16 +129,16 @@ export function Search({ characters, onOpen, onClose, onError }) {
 
   const filterBar = html`<div class="search-filters" data-slot="search-filters">
     ${scope === "chats" && html`<label>Персонаж
-      <select value=${filters.character} onChange=${(e) => setFilter("character", e.target.value)}>
+      <${Select} value=${filters.character} onChange=${(e) => setFilter("character", e.target.value)}>
         <option value="">Любой</option>
         ${characters.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-      </select></label>`}
+      </${Select}></label>`}
     ${scope === "chats" && html`<label>Группа чатов
-      <select value=${filters.group} onChange=${(e) => setFilter("group", e.target.value)}>
+      <${Select} value=${filters.group} onChange=${(e) => setFilter("group", e.target.value)}>
         <option value="">Любая</option>
         <option value="none">Без группы</option>
         ${groups.map((g) => html`<option key=${g.id} value=${g.id}>${g.name}</option>`)}
-      </select></label>`}
+      </${Select}></label>`}
     <label>С <input type="date" value=${filters.since} max=${filters.until || undefined}
       onChange=${(e) => setFilter("since", e.target.value)} /></label>
     <label>По <input type="date" value=${filters.until} min=${filters.since || undefined}

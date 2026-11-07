@@ -10,6 +10,7 @@
 // A line's colour shows the chance of the green bubble it leads to.
 // Built to stay smooth with thousands of bubbles: only bubbles in view are rendered, lines are a
 // few SVG paths (one per colour), pan/zoom moves one layer, and pointer moves apply once per frame.
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef, useMemo, useCallback } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
@@ -189,10 +190,10 @@ function MoreRules({ rules, onRules }) {
     <div class="stack">
       ${flag("title_key", "название — тоже ключевое слово", "Снимите, если название — просто подпись", true)}
       <div class="row">${words("keys2", "Вторые слова", "Проверяются, когда нашлось хоть одно ключевое слово")}
-        <select value=${rules.logic || "and_any"} aria-label="Как проверять вторые слова"
+        <${Select} value=${rules.logic || "and_any"} aria-label="Как проверять вторые слова"
           onChange=${(e) => onRules({ logic: e.target.value === "and_any" ? null : e.target.value })}>
           ${LOGICS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-        </select></div>
+        </${Select}></div>
       <span class="hint">Вторые слова проверяются, когда нашлось хоть одно ключевое слово</span>
       <div class="row">
         ${flag("whole", "только целые слова", "Без других окончаний: «кот» не найдёт «котята»")}
@@ -207,18 +208,18 @@ function MoreRules({ rules, onRules }) {
         ${flag("main", "главный в группе", "Главный побеждает в своей группе (если никто не держится)")}</div>
       <span class="hint">Из найденных пузырей одной группы приходит только один. Вес: шанс победить в группе, обычно 100. Главный побеждает, если никто не держится</span>
       <label>Куда в промпте
-        <select value=${rules.place || ""} onChange=${(e) => onRules({ place: e.target.value || null })}>
+        <${Select} value=${rules.place || ""} onChange=${(e) => onRules({ place: e.target.value || null })}>
           ${PLACES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-        </select></label>
+        </${Select}></label>
       <div class="row">
         ${flag("no_wake", "не будит других", "Текст этого пузыря не подтягивает другие записи лорбуков по цепочке")}
         ${flag("not_woken", "не будится другими", "Приходит только по словам из чата, не по цепочке")}</div>
       <span class="hint">Не будит других: текст пузыря не подтягивает другие пузыри по цепочке. Не будится другими: пузырь приходит только по словам из чата</span>
       <div class="stack">
         <label>Персонажи
-          <select value=${filter.mode} onChange=${(e) => filter.ids.length && onRules({ filter: { ...filter, mode: e.target.value } })}>
+          <${Select} value=${filter.mode} onChange=${(e) => filter.ids.length && onRules({ filter: { ...filter, mode: e.target.value } })}>
             <option value="only">только когда в чате</option><option value="except">кроме чатов, где есть</option>
-          </select></label>
+          </${Select}></label>
         <div class="chips">${(people || []).map((c) => html`<label key=${c.id} class="chip">
           <input type="checkbox" checked=${filter.ids.includes(c.id)} onChange=${(e) => toggleWho(c.id, e.target.checked)} /> ${c.name}</label>`)}
           ${people && !people.length && !peopleError ? html`<span class="muted">Персонажей нет</span>` : ""}</div>
@@ -332,9 +333,9 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
           <input class="num" inputmode="numeric" pattern="[0-9]*" placeholder="рядом"
             value=${draft.depth === null ? "" : String(draft.depth)} onInput=${depthInput} /></label>
         <label>От кого
-          <select value=${draft.role} onChange=${(e) => set({ role: e.target.value }, true)}>
+          <${Select} value=${draft.role} onChange=${(e) => set({ role: e.target.value }, true)}>
             ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
-          </select></label>
+          </${Select}></label>
         ${draft.mode === "search" && html`<label title="Сколько ответов пузырь держится после того, как тема всплыла">
           Держится <input class="num" inputmode="numeric" pattern="[0-9]*" value=${String(draft.sticky)}
             onInput=${(e) => set({ sticky: digitsOf(e, 1000) ?? 0 })} /></label>`}
@@ -345,10 +346,10 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
           Через <input class="num" inputmode="numeric" pattern="[0-9]*" value=${String(draft.every ?? 0)}
             aria-label="Через сколько ответов" onInput=${(e) => set({ every: digitsOf(e, 1000) ?? 0 })} /> отв.</label>`}
         <label title="Как показывать подпузыри на карте">Подпузыри на карте
-          <select value=${draft.layout.display || "line"}
+          <${Select} value=${draft.layout.display || "line"}
             onChange=${(e) => set({ layout: { ...draft.layout, display: e.target.value } }, true)}>
             <option value="line">линиями</option><option value="nested">внутри пузыря</option>
-          </select></label>
+          </${Select}></label>
         <label title="Спрятать подпузыри на карте (на отправку модели не влияет)">
           <input type="checkbox" checked=${Boolean(draft.layout.collapsed)}
             onChange=${(e) => set({ layout: { ...draft.layout, collapsed: e.target.checked } }, true)} /> скрыть подпузыри на карте</label>
@@ -512,6 +513,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const gesture = useRef(null);
   const frame = useRef(0);
   const settle = useRef(0); // timer: the culling catches up a moment after the camera stops
+  const calm = useRef(0); // timer: dashes on the link arcs come back a moment after the map stops moving
   const drawn = useRef(camera); // the camera the bubbles in the page were last chosen for
   const dragRef = useRef(null);
   const dragFrame = useRef(0);
@@ -601,7 +603,17 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     drawn.current = { ...cam.current };
     setCamera(drawn.current);
   };
+  // While the map moves the link arcs are drawn solid (a dash pattern on long arcs is what made panning and
+  // zooming lag with many links); the class comes off 200 ms after the last move.
+  const markMoving = () => {
+    const el = viewport.current;
+    if (!el) return;
+    el.classList.add("moving");
+    clearTimeout(calm.current);
+    calm.current = setTimeout(() => el.classList.remove("moving"), 200);
+  };
   const applyCamera = (next) => {
+    markMoving();
     cam.current = next;
     if (world.current) world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.s})`;
     const d = drawn.current;
@@ -611,7 +623,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     if (far) { if (!frame.current) frame.current = requestAnimationFrame(commitCamera); }
     else settle.current = setTimeout(commitCamera, 120);
   };
-  useEffect(() => () => { clearTimeout(settle.current); cancelAnimationFrame(frame.current); }, []);
+  useEffect(() => () => { clearTimeout(settle.current); clearTimeout(calm.current); cancelAnimationFrame(frame.current); }, []);
   const zoomAt = (px, py, factor) => {
     const c = cam.current;
     const s = Math.min(2.5, Math.max(0.12, c.s * factor));
@@ -686,6 +698,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       applyCamera({ ...cam.current, x: g.start.cam.x + dx, y: g.start.cam.y + dy });
     } else if ((g.mode === "press" && Math.hypot(dx, dy) > 6) || g.mode === "drag") {
       g.mode = "drag";
+      markMoving();
       const ids = g.ids || (g.ids = new Set([g.bid, ...descendants(kids, g.bid)]));
       const s = cam.current.s;
       dragRef.current = { ids, dx: dx / s, dy: dy / s, target: nestOnDrop ? dropTarget(e.clientX, e.clientY, ids) : null };

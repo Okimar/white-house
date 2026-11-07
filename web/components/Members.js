@@ -3,6 +3,7 @@
 // Who speaks (any chat may have many characters, that is normal): who answers (order), what the model
 // knows about the others, and per character talkativeness, "молчит", a short description and «Пусть ответит».
 // Every change goes to the server at once; agents change the same things through the same API.
+import { Select } from "./Select.js";
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { BookPicker } from "./Lorebooks.js";
@@ -104,16 +105,16 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
               </div>
               <div class="row">
                 <label>Глубина
-                  <select value=${m.depth === null ? "top" : String(m.depth)}
+                  <${Select} value=${m.depth === null ? "top" : String(m.depth)}
                     onChange=${(e) => change(m, { depth: e.target.value === "top" ? null : Number(e.target.value) })}>
                     <option value="top">в начале</option>
                     ${[...new Set([...DEPTHS, ...(m.depth === null ? [] : [m.depth])])].sort((a, b) => a - b)
                       .map((d) => html`<option key=${d} value=${String(d)}>${d}</option>`)}
-                  </select></label>
+                  </${Select}></label>
                 <label>Важность
-                  <select value=${String(m.importance)} onChange=${(e) => change(m, { importance: Number(e.target.value) })}>
+                  <${Select} value=${String(m.importance)} onChange=${(e) => change(m, { importance: Number(e.target.value) })}>
                     ${IMPORTANCE.map((i) => html`<option key=${i} value=${String(i)}>${i}</option>`)}
-                  </select></label>
+                  </${Select}></label>
                 <label><input type="checkbox" checked=${m.is_me}
                   onChange=${(e) => change(m, { is_me: e.target.checked })} /> это я</label>
                 ${m.is_me && html`<label>
@@ -140,10 +141,10 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
             </li>`)}
         </ul>
         <div class="row">
-          <select value=${adding} onChange=${(e) => setAdding(e.target.value)} aria-label="Персонаж">
+          <${Select} value=${adding} onChange=${(e) => setAdding(e.target.value)} aria-label="Персонаж">
             <option value="">Выберите персонажа</option>
             ${outside.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-          </select>
+          </${Select}>
           <button class="primary" disabled=${!adding} onClick=${add}>Добавить</button>
           <button onClick=${() => onEditCharacter(null)}>Создать персонажа</button>
         </div>
@@ -151,21 +152,21 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         <h2>Кто говорит</h2>
         <div class="stack" data-slot="speaker-settings">
           <label class="stack">Кто отвечает на ваше сообщение
-            <select value=${speaking.order} onChange=${(e) => changeSpeaking({ order: e.target.value })}>
+            <${Select} value=${speaking.order} onChange=${(e) => changeSpeaking({ order: e.target.value })}>
               ${ORDERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-            </select></label>
+            </${Select}></label>
           <label class="stack">Что модель знает об остальных, когда пишет за одного
-            <select value=${speaking.others} onChange=${(e) => changeSpeaking({ others: e.target.value })}>
+            <${Select} value=${speaking.others} onChange=${(e) => changeSpeaking({ others: e.target.value })}>
               ${OTHERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-            </select></label>
+            </${Select}></label>
           <label>«Пусть поговорят»: ответов подряд
             <input type="number" min="1" max="50" value=${speaking.talk_limit}
               onChange=${(e) => changeSpeaking({ talk_limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })} /></label>
           ${speaking.order === "all" && html`<div class="stack" data-slot="together-settings">
             <label class="stack">Как показывать ответы всех сразу
-              <select value=${speaking.together} onChange=${(e) => changeSpeaking({ together: e.target.value })}>
+              <${Select} value=${speaking.together} onChange=${(e) => changeSpeaking({ together: e.target.value })}>
                 ${TOGETHER.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-              </select></label>
+              </${Select}></label>
             <label>
               <input type="checkbox" checked=${speaking.narrator.enabled}
                 onChange=${(e) => changeSpeaking({ narrator: { enabled: e.target.checked } })} /> Рассказчик сводит ход в одну сцену</label>
@@ -174,11 +175,11 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
               <label>Имя <input value=${narratorName ?? speaking.narrator.name} maxLength="200"
                 onInput=${(e) => setNarratorName(e.target.value)}
                 onChange=${(e) => changeSpeaking({ narrator: { name: e.target.value } }).then(() => setNarratorName(null))} /></label>
-              <label>Подключение <select value=${speaking.narrator.connection_id}
+              <label>Подключение <${Select} value=${speaking.narrator.connection_id}
                 onChange=${(e) => changeSpeaking({ narrator: { connection_id: e.target.value } })}>
                 <option value="">как у чата</option>
                 ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-              </select></label>
+              </${Select}></label>
               <label>Модель <input value=${narratorModel ?? speaking.narrator.model} placeholder="как у подключения"
                 onInput=${(e) => setNarratorModel(e.target.value)}
                 onChange=${(e) => changeSpeaking({ narrator: { model: e.target.value } }).then(() => setNarratorModel(null))} /></label>
@@ -190,22 +191,22 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         </div>
 
         <h2>Пресет промпта этого чата</h2>
-        <select value=${chat.meta.preset_id || ""} onChange=${(e) => choosePreset(e.target.value)}>
+        <${Select} value=${chat.meta.preset_id || ""} onChange=${(e) => choosePreset(e.target.value)}>
           <option value="">Общий${globalPreset ? ` (${globalPreset.name})` : ""}</option>
           ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-        </select>
+        </${Select}>
 
         ${(generators.length > 1 || chat.meta.generator) && html`<h2>Ответ пишет</h2>
         <p class="hint">Дополнение может писать ответы по-своему (например, сначала «подумать» за каждого персонажа).
           Его запросы к модели идут по правилам из настроек, вкладка «Дополнения».</p>
-        <select data-slot="generator-pick" aria-label="Ответ пишет" value=${chat.meta.generator || ""}
+        <${Select} data-slot="generator-pick" aria-label="Ответ пишет" value=${chat.meta.generator || ""}
           onChange=${(e) => api.put(`/chats/${chat.id}/meta`, { generator: e.target.value }).then(onChanged)
             .catch((err) => onError(err.message))}>
           <option value="">Обычный способ</option>
           ${generators.filter((g) => g.id !== "default").map((g) => html`<option key=${g.id} value=${g.id}>${g.name}</option>`)}
           ${chat.meta.generator && !generators.some((g) => g.id === chat.meta.generator) && html`<option
             value=${chat.meta.generator}>${chat.meta.generator} (дополнение выключено — пишет обычный способ)</option>`}
-        </select>`}
+        </${Select}>`}
 
         <${BookPicker} scope="chat" target=${chat.id} title="Лорбуки этого чата" onError=${onError}
           hint="Вместе с ними работают общие лорбуки (настройки, вкладка «Лорбуки») и лорбуки участников (в их карточках)." />

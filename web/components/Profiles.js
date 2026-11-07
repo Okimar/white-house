@@ -6,6 +6,7 @@
 //   connection fails before writing anything (another model, connection or key = proxy).
 // - Parallel: "Несколько запросов сразу" (Settings → Подключения): extra requests beside the main one.
 // - PickVariants: the window that shows every version of a reply side by side ("pick" mode).
+import { Select } from "./Select.js";
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { Icon, IconButton } from "./Icon.js";
@@ -37,12 +38,12 @@ export function useProfiles(onError) {
 export function ProfileSwitch({ onChanged, onError }) {
   const { profiles, active, apply } = useProfiles(onError);
   if (!profiles.length) return null;
-  return html`<select class="profile-switch" data-slot="profile-switch" value=${active || ""}
+  return html`<${Select} class="profile-switch" data-slot="profile-switch" value=${active || ""}
     aria-label="Профиль подключения" title="Профиль подключения: переключает всё сразу"
     onChange=${async (e) => { if (e.target.value && await apply(e.target.value)) onChanged(); }}>
     ${!active && html`<option value="">Выберите профиль</option>`}
     ${profiles.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-  </select>`;
+  </${Select}>`;
 }
 
 export function Profiles({ onApplied, onError }) {
@@ -126,16 +127,16 @@ export function FallbackSteps({ conn, connections, steps, phrases, onSteps, onPh
           <input type="checkbox" checked=${s.on.includes(r)} onChange=${() => flip(i, r)} />${label}</label>`)}</div>
         <div class="row">
           <${Icon} name="arrow-right" />
-          <select value=${s.connection || ""} aria-label="Подключение" onChange=${(e) => set(i, { connection: e.target.value, key: "" })}>
+          <${Select} value=${s.connection || ""} aria-label="Подключение" onChange=${(e) => set(i, { connection: e.target.value, key: "" })}>
             <option value="">это же подключение</option>
             ${connections.filter((c) => c.id !== conn.id).map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-          </select>
+          </${Select}>
           <input value=${s.model} placeholder="модель (пусто — та же)" aria-label="Модель"
             onInput=${(e) => set(i, { model: e.target.value })} />
-          <select value=${s.key || ""} aria-label="Ключ (свой прокси)" onChange=${(e) => set(i, { key: e.target.value })}>
+          <${Select} value=${s.key || ""} aria-label="Ключ (свой прокси)" onChange=${(e) => set(i, { key: e.target.value })}>
             <option value="">ключи по порядку</option>
             ${target(s).keys.map((k) => html`<option key=${k.id} value=${k.id}>${k.label || "ключ"}${k.has_proxy ? " · " + k.proxy : ""}</option>`)}
-          </select>
+          </${Select}>
           <span class="spacer"></span>
           <${IconButton} icon="arrow-up" label="Выше" disabled=${i === 0} onClick=${() => move(i, -1)} />
           <${IconButton} icon="arrow-down" label="Ниже" disabled=${i === steps.length - 1} onClick=${() => move(i, 1)} />
@@ -185,15 +186,15 @@ export function Parallel({ connections, onError }) {
     <section class="parallel stack" data-slot="parallel">
       <label><input type="checkbox" checked=${plan.enabled} onChange=${(e) => change({ enabled: e.target.checked })} />
         вместе с основным запросом отправлять ещё (при отправке и перегенерации)</label>
-      <select value=${plan.mode} aria-label="Что делать с ответами" onChange=${(e) => change({ mode: e.target.value })}>
+      <${Select} value=${plan.mode} aria-label="Что делать с ответами" onChange=${(e) => change({ mode: e.target.value })}>
         ${MODES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-      </select>
+      </${Select}>
       <ul class="list">
         ${plan.targets.map((t, i) => html`<li key=${i} class="row parallel-target">
-          <select value=${t.connection} aria-label="Подключение" onChange=${(e) => setTarget(i, { connection: e.target.value })}>
+          <${Select} value=${t.connection} aria-label="Подключение" onChange=${(e) => setTarget(i, { connection: e.target.value })}>
             <option value="">выбранное сейчас</option>
             ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-          </select>
+          </${Select}>
           <input value=${t.model} placeholder="модель (пусто — своя)" aria-label="Модель"
             onInput=${(e) => setTarget(i, { model: e.target.value })} />
           <label>×<input type="number" class="num" min="1" max="8" value=${t.count} aria-label="Сколько раз"

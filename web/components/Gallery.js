@@ -1,5 +1,6 @@
 // "Картинки" tab: the image library. Upload, generate with the picture connection, copy the
 // address for a theme (url(/assets/NAME)), delete.
+import { Select } from "./Select.js";
 import { html, useState, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { Icon, IconButton } from "./Icon.js";
@@ -80,19 +81,19 @@ export function Gallery({ settings, connections, onChanged, onError }) {
     <label class="stack">
       <span>Подключение для картинок</span>
       <span class="hint">OpenAI-совместимое: адрес вида …/v1 и модель, которая умеет рисовать</span>
-      <select value=${settings.image_connection || ""} onChange=${(e) => chooseConnection(e.target.value)}>
+      <${Select} value=${settings.image_connection || ""} onChange=${(e) => chooseConnection(e.target.value)}>
         <option value="">Не выбрано</option>
         ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name} · ${c.model || "модель не указана"}</option>`)}
-      </select>
+      </${Select}>
     </label>
     <form class="stack" onSubmit=${generate}>
       <textarea rows="3" placeholder="Что нарисовать: «ночное небо с сакурой, аниме, без людей»" aria-label="Что нарисовать"
         value=${request} onInput=${(e) => setRequest(e.target.value)} disabled=${!settings.image_connection}></textarea>
       ${!settings.image_connection && html`<p class="hint">Сначала выберите подключение для картинок выше, без него рисовать нельзя</p>`}
       <div class="row">
-        <select value=${size} aria-label="Размер" onChange=${(e) => setSize(e.target.value)}>
+        <${Select} value=${size} aria-label="Размер" onChange=${(e) => setSize(e.target.value)}>
           ${SIZES.map((s) => html`<option key=${s} value=${s}>${s.replace("x", "×")}</option>`)}
-        </select>
+        </${Select}>
         <button class="primary" type="submit" disabled=${busy || !settings.image_connection || !request.trim()}>
           ${busy ? "Рисую…" : "Сгенерировать"}</button>
       </div>

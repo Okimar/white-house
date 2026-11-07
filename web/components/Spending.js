@@ -3,6 +3,7 @@
 //   red when a limit is reached.
 // - SpendingSettings: the "Расход" tab of Settings: where it is shown, currency and rate, limits and
 //   what happens at a limit, own prices per model, and the last month by model and by day.
+import { Select } from "./Select.js";
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { money, sumLine, tokens, spendingChanged } from "../core/spending.js";
@@ -119,11 +120,11 @@ export function SpendingSettings({ onError }) {
           (day) => change({ limits: { ...settings.limits, day } }), { placeholder: "нет" })}</label>
         <label>В месяц, ${cur} ${decimal("month", settings.limits.month, "Лимит в месяц",
           (month) => change({ limits: { ...settings.limits, month } }), { placeholder: "нет" })}</label>
-        <select value=${settings.on_limit} aria-label="Что делать у лимита"
+        <${Select} value=${settings.on_limit} aria-label="Что делать у лимита"
           onChange=${(e) => change({ on_limit: e.target.value })}>
           <option value="warn">только предупреждать</option>
           <option value="stop">не отправлять новые запросы</option>
-        </select>
+        </${Select}>
       </div>
 
       <h3>Свои цены</h3>

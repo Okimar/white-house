@@ -4,6 +4,7 @@
 // 📎 (or pasting a picture) adds pictures to the message: they go to the picture library and the
 // model sees them with the message. Plugins add buttons here (core/plugins.js); "/command" text
 // is offered to plugins first by the app shell (main.js).
+import { Select } from "./Select.js";
 import { html, useState, useRef, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
@@ -142,10 +143,10 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
           onChange=${(e) => { attach(e.target.files); e.target.value = ""; }} />
         <label class="role-pick" title="От чьего имени модель пишет следующее сообщение">
           <span class="muted role-label">Ответ от</span>
-          <select value=${role} aria-label="От чьего имени модель пишет следующее сообщение"
+          <${Select} value=${role} aria-label="От чьего имени модель пишет следующее сообщение"
             onChange=${(e) => onRole(e.target.value)}>
             ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
-          </select>
+          </${Select}>
         </label>
         <span class="spacer"></span>
         ${running

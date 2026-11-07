@@ -205,3 +205,7 @@ replacing; a theme carrying a built-in id installs as `<id>-custom`.
 - New `data-slot` places from the menu, groups and search: `menubar`, `menubar-home`, `menubar-<id>`, `menubar-search`, `menubar-assistant`, `menubar-settings`, `fold-menu`, `phone-folded`, `phone-unfold`; group and search places are in web/components/Groups.js and Search.js.
 - An update parks user themes and plugin styles for the first run after it (ADR 0015); safe mode (`/?safe`, `--safe`) skips them too.
 - The assistant writes skills only through its dedicated tools (ADR 0018), not by general edits.
+
+## Drop-downs (own list instead of the browser's)
+
+Every `<select>` is now `Select` (web/components/Select.js): a button `data-slot="select"` (class `select-btn`, `aria-expanded`) and, while open, a list at the end of `<body>`: `data-slot="select-list"` (class `select-list`, fixed, z-index 70) with `select-filter` (search field for lists longer than 10), `select-option` rows (classes `selected`, `active`; `aria-disabled`), `select-group` titles. They use `--dialog-bg`, `--line`, `--radius`, `--menu-shadow`, `--raised`, `--accent`, `--tap`. Restyle them like `.menu`.

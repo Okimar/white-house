@@ -157,6 +157,7 @@ tavern/                 Python package (backend)
   services/assistant_files.py   files given to the assistant (pictures only in short requests; binary files only described)
   services/web_access.py        the assistant's internet tools (search, read a page); proxies are ignored
   services/assistant_extras.py  more assistant tools (skills it writes through its own tools); ADR 0018
+  web/components/Select.js  own drop-down instead of the native <select> (themed, filter, keys); never add a native <select>
   web/core/layout.js, choice.js  menu layout (top / side, folded) and the «choice» setting control
   builtin_plugins/spelling  spelling strip above the chat message box; first user of t.composerHelper / t.composer
   skills/*.md           built-in skills now: characters, lorebooks, lorebook-work, regex, unslop, theme-scripts

@@ -3,6 +3,7 @@
 // and every setting in a console-like panel. Keys and proxies are write-only: the server only says
 // whether they are set and shows a proxy's address without its login.
 // The editor of the open connection sits right under its row; profiles and parallel requests are folded below.
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useMemo, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -454,19 +455,19 @@ function ParamRow({ spec, value, on, mark, limit, templates, onSet, onDrop }) {
       <input type="number" class="num" min=${lo} max=${hi} step=${spec.step} value=${current} disabled=${!on}
         onChange=${num} aria-label=${spec.label + ", число"} />`;
   } else if (spec.type === "bool") {
-    control = html`<select value=${String(current)} disabled=${!on} aria-label=${spec.label}
+    control = html`<${Select} value=${String(current)} disabled=${!on} aria-label=${spec.label}
       onChange=${(e) => onSet(spec.id, e.target.value === "true")}>
-      <option value="true">да</option><option value="false">нет</option></select>`;
+      <option value="true">да</option><option value="false">нет</option></${Select}>`;
   } else if (spec.type === "template") {
-    control = html`<select value=${current} disabled=${!on} aria-label=${spec.label}
+    control = html`<${Select} value=${current} disabled=${!on} aria-label=${spec.label}
       onChange=${(e) => onSet(spec.id, e.target.value)}>
       <option value="auto">Автоматически, по названию модели</option>
       ${templates.map((t) => html`<option key=${t.id} value=${t.id}>${t.name}${t.builtin ? "" : " (свой)"}</option>`)}
-    </select>`;
+    </${Select}>`;
   } else if (spec.type === "choice") {
-    control = html`<select value=${current} disabled=${!on} aria-label=${spec.label}
+    control = html`<${Select} value=${current} disabled=${!on} aria-label=${spec.label}
       onChange=${(e) => onSet(spec.id, e.target.value)}>
-      ${spec.choices.map((c) => html`<option value=${c}>${c}</option>`)}</select>`;
+      ${spec.choices.map((c) => html`<option value=${c}>${c}</option>`)}</${Select}>`;
   } else if (spec.type === "list") {
     control = html`<textarea rows="2" disabled=${!on} aria-label=${spec.label} placeholder="по одной на строку"
       value=${text ?? (current || []).join("\n")}

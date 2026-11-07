@@ -5,6 +5,7 @@
 // card or preset do nothing until «Разрешить». The HTML a rule writes arrives as a cleaned TREE and is built
 // into elements here (never put into the page as markup), with the same short lists of tags and styles as the
 // server, so a mistake on one side is caught by the other.
+import { Select } from "./Select.js";
 import { h, html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -171,7 +172,7 @@ function RuleEditor({ rule, scope, owner, chatId, onClose, onSaved }) {
         <span class="hint">Сообщения «Система» и слэш-команды правила не трогают. Записи лорбука меняются только для модели.</span>
       </fieldset>
       <label class="stack">Когда
-        <select value=${draft.when} onChange=${set("when")}>${WHEN.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}</select>
+        <${Select} value=${draft.when} onChange=${set("when")}>${WHEN.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}</${Select}>
         <span class="hint">${whenHint}</span></label>
       <div class="row regex-depth">
         <label>Глубина от <input type="number" min="0" inputmode="numeric" value=${draft.min_depth ?? ""} onInput=${number("min_depth")} /></label>
@@ -182,7 +183,7 @@ function RuleEditor({ rule, scope, owner, chatId, onClose, onSaved }) {
       <label><input type="checkbox" checked=${draft.run_on_edit} disabled=${draft.when !== "stored"} onChange=${flip("run_on_edit")} />
         Применять и когда вы правите сообщение <span class="hint">(только для «В самом сообщении»)</span></label>
       <label class="stack">Макросы в шаблоне
-        <select value=${draft.macros} onChange=${set("macros")}>${MACROS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}</select>
+        <${Select} value=${draft.macros} onChange=${set("macros")}>${MACROS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}</${Select}>
         <span class="hint">Если в шаблоне есть <code>{{char}}</code> или <code>{{user}}</code>: «как есть» — имя подставится в шаблон
           как часть шаблона; «как обычный текст» — как слова, без особых знаков.</span></label>
       <label><input type="checkbox" checked=${draft.render_html && screen} disabled=${!screen} onChange=${flip("render_html")} />

@@ -3,6 +3,7 @@
 // a file or a GitHub link, check for updates, go back to the previous version, delete. A plugin that is not built in is switched on
 // only after the full-access warning (ApproveDialog). `PluginAsks` is the "may it call a model?"
 // window shown over the app while a plugin waits for an answer.
+import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { money } from "../core/spending.js";
@@ -62,10 +63,10 @@ function useConnections() {
 
 function ConnectionField({ field, value, onSave }) {
   const connections = useConnections();
-  return html`<label>${field.label}<br /><select value=${value} onChange=${(e) => onSave(e.target.value)}>
+  return html`<label>${field.label}<br /><${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
     <option value="">Как в чате</option>
     ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-  </select></label>`;
+  </${Select}></label>`;
 }
 
 // "list": rows of small fields (e.g. the thinkers of the tree of thoughts); add, remove, edit.
@@ -133,11 +134,11 @@ function DynamicChoice({ field, value, plugin, onSave }) {
   }, [stamp]);
   const list = options || [];
   const known = list.some(([v]) => v === value);
-  return html`<label>${field.label}<br /><select value=${value} onChange=${(e) => onSave(e.target.value)}>
+  return html`<label>${field.label}<br /><${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
     <option value="">По умолчанию</option>
     ${!known && value && html`<option value=${value}>${value}</option>`}
     ${list.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
-  </select></label>${problem && html`<div class="muted">Список не получен: ${problem}</div>`}`;
+  </${Select}></label>${problem && html`<div class="muted">Список не получен: ${problem}</div>`}`;
 }
 
 function SettingField({ field, value, onSave, plugin }) {
@@ -155,9 +156,9 @@ function SettingField({ field, value, onSave, plugin }) {
       onChange=${(e) => onSave(e.target.checked)} /> ${field.label}</label>`;
   }
   if (field.type === "choice") {
-    return html`<label>${field.label}<br /><select value=${value} onChange=${(e) => onSave(e.target.value)}>
+    return html`<label>${field.label}<br /><${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
       ${field.choices.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
-    </select></label>`;
+    </${Select}></label>`;
   }
   const number = field.type === "number";
   if (field.multiline) {
