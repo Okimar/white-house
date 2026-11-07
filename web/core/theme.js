@@ -51,12 +51,21 @@ function stylesheet() {
   return link;
 }
 
+// After a theme's stylesheet was changed from the page (colour editor): the browser asks for it again.
+let cssRev = 0;
+export function reloadThemeCss() {
+  cssRev += 1;
+  const link = document.getElementById("theme-css");
+  const href = link && link.getAttribute("href");
+  if (href) link.setAttribute("href", href.split("?")[0] + `?v=${cssRev}`);
+}
+
 function setLook(id, base, hasCss) {
   const root = document.documentElement;
   root.dataset.theme = id;
   if (base === "light" || base === "dark") root.dataset.base = base; else delete root.dataset.base;
   const link = stylesheet();
-  const href = hasCss ? `/themes/${id}/theme.css` : "";
+  const href = hasCss ? `/themes/${id}/theme.css` + (cssRev ? `?v=${cssRev}` : "") : "";
   if (!href) link.removeAttribute("href");
   else if (link.getAttribute("href") !== href) link.setAttribute("href", href);
 }

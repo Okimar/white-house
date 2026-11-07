@@ -607,6 +607,16 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 .backup-warning span { overflow: hidden; text-overflow: ellipsis; }
 .backup-list li { border-bottom: 1px solid var(--line); padding: 4px 0; }
 .backup-list .grow { flex: 1; min-width: 12em; }
+.backup-list li.backup-item { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 0; }
+.backup-what { overflow-wrap: anywhere; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.backup-day h3 { margin: 12px 0 4px; }
+.backup-status { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: var(--radius); border: 1px solid var(--success); }
+.backup-status.warn { border-color: var(--danger); }
+.backup-status-icon { flex: none; display: inline-flex; padding-top: 2px; color: var(--success); }
+.backup-status.warn .backup-status-icon { color: var(--danger); }
+.big-action { width: 100%; min-height: 52px; font-size: var(--text-lg); }
+.backup-fold { margin-top: 8px; }
 .doctor-list li { display: block; padding: 4px 0; }
 .drive-guide { margin: 8px 0; padding-left: 1.4em; }
 .drive-guide li { margin: 8px 0; line-height: 1.5; }
@@ -892,10 +902,15 @@ a.button.icon-btn:hover { color: var(--fg); }
 .changes-day h3 { margin: 12px 0 6px; }
 .changes-commit { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 8px; min-width: 0; background: var(--panel); }
 .changes-commit.undone { opacity: .7; }
-.changes-commit header { flex-wrap: wrap; gap: 8px; align-items: center; }
-.changes-time { font-variant-numeric: tabular-nums; color: var(--muted); }
-.changes-conv { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-.changes-badge { font-size: var(--text-sm); padding: 0 6px; border-radius: var(--radius-sm); border: 1px solid var(--line); color: var(--muted); }
+.changes-commit { padding: 0; }
+.changes-head { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 100%; min-height: 56px; padding: 8px 12px;
+  text-align: left; background: transparent; border: 0; border-radius: var(--radius); justify-content: center; }
+.changes-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md); }
+.changes-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.changes-body { padding: 0 12px 12px; border-top: 1px solid var(--line); }
+.filter-chip { border-radius: 999px; padding: 0 16px; min-width: var(--tap); }
+.filter-chip.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.changes-filters { position: sticky; top: 0; z-index: 1; background: var(--dialog-bg); padding: 4px 0; }
 .changes-request { margin: 4px 0; overflow-wrap: anywhere; }
 .changes-actions, .changes-entries, .changes-fields { margin: 4px 0; padding-left: 18px; overflow-wrap: anywhere; }
 .changes-actions li.undone > span:first-child { text-decoration: line-through; }
@@ -1054,3 +1069,17 @@ a.button.icon-btn:hover { color: var(--fg); }
 }
 
 small, .muted small { font-size: var(--text-sm); }
+
+/* Оформление → Цвета: main colours of the look */
+.colors-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 0 12px 12px; margin-bottom: 12px; }
+.colors-box > summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; font-weight: 600; }
+.color-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.color-row { display: flex; align-items: center; gap: 12px; min-height: 56px; border-bottom: 1px solid var(--line); }
+.color-row.changed .color-name strong::after { content: " •"; color: var(--accent); }
+.color-pick { flex: none; width: 44px; height: 44px; padding: 2px; border-radius: var(--radius-sm); cursor: pointer; }
+.color-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.color-name .hint { font-size: var(--text-sm); }
+.color-hex { flex: none; width: 7.5em; font-family: var(--font-mono); }
+.list-plain { margin: 4px 0; padding-left: 18px; }
+.lore-order { margin: 0; padding-left: 20px; }
+.lore-settings .param-grid input.num { width: 100%; }

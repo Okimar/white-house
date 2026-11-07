@@ -1,7 +1,7 @@
 // Backups and the data check (stage 9а).
-// - BackupsTab: the «Копии» tab of Settings: when copies are taken, how many of each kind are kept,
-//   an own folder; the list (download, restore, delete), «Сделать сейчас», «Загрузить из файла»;
-//   the data check's findings with «Исправить».
+// - BackupsTab: the «Копии» tab of Settings: one status line, one big «Сделать копию сейчас», the copies by
+//   day (restore, download, delete, to Drive), «Загрузить копию из файла»; folded: «Настройки копий» (when, how many
+//   are kept, own folder) and Google Drive; the data check's findings with «Исправить».
 // - GoogleDrive (stage 9б): the guide to the Google app data, the data itself, «Войти через Google» (or pasting the
 //   address Google opened when White House runs on another device), auto sending, the copies on Drive
 //   with «Скачать сюда» / «Восстановить». main.js finishes a sign-in that came back to this page.
@@ -35,6 +35,18 @@ function size(bytes) {
 
 function gigabytes(bytes) {
   return `${(bytes / 1024 ** 3).toFixed(bytes < 10 * 1024 ** 3 ? 1 : 0)} ГБ`;
+}
+
+// «сегодня 14:02», «вчера 14:02», «5 ноября 14:02»
+function timeWords(iso) {
+  return new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+}
+function whenWords(iso) {
+  const d = new Date(iso);
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+  const day = days === 0 ? "сегодня" : days === 1 ? "вчера"
+    : d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  return `${day} ${timeWords(iso)}`;
 }
 
 function when(iso) {
@@ -177,7 +189,6 @@ function GoogleDrive({ drive, onError, reload }) {
 
   if (drive.signed_in) {
     return html`<section class="gdrive stack" data-slot="gdrive">
-      <h3>Google Диск</h3>
       <p><${Icon} name="check" /> Вход: <strong>${drive.account || "выполнен"}</strong>
         ${drive.free != null && html`<span class="muted"> · свободно ${gigabytes(drive.free)}</span>`}
         ${drive.last_ok && html`<span class="muted"> · последняя отправка ${when(drive.last_ok)}</span>`}</p>
@@ -209,7 +220,6 @@ function GoogleDrive({ drive, onError, reload }) {
 
   const ready = drive.client_id && drive.has_secret;
   return html`<section class="gdrive stack" data-slot="gdrive">
-    <h3>Google Диск</h3>
     <p class="muted">Копии могут сами уходить в папку на вашем Google Диске, а с Диска их можно вернуть,
       в том числе на новом телефоне. Нужны данные приложения Google: их получают один раз, минут за десять.</p>
     <details open=${!ready}>
@@ -284,8 +294,9 @@ export function BackupsTab({ onError }) {
     if (made.warning) onError(made.warning);
   });
   const restore = async (b) => {
-    if (!(await ask(`Вернуть всё к копии от ${when(b.created_at)}?`, { ok: "Восстановить", danger: true,
-      hint: "Сначала сохранится копия того, что есть сейчас, потом страница перезагрузится." }))) return;
+    if (!(await ask(`Вернуть всё к копии: ${whenWords(b.created_at)}?`, { ok: "Восстановить", danger: true,
+      hint: "Чаты, персонажи, лорбуки и настройки станут такими, какими были тогда. Всё, что вы изменили после, пропадёт. "
+        + "Перед этим сохранится копия того, что есть сейчас, так что вернуться обратно можно. Потом страница перезагрузится." }))) return;
     act("restore", () => api.post(`/backups/${encodeURIComponent(b.name)}/restore`));
   };
   const remove = async (b) => {
@@ -296,72 +307,111 @@ export function BackupsTab({ onError }) {
   const toDrive = (b) => act("drive", () => api.post(`/backups/${encodeURIComponent(b.name)}/gdrive`));
   const drive = data.gdrive;
 
+  // One status line: how fresh the newest copy is, or what is wrong.
+  const newest = data.backups.reduce((a, b) => (!a || b.created_at > a.created_at ? b : a), null);
+  const ageH = newest ? (Date.now() - new Date(newest.created_at).getTime()) / 3600000 : Infinity;
+  const problems = [data.last_error, data.folder_problem, drive && drive.problem].filter(Boolean);
+  if (!newest) problems.push("Копий пока нет.");
+  else if (ageH > 48) problems.push("Последней копии больше двух дней. Сделайте копию сейчас или проверьте расписание в настройках копий.");
+  const okLine = newest && problems.length === 0;
+
+  // The list is grouped by day: «Сегодня», «Вчера», then the date.
+  const dayLabel = (iso) => {
+    const d = new Date(iso);
+    const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+    if (days === 0) return "Сегодня";
+    if (days === 1) return "Вчера";
+    return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  };
+  const days = [];
+  for (const b of [...data.backups].sort((x, y) => (x.created_at < y.created_at ? 1 : -1))) {
+    const label = dayLabel(b.created_at);
+    if (!days.length || days[days.length - 1].label !== label) days.push({ label, items: [] });
+    days[days.length - 1].items.push(b);
+  }
+
   return html`<section class="backups stack" data-slot="backups">
-    <p class="muted">В копию входит всё: чаты, персонажи, лорбуки, настройки, картинки, темы, дополнения.
-      Ключей API в ней нет, поэтому копию можно передать. Если с прошлой копии ничего не изменилось, новая не делается.</p>
-
-    <h3>Когда делать</h3>
-    <div class="stack">
-      <label><input type="checkbox" checked=${settings.on_start} onChange=${(e) => change({ on_start: e.target.checked })} />
-        при запуске</label>
-      <label><input type="checkbox" checked=${settings.daily} onChange=${(e) => change({ daily: e.target.checked })} />
-        раз в день, после <${NumField} value=${settings.daily_hour} lo=${0} hi=${23}
-          aria-label="Час ежедневной копии" disabled=${!settings.daily}
-          onValue=${(n) => change({ daily_hour: n })} /> ч</label>
-      <label><input type="checkbox" checked=${settings.hourly} onChange=${(e) => change({ hourly: e.target.checked })} />
-        каждые <${NumField} value=${settings.every_hours} lo=${1} hi=${168}
-          aria-label="Через сколько часов" disabled=${!settings.hourly}
-          onValue=${(n) => change({ every_hours: n })} /> ч</label>
-      <label><input type="checkbox" checked=${settings.risky} onChange=${(e) => change({ risky: e.target.checked })} />
-        перед опасным действием</label>
-      <span class="hint">Опасное: удаление персонажа, чата или лорбука, импорт, обновление и откат дополнения,
-        исправление при проверке данных, восстановление.</span>
+    <div class=${"backup-status " + (okLine ? "ok" : "warn")} data-slot="backup-status" role="status">
+      <span class="backup-status-icon"><${Icon} name=${okLine ? "check" : "triangle-alert"} /></span>
+      <span>${newest ? html`<strong>Последняя копия: ${whenWords(newest.created_at)}.</strong>` : html`<strong>Копий пока нет.</strong>`}
+        ${okLine ? " Всё в порядке." : problems.filter((p) => p !== "Копий пока нет.").map((p) => " " + p)}</span>
     </div>
+    <button class="primary big-action" disabled=${Boolean(busy)} onClick=${createNow}>
+      ${busy === "create" ? "Создаю…" : "Сделать копию сейчас"}</button>
+    <p class="hint">В копию входит всё: чаты, персонажи, лорбуки, настройки, картинки, темы, дополнения. Ключей API в ней нет,
+      поэтому копию можно передать. Если с прошлой копии ничего не изменилось, новая не делается.</p>
+    ${busy === "restore" && html`<p class="muted">Восстанавливаю…</p>`}
 
-    <h3>Сколько хранить</h3>
+    <h2>Копии</h2>
+    ${!data.backups.length && html`<${EmptyNote} title="Копий пока нет"
+      hint="Нажмите «Сделать копию сейчас» или дождитесь автоматической копии." />`}
+    ${days.map((d) => html`<div key=${d.label} class="backup-day">
+      <h3>${d.label}</h3>
+      <ul class="list backup-list">
+        ${d.items.map((b) => html`<li key=${b.name} class="backup-item" data-kind=${b.kind}>
+          <span class="backup-what"><strong>${timeWords(b.created_at)}</strong> · ${KINDS[b.kind] || b.kind}
+            ${b.reason && b.kind !== "migrate" && html`<span class="muted"> (${REASONS[b.reason] || b.reason})</span>`}
+            <span class="muted"> · ${size(b.size)}${b.where === "own" ? " · своя папка" : ""}</span>
+            ${b.drive && html`<span class="muted" title="Есть на Google Диске"> · <${Icon} name="cloud" /> на Диске</span>`}</span>
+          <span class="backup-actions">
+            <button disabled=${Boolean(busy)} onClick=${() => restore(b)}>Восстановить</button>
+            ${drive && drive.signed_in && !b.drive && b.kind !== "migrate" && html`<button disabled=${Boolean(busy)}
+              onClick=${() => toDrive(b)}>${busy === "drive" ? "Отправляю…" : "На Диск"}</button>`}
+            <a class="button" href=${"/api/backups/" + encodeURIComponent(b.name)} download=${b.name}>Скачать</a>
+            <${IconButton} icon="trash-2" label="Удалить копию" class="danger-text" disabled=${Boolean(busy)}
+              onClick=${() => remove(b)} />
+          </span>
+        </li>`)}
+      </ul>
+    </div>`)}
     <div class="row">
-      ${KEEP.map(([kind, label]) => html`<label key=${kind}>${label} <${NumField} value=${settings.keep[kind]} lo=${1} hi=${1000}
-        onValue=${(n) => change({ keep: { ...settings.keep, [kind]: n } })} /></label>`)}
+      <label class="button">Загрузить копию из файла<input type="file" accept=".zip" hidden
+        onChange=${(e) => { if (e.target.files[0]) upload(e.target.files[0]); e.target.value = ""; }} /></label>
     </div>
     <p class="hint">Ручные и загруженные копии сами не удаляются.</p>
 
-    <h3>Куда</h3>
-    <label class="stack">Своя папка для копий
-      <input value=${settings.dir} placeholder="папка данных (по умолчанию)"
-        onInput=${(e) => change({ dir: e.target.value })} /></label>
-    <p class="hint">Полный путь к папке, например к папке Google Диска на компьютере: тогда копии сами уйдут в облако.
-      Если папка недоступна, копия ляжет в папку данных.</p>
-    ${data.folder_problem && html`<p class="error">${data.folder_problem}</p>`}
-    <div class="row"><span class="spacer"></span>
-      ${dirty && html`<span class="muted">Есть несохранённые изменения</span>`}
-      <button class="primary" disabled=${!dirty || Boolean(busy)} onClick=${save}>Сохранить</button></div>
+    <details class="conn-more backup-fold" data-slot="backup-settings">
+      <summary>Настройки копий</summary>
+      <h3>Когда делать</h3>
+      <div class="stack">
+        <label><input type="checkbox" checked=${settings.on_start} onChange=${(e) => change({ on_start: e.target.checked })} />
+          при запуске</label>
+        <label><input type="checkbox" checked=${settings.daily} onChange=${(e) => change({ daily: e.target.checked })} />
+          раз в день, после <${NumField} value=${settings.daily_hour} lo=${0} hi=${23}
+            aria-label="Час ежедневной копии" disabled=${!settings.daily}
+            onValue=${(n) => change({ daily_hour: n })} /> ч</label>
+        <label><input type="checkbox" checked=${settings.hourly} onChange=${(e) => change({ hourly: e.target.checked })} />
+          каждые <${NumField} value=${settings.every_hours} lo=${1} hi=${168}
+            aria-label="Через сколько часов" disabled=${!settings.hourly}
+            onValue=${(n) => change({ every_hours: n })} /> ч</label>
+        <label><input type="checkbox" checked=${settings.risky} onChange=${(e) => change({ risky: e.target.checked })} />
+          перед опасным действием</label>
+        <span class="hint">Опасное: удаление персонажа, чата или лорбука, импорт, обновление и откат дополнения,
+          исправление при проверке данных, восстановление.</span>
+      </div>
 
-    <h3>Копии</h3>
-    ${data.last_error && html`<p class="error">${data.last_error}</p>`}
-    <div class="row">
-      <button disabled=${Boolean(busy)} onClick=${createNow}>${busy === "create" ? "Создаю…" : "Сделать сейчас"}</button>
-      <label class="button">Загрузить из файла<input type="file" accept=".zip" hidden
-        onChange=${(e) => { if (e.target.files[0]) upload(e.target.files[0]); e.target.value = ""; }} /></label>
-      ${busy === "restore" && html`<span class="muted">Восстанавливаю…</span>`}
-    </div>
-    ${!data.backups.length && html`<${EmptyNote} title="Копий пока нет"
-      hint="Нажмите «Сделать сейчас» или дождитесь автоматической копии." />`}
-    <ul class="list backup-list">
-      ${data.backups.map((b) => html`<li key=${b.name} class="row" data-kind=${b.kind}>
-        <span class="grow">${when(b.created_at)} · ${KINDS[b.kind] || b.kind}
-          ${b.reason && b.kind !== "migrate" && html`<span class="muted"> (${REASONS[b.reason] || b.reason})</span>`}
-          <span class="muted"> · ${size(b.size)}${b.where === "own" ? " · своя папка" : ""}</span>
-          ${b.drive && html`<span class="muted" title="Есть на Google Диске"> · <${Icon} name="cloud" /> на Диске</span>`}</span>
-        ${drive && drive.signed_in && !b.drive && b.kind !== "migrate" && html`<button disabled=${Boolean(busy)}
-          onClick=${() => toDrive(b)}>${busy === "drive" ? "Отправляю…" : "На Диск"}</button>`}
-        <a class="button" href=${"/api/backups/" + encodeURIComponent(b.name)} download=${b.name}>Скачать</a>
-        <button disabled=${Boolean(busy)} onClick=${() => restore(b)}>Восстановить</button>
-        <${IconButton} icon="trash-2" label="Удалить копию" class="danger-text" disabled=${Boolean(busy)}
-          onClick=${() => remove(b)} />
-      </li>`)}
-    </ul>
+      <h3>Сколько хранить</h3>
+      <div class="row">
+        ${KEEP.map(([kind, label]) => html`<label key=${kind}>${label} <${NumField} value=${settings.keep[kind]} lo=${1} hi=${1000}
+          onValue=${(n) => change({ keep: { ...settings.keep, [kind]: n } })} /></label>`)}
+      </div>
 
-    ${drive && html`<${GoogleDrive} drive=${drive} onError=${onError} reload=${load} />`}
+      <h3>Куда</h3>
+      <label class="stack">Своя папка для копий
+        <input value=${settings.dir} placeholder="папка данных (по умолчанию)"
+          onInput=${(e) => change({ dir: e.target.value })} /></label>
+      <p class="hint">Полный путь к папке, например к папке Google Диска на компьютере: тогда копии сами уйдут в облако.
+        Если папка недоступна, копия ляжет в папку данных.</p>
+      ${data.folder_problem && html`<p class="error">${data.folder_problem}</p>`}
+      <div class="row"><span class="spacer"></span>
+        ${dirty && html`<span class="muted">Есть несохранённые изменения</span>`}
+        <button class="primary" disabled=${!dirty || Boolean(busy)} onClick=${save}>Сохранить настройки</button></div>
+    </details>
+
+    ${drive && html`<details class="conn-more backup-fold" data-slot="backup-drive">
+      <summary>Google Диск${drive.signed_in ? ` · подключён${drive.account ? ": " + drive.account : ""}` : " · не подключён"}</summary>
+      <${GoogleDrive} drive=${drive} onError=${onError} reload=${load} />
+    </details>`}
 
     <${Doctor} onError=${onError} />
   </section>`;

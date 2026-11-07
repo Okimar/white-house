@@ -175,3 +175,20 @@ async def test_upload_size_limit(client):
 
 def test_fake_pictures_differ_by_prompt():
     assert _pattern_png("a") != _pattern_png("b") and _pattern_png("a").startswith(b"\x89PNG")
+
+
+async def test_colors_are_saved_into_a_copy_and_builtins_stay_untouched(client):
+    copy = (await client.post("/api/themes", json={"name": "Мои цвета", "from": "dark"})).json()
+    done = await client.put(f"/api/themes/{copy['id']}/colors", json={"colors": {"bg": "#101820", "accent": "#ff8800"}})
+    assert done.status_code == 200 and done.json()["colors"] == {"bg": "#101820", "accent": "#ff8800"}
+    css = (await client.get(f"/themes/{copy['id']}/theme.css")).text
+    assert "--bg: #101820;" in css
+    listed = {t["id"]: t for t in (await client.get("/api/themes")).json()["themes"]}
+    assert listed[copy["id"]]["colors"]["accent"] == "#ff8800" and listed["dark"]["colors"] == {}
+    assert (await client.put("/api/themes/dark/colors", json={"colors": {"bg": "#000000"}})).status_code == 400
+    assert (await client.put(f"/api/themes/{copy['id']}/colors", json={"colors": {"bg": "red"}})).status_code == 400
+    # undo goes through the version history
+    versions = (await client.get(f"/api/themes/{copy['id']}/versions")).json()["versions"]
+    assert versions
+    await client.post(f"/api/themes/{copy['id']}/restore", json={"version": versions[0]["version"]})
+    assert (await client.get(f"/api/themes/{copy['id']}")).json()["colors"] == {}

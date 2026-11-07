@@ -79,6 +79,13 @@ async def put_file(request: Request) -> JSONResponse:
     return JSONResponse(theme)
 
 
+async def put_colors(request: Request) -> JSONResponse:
+    """Body: {colors: {bg: "#aabbcc", ...}}: the main colours of a user theme ({} removes them)."""
+    body = await json_body(request)
+    colors = field(body, "colors", dict)
+    return JSONResponse(ctx_of(request).themes.set_colors(request.path_params["id"], colors))
+
+
 async def delete_file(request: Request) -> JSONResponse:
     ctx_of(request).themes.delete_file(request.path_params["id"], request.path_params["path"])
     return JSONResponse({"ok": True})
@@ -133,6 +140,7 @@ routes = [
     Route("/themes/{id}/export", export_theme, methods=["GET"]),
     Route("/themes/{id}/versions", list_versions, methods=["GET"]),
     Route("/themes/{id}/restore", restore_version, methods=["POST"]),
+    Route("/themes/{id}/colors", put_colors, methods=["PUT"]),
     Route("/themes/{id}/assets", add_asset, methods=["POST"]),
     Route("/themes/{id}/files/{path:path}", put_file, methods=["PUT"]),
     Route("/themes/{id}/files/{path:path}", delete_file, methods=["DELETE"]),

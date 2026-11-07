@@ -191,15 +191,26 @@ export function LorebookShelf({ settings, onError, showHeading = true }) {
   </section>`;
 }
 
-export function LorebookSettings({ onChanged, onError }) {
+export function LorebookSettings({ settings = {}, onChanged, onError }) {
   const [values, setValues] = useState(null);
   const [fieldRev, setFieldRev] = useState(0); // bumps when the server refuses: the fields show the real numbers again
+  // Depth and sensitivity of the search are shared with the character bubbles (settings "retrieval").
+  const retrieval = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, ...(settings.retrieval || {}) };
+  const [search, setSearch] = useState(retrieval);
   useEffect(() => { api.get("/lorebooks").then((d) => setValues(d.settings)).catch((e) => onError(e.message)); }, []);
   const save = async (key, raw) => {
     const value = raw === "" ? 0 : Number(raw);
     try {
       const saved = await api.put("/settings", { lorebooks: { ...values, [key]: value } });
       setValues({ ...values, ...saved.lorebooks });
+      notify("Сохранено", "ok");
+      onChanged();
+    } catch (e) { setFieldRev((r) => r + 1); onError(e.message); }
+  };
+  const saveSearch = async (key, value) => {
+    try {
+      const saved = await api.put("/settings", { retrieval: { ...search, [key]: value } });
+      setSearch({ ...search, ...saved.retrieval });
       notify("Сохранено", "ok");
       onChanged();
     } catch (e) { setFieldRev((r) => r + 1); onError(e.message); }
@@ -212,14 +223,35 @@ export function LorebookSettings({ onChanged, onError }) {
     <input key=${key + fieldRev} class="num" inputmode="numeric" pattern="[0-9]*" value=${String(values[key])}
       onChange=${(e) => save(key, clamp(e.target.value, max))} />
     <span class="hint">${hint}</span></label>`;
-  return html`<div class="stack" data-slot="lorebook-settings">
-    <${BookPicker} scope="global" title="Общие лорбуки — во всех чатах" onError=${onError} />
-    <p class="hint">Лорбуки чата включаются в окне участников чата, лорбуки персонажа — в его карточке.</p>
-    ${values && html`<div class="row">
-      ${field("budget_tokens", "Лимит, токенов", "Сколько места в запросе могут занять записи", 1000000)}
-      ${field("budget_percent", "или % окна модели", "Если больше 0, лимит считается от окна модели", 100)}
-      ${field("recursion", "Шагов цепочки", "Сколько раз текст найденных записей ищет следующие; 0 — без цепочек", 10)}
+  return html`<div class="stack lore-settings" data-slot="lorebook-settings">
+    <h2>Включены везде</h2>
+    <${BookPicker} scope="global" title="Общие лорбуки — во всех чатах" onError=${onError}
+      hint="Лорбуки чата включаются в окне участников чата, лорбуки персонажа — в его карточке." />
+    ${values && html`
+    <h2>Сколько места занимают записи</h2>
+    <div class="param-grid">
+      ${field("budget_tokens", "Лимит, токенов", "Сколько места в запросе могут занять записи всех лорбуков", 1000000)}
+      ${field("budget_percent", "Или процент окна модели", "Если больше 0, лимит считается от окна модели, а не в токенах", 100)}
     </div>
-    <p class="hint">Если записи не влезают в лимит, первыми отпадают зелёные с большим номером. Что не влезло, видно в просмотре запроса у ответа.</p>`}
+    <p class="hint">Если записи не влезают, первыми отпадают зелёные с большим номером. Что не влезло, видно в просмотре запроса у ответа.</p>
+    <h2>Как ищутся записи</h2>
+    <div class="param-grid">
+      <label class="stack">Искать в последних сообщениях
+        <input key=${"scan" + fieldRev} class="num" inputmode="numeric" pattern="[0-9]*" value=${String(search.scan_messages)}
+          onChange=${(e) => saveSearch("scan_messages", Math.min(50, Math.max(1, Number(clamp(e.target.value, 50)) || 1)))} />
+        <span class="hint">Сколько последних сообщений читать в поисках ключевых слов. Тот же счётчик, что у пузырей персонажей.</span></label>
+      <label class="stack">Порог похожести, от 0 до 1
+        <input key=${"thr" + fieldRev} class="num" type="number" min="0" max="1" step="0.05" value=${search.threshold}
+          onChange=${(e) => saveSearch("threshold", Math.min(1, Math.max(0, Number(e.target.value) || 0)))} />
+        <span class="hint">Для поиска по смыслу: чем выше, тем ближе по смыслу должна быть запись. Общий с пузырями персонажей.</span></label>
+      ${field("recursion", "Шагов цепочки", "Сколько раз текст найденных записей ищет следующие записи; 0 — без цепочек", 10)}
+    </div>
+    <h2>В каком порядке берутся записи</h2>
+    <ol class="hint lore-order">
+      <li>Лорбуки этого чата.</li>
+      <li>Лорбуки участников чата, в порядке участников.</li>
+      <li>Общие лорбуки.</li>
+    </ol>
+    <p class="hint">Внутри книги записи идут по их номерам. Когда лимит мал, лишнее отпадает с конца этого списка.</p>`}
   </div>`;
 }

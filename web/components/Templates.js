@@ -1,4 +1,4 @@
-// Settings tab "Шаблоны": instruct templates for connections in text mode. Built-in ones are read-only
+// Instruct (inside Connections, text mode, folded): instruct templates for connections in text mode. Built-in ones are read-only
 // (duplicate it to change one); your own ones are edited field by field with a live preview of a short
 // sample conversation. Import takes our files and SillyTavern instruct/context files; export gives both.
 import { Select } from "./Select.js";
@@ -108,7 +108,7 @@ export function Templates({ onError }) {
   const readOnly = draft && draft.builtin;
 
   return html`
-    <h2>Шаблоны разметки</h2>
+    <h3>Шаблоны разметки</h3>
     <p class="hint">Нужны подключениям в текстовом режиме: весь разговор уходит в модель одним текстом,
       обёрнутым в метки, на которых модель училась. Вариант «Автоматически» в подключении выбирает шаблон по названию модели.</p>
     <div class="row">

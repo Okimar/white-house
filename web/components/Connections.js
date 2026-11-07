@@ -12,6 +12,7 @@ import { Profiles, FallbackSteps, Parallel } from "./Profiles.js";
 import { Icon, IconButton } from "./Icon.js";
 import { ask } from "./Dialogs.js";
 import { Pending, EmptyNote, useLoad } from "./State.js";
+import { Templates } from "./Templates.js";
 
 const KIND_LABEL = { openai: "протокол OpenAI", gemini: "протокол Gemini", anthropic: "протокол Claude" };
 const MARK = { yes: ["check", "принимает"], no: ["x", "не принимает"], unknown: ["circle-help", "неизвестно"] };
@@ -301,6 +302,8 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
 
       <${Console} catalog=${catalog} kind=${conn.kind} params=${params} info=${info}
         onSet=${setParam} onDrop=${dropParam} onError=${onError} />
+      ${(params.api_mode ?? "chat") === "text" && html`<${TextModeTemplate} catalog=${catalog} kind=${conn.kind}
+        params=${params} info=${info} onSet=${setParam} onDrop=${dropParam} onError=${onError} />`}
       <${FallbackSteps} conn=${conn} connections=${connections} steps=${params.fallbacks || []}
         phrases=${params.refusal_phrases || []}
         onSteps=${(steps) => (steps.length ? setParam("fallbacks", steps) : dropParam("fallbacks"))}
@@ -347,7 +350,7 @@ function Keys({ conn, onSaved, onError }) {
   };
 
   const del = async (k) => {
-    if (!(await ask(`Удалить ключ «${k.label || "без названия"}»?`, { ok: "Удалить", danger: true }))) return;
+    if (!(await ask(`Удалить ключ «${k.label || "без названия"}»?`, { ok: "Удалить", danger: true, skip: "key" }))) return;
     await api.del(`/connections/${conn.id}/keys/${k.id}`).catch((e) => onError(e.message));
     onSaved();
   };
@@ -406,13 +409,9 @@ function verdict(spec, info) {
 }
 
 function Console({ catalog, kind, params, info, onSet, onDrop, onError }) {
-  const specs = useMemo(() => catalog.settings.params.filter((p) => p.kinds.includes(kind)), [catalog, kind]);
-  const [templates, setTemplates] = useState([]); // for the "template" setting (text mode)
-  useEffect(() => {
-    if (specs.some((p) => p.type === "template")) {
-      api.get("/templates").then((d) => setTemplates(d.templates)).catch((e) => onError(e.message));
-    }
-  }, [specs]);
+  // The template setting lives in its own folded section (TextModeTemplate), only for text mode.
+  const specs = useMemo(() => catalog.settings.params.filter((p) => p.kinds.includes(kind) && p.type !== "template"), [catalog, kind]);
+  const templates = [];
   return html`
     <div class="conn-console" data-slot="conn-console">
       <p class="hint">Галочка — отправлять настройку. Без галочки сервис берёт своё значение.
@@ -427,6 +426,26 @@ function Console({ catalog, kind, params, info, onSet, onDrop, onError }) {
           </fieldset>`;
       })}
     </div>`;
+}
+
+// Instruct template: matters only when the connection sends one text (text mode). Folded, auto by default.
+function TextModeTemplate({ catalog, kind, params, info, onSet, onDrop, onError }) {
+  const [templates, setTemplates] = useState([]);
+  const spec = catalog.settings.params.find((p) => p.type === "template" && p.kinds.includes(kind));
+  useEffect(() => { api.get("/templates").then((d) => setTemplates(d.templates)).catch((e) => onError(e.message)); }, []);
+  if (!spec) return null;
+  return html`
+    <details class="conn-more" data-slot="conn-template">
+      <summary>Шаблон для текстового режима</summary>
+      <p class="hint">В текстовом режиме весь разговор уходит в модель одним текстом с метками, на которых она училась;
+        по умолчанию шаблон меток выбирается сам, по названию модели.</p>
+      <${ParamRow} spec=${spec} value=${params[spec.id]} on=${spec.id in params} mark=${verdict(spec, info)}
+        templates=${templates} onSet=${onSet} onDrop=${onDrop} />
+      <details class="conn-more">
+        <summary>Свои шаблоны: создать, изменить, импорт</summary>
+        <${Templates} onError=${onError} />
+      </details>
+    </details>`;
 }
 
 function ParamRow({ spec, value, on, mark, limit, templates, onSet, onDrop }) {

@@ -222,3 +222,24 @@ def test_sniff_image() -> None:
     assert sniff_image(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == ".webp"
     assert sniff_image(b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>') == ".svg"
     assert sniff_image(b"plain text") is None
+
+
+def test_set_colors_writes_block_keeps_history_and_rejects_bad_values(store: ThemeStore) -> None:
+    store.create("Night", source="default")
+    before = len(store.versions("night"))
+    done = store.set_colors("night", {"bg": "#112233", "accent": "#FFAA00"})
+    assert done["colors"] == {"bg": "#112233", "accent": "#ffaa00"}
+    assert len(store.versions("night")) == before + 1
+    css = store.file("night", "theme.css").read_text(encoding="utf-8")
+    assert css.count("tavern-colors:") == 1 and ":root:root" in css
+    # a second save replaces the block, it does not pile up
+    store.set_colors("night", {"fg": "#ffffff"})
+    css = store.file("night", "theme.css").read_text(encoding="utf-8")
+    assert css.count("tavern-colors:") == 1 and "--bg" not in css
+    assert store.set_colors("night", {})["colors"] == {}
+    assert "tavern-colors" not in store.file("night", "theme.css").read_text(encoding="utf-8")
+    for bad in ({"nope": "#112233"}, {"bg": "red"}, {"bg": "#12345"}):
+        with pytest.raises(ThemeError):
+            store.set_colors("night", bad)
+    with pytest.raises(ThemeError, match="Built-in"):
+        store.set_colors("default", {"bg": "#112233"})

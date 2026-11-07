@@ -1,4 +1,4 @@
-// Settings dialog, in tabs: your name, API connections (Connections.js), templates, spending (Spending.js),
+// Settings dialog, in tabs: your name, API connections (Connections.js; instruct templates live inside, for text mode), spending (Spending.js),
 // prompt, lorebooks, themes, pictures, plugins (Plugins.js), backups and the doctor (Backups.js).
 import { Select } from "./Select.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
@@ -8,7 +8,6 @@ import { Gallery } from "./Gallery.js";
 import { Presets } from "./Presets.js";
 import { LorebookSettings } from "./Lorebooks.js";
 import { Connections } from "./Connections.js";
-import { Templates } from "./Templates.js";
 import { Skills } from "./Skills.js";
 import { RegexTab } from "./Regex.js";
 import { SpendingSettings } from "./Spending.js";
@@ -22,7 +21,7 @@ import { notify } from "../core/notify.js";
 import { useLayout, setMenuMode } from "../core/layout.js";
 import { DEFAULT_PINNED, MESSAGE_ACTIONS } from "../core/messageActions.js";
 
-const TABS = [["main", "Основное"], ["connections", "Подключения"], ["templates", "Шаблоны"], ["spending", "Расход"], ["prompt", "Промпт"],
+const TABS = [["main", "Основное"], ["connections", "Подключения"], ["spending", "Расход"], ["prompt", "Промпт"],
   ["lore", "Лорбуки"], ["look", "Оформление"], ["regex", "Регекс"], ["pictures", "Картинки"], ["plugins", "Дополнения"], ["skills", "Инструкции"], ["changes", "Изменения"], ["backups", "Копии"]];
 
 // Where Settings was closed (tab and scroll of each tab) is kept on this device, only as a convenience.
@@ -177,7 +176,7 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         <${Updates} onError=${onError} />`}
 
         ${tab === "prompt" && html`<${Presets} settings=${settings} onChanged=${onChanged} onError=${onError} />`}
-        ${tab === "lore" && html`<${LorebookSettings} onChanged=${onChanged} onError=${onError} />`}
+        ${tab === "lore" && html`<${LorebookSettings} settings=${settings} onChanged=${onChanged} onError=${onError} />`}
 
         ${tab === "look" && html`<${Themes} themes=${themes} deleted=${deletedThemes} settings=${settings}
           characters=${characters} onChanged=${onChanged} onError=${onError} />`}
@@ -186,7 +185,6 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           onChanged=${onChanged} onError=${onError} />`}
 
         ${tab === "connections" && html`<${Connections} onChanged=${onChanged} onError=${onError} />`}
-        ${tab === "templates" && html`<${Templates} onError=${onError} />`}
         ${tab === "regex" && html`<${RegexTab} onError=${onError} />`}
         ${tab === "skills" && html`<${Skills} onError=${onError} />`}
         ${tab === "spending" && html`<${SpendingSettings} onError=${onError} />`}

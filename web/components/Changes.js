@@ -75,6 +75,7 @@ function PlanBox({ plan, busy, onGo, onCancel }) {
 
 function Commit({ commit, onOpenConversation, onRolledBack, onError }) {
   const [open, setOpen] = useState(false);
+  const [all, setAll] = useState(false);
   const [shown, setShown] = useState(null); // id of the action whose details are open
   const [plan, setPlan] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -94,49 +95,59 @@ function Commit({ commit, onOpenConversation, onRolledBack, onError }) {
     setPlan(null);
     onRolledBack();
   };
-  const few = commit.actions.length <= 4 || open;
+  const few = commit.actions.length <= 4 || all;
   const actions = few ? commit.actions : commit.actions.slice(0, 3);
-  return html`<article class=${"changes-commit" + (status === "done" ? "" : " undone")} data-slot="changes-commit">
-    <header class="row">
-      <span class="changes-time">${timeOf(commit.at)}</span>
-      ${commit.conversation_deleted
-        ? html`<span class="changes-conv" title="Беседу удалили, а изменения остались">${commit.conversation || "Беседа"} <span class="muted">(беседа удалена)</span></span>`
-        : onOpenConversation
-        ? html`<button type="button" class="link changes-conv" title="Открыть беседу с помощником"
-            onClick=${() => onOpenConversation(commit.chat_id)}>${commit.conversation || "Беседа"}</button>`
-        : html`<span class="changes-conv">${commit.conversation || "Беседа"}</span>`}
-      ${STATUS_WORDS[status] && html`<span class="changes-badge">${STATUS_WORDS[status]}</span>`}
-      <span class="spacer"></span>
-      ${commit.can_rollback && !plan && html`<button type="button" onClick=${askPlan}>Откатить</button>`}
-      ${!commit.can_rollback && status === "done" && html`<span class="muted" title="Для этих изменений ничего не сохранилось">нельзя откатить</span>`}
-    </header>
-    ${commit.request && html`<p class="changes-request">${commit.request}</p>`}
-    <ul class="changes-actions">
-      ${actions.map((a) => html`<li key=${a.id} class=${a.status === "undone" ? "undone" : ""}>
-        <span>${a.what}</span>
-        ${a.status === "undone" && html`<span class="muted"> (откачено)</span>`}
-        ${a.undoable && html` <button type="button" class="link" onClick=${() => setShown(shown === a.id ? null : a.id)}>
-          ${shown === a.id ? "скрыть" : "что именно"}</button>`}
-        ${shown === a.id && html`<${Details} id=${a.id} onError=${onError} />`}
-      </li>`)}
-    </ul>
-    ${!few && html`<button type="button" class="link" onClick=${() => setOpen(true)}>Показать все (${commit.count})</button>`}
-    ${commit.more_actions > 0 && open && html`<p class="muted">…и ещё ${commit.more_actions}</p>`}
-    ${plan && html`<${PlanBox} plan=${plan} busy=${busy} onGo=${go} onCancel=${() => setPlan(null)} />`}
+  const first = commit.actions[0];
+  const summary = (first ? first.what : commit.request || "Изменения") + (commit.count > 1 ? ` и ещё ${commit.count - 1}` : "");
+  const convName = commit.conversation || "Беседа";
+  return html`<article class=${"changes-commit" + (status === "done" ? "" : " undone") + (open ? " open" : "")} data-slot="changes-commit">
+    <button type="button" class="changes-head" aria-expanded=${open} onClick=${() => setOpen(!open)}>
+      <span class="changes-summary">${summary}</span>
+      <span class="changes-meta muted">${timeOf(commit.at)} · ${convName}${STATUS_WORDS[status] ? " · " + STATUS_WORDS[status] : ""}</span>
+    </button>
+    ${open && html`<div class="changes-body">
+      ${commit.request && html`<p class="changes-request"><span class="muted">Вы просили:</span> ${commit.request}</p>`}
+      <ul class="changes-actions">
+        ${actions.map((a) => html`<li key=${a.id} class=${a.status === "undone" ? "undone" : ""}>
+          <span>${a.what}</span>
+          ${a.status === "undone" && html`<span class="muted"> (откачено)</span>`}
+          ${a.undoable && html` <button type="button" class="link" onClick=${() => setShown(shown === a.id ? null : a.id)}>
+            ${shown === a.id ? "скрыть" : "что именно"}</button>`}
+          ${shown === a.id && html`<${Details} id=${a.id} onError=${onError} />`}
+        </li>`)}
+      </ul>
+      ${!few && html`<button type="button" onClick=${() => setAll(true)}>Показать все (${commit.count})</button>`}
+      ${commit.more_actions > 0 && all && html`<p class="muted">…и ещё ${commit.more_actions}</p>`}
+      ${plan && html`<${PlanBox} plan=${plan} busy=${busy} onGo=${go} onCancel=${() => setPlan(null)} />`}
+      <div class="row">
+        ${commit.can_rollback && !plan && html`<button type="button" onClick=${askPlan}>Откатить это</button>`}
+        ${!commit.can_rollback && status === "done" && html`<span class="muted">Откатить нельзя: для этих изменений ничего не сохранилось.</span>`}
+        ${commit.conversation_deleted
+          ? html`<span class="muted">Беседу удалили, а изменения остались.</span>`
+          : onOpenConversation && html`<button type="button" onClick=${() => onOpenConversation(commit.chat_id)}>Открыть беседу</button>`}
+      </div>
+    </div>`}
   </article>`;
 }
 
+// Filter chips: when (everything / today / week) and which conversation.
+const localDay = (daysBack) => {
+  const d = new Date();
+  d.setDate(d.getDate() - daysBack);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const RANGES = [["all", "Все", 0], ["today", "Сегодня", 0], ["week", "Неделя", 6]];
+
 export function Changes({ onError, onOpenConversation, onChanged }) {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [range, setRange] = useState("all");
   const [conv, setConv] = useState("");
   const [state, setState] = useState({ commits: [], next: null, conversations: [], total: 0, loading: true, error: "" });
   const ticket = useRef(0);
+  const from = range === "all" ? "" : localDay(RANGES.find((r) => r[0] === range)[2]);
 
   const query = (before) => {
     const p = new URLSearchParams();
     if (from) p.set("since", dayStart(from));
-    if (to) p.set("until", dayStart(to, 1));
     if (conv) p.set("conversation", conv);
     if (before) p.set("before", String(before));
     return `/changes?${p.toString()}`;
@@ -153,7 +164,7 @@ export function Changes({ onError, onOpenConversation, onChanged }) {
       }));
     }).catch((e) => { if (mine === ticket.current) setState((s) => ({ ...s, loading: false, error: e.message })); });
   };
-  useEffect(() => { load(false); }, [from, to, conv]);
+  useEffect(() => { load(false); }, [range, conv]);
 
   const days = [];
   for (const c of state.commits) {
@@ -161,25 +172,24 @@ export function Changes({ onError, onOpenConversation, onChanged }) {
     if (!days.length || days[days.length - 1].key !== key) days.push({ key, commits: [] });
     days[days.length - 1].commits.push(c);
   }
-  const filtered = Boolean(from || to || conv);
+  const filtered = range !== "all" || Boolean(conv);
   return html`<div class="changes">
     <h2>Изменения</h2>
-    <p class="muted">Всё, что помощник менял или удалял, во всех беседах. Откатить можно почти любое: прежнее вернётся.
-      Список остаётся, даже если беседу с помощником удалить.</p>
-    <div class="row changes-filters">
-      <label>с <input type="date" value=${from} max=${to || undefined} onInput=${(e) => setFrom(e.target.value)} /></label>
-      <label>по <input type="date" value=${to} min=${from || undefined} onInput=${(e) => setTo(e.target.value)} /></label>
-      <label>беседа <${Select} value=${conv} onChange=${(e) => setConv(e.target.value)}>
-        <option value="">все</option>
+    <p class="hint">Всё, что помощник менял или удалял, сначала новое. Нажмите на запись, чтобы увидеть подробности и откатить:
+      прежнее вернётся. Список остаётся, даже если беседу удалить.</p>
+    <div class="row changes-filters" role="group" aria-label="Фильтр">
+      ${RANGES.map(([id, label]) => html`<button type="button" key=${id} class=${"filter-chip" + (range === id ? " on" : "")}
+        aria-pressed=${range === id} onClick=${() => setRange(id)}>${label}</button>`)}
+      <${Select} value=${conv} aria-label="Беседа" onChange=${(e) => setConv(e.target.value)}>
+        <option value="">Все беседы</option>
         ${state.conversations.map((c) => html`<option key=${c.id} value=${c.id}>${c.title || "Без названия"}${c.deleted ? " (беседа удалена)" : ""} (${c.count})</option>`)}
-      </${Select}></label>
-      ${filtered && html`<button type="button" onClick=${() => { setFrom(""); setTo(""); setConv(""); }}>Сбросить</button>`}
+      </${Select}>
     </div>
     ${state.error && html`<${Pending} error=${state.error} onRetry=${() => load(false)} />`}
     ${!state.error && state.loading && !state.commits.length && html`<${Pending} />`}
     ${!state.loading && !state.error && !state.commits.length && html`<${EmptyNote}
       title=${filtered ? "Ничего не найдено" : "Помощник пока ничего не менял"}
-      hint=${filtered ? "Попробуйте другие даты или беседу." : "Когда он что-то создаст, поправит или удалит, это появится здесь."} />`}
+      hint=${filtered ? "Выберите «Все» или другую беседу." : "Когда он что-то создаст, поправит или удалит, это появится здесь."} />`}
     ${days.map((d) => html`<section key=${d.key} class="changes-day">
       <h3>${d.key}</h3>
       ${d.commits.map((c) => html`<${Commit} key=${c.key} commit=${c} onError=${onError}

@@ -6,6 +6,8 @@ import { api, ApiError } from "../core/api.js";
 import { IconButton } from "./Icon.js";
 import { ask, askText } from "./Dialogs.js";
 import { notify } from "../core/notify.js";
+import { SAFE_MODE, reloadThemeCss } from "../core/theme.js";
+import { toHex, contrast, isHex } from "../core/colors.js";
 
 export function scriptAllowed(theme, settings) {
   if (!theme || !theme.script) return false;
@@ -39,6 +41,110 @@ function ThemeCard({ theme, active, onPick, onCopy, onDelete, onVersions }) {
           onClick=${() => onDelete(theme)} />`}
       </div>
     </div>`;
+}
+
+// The main colours of the look: [css variable, label, what it paints].
+const COLORS = [
+  ["bg", "Фон", "Фон приложения за чатом"],
+  ["panel", "Панели", "Меню, окна, поле ввода, кнопки"],
+  ["fg", "Текст", "Основной цвет текста"],
+  ["muted", "Тихий текст", "Подсказки и подписи"],
+  ["line", "Границы", "Тонкие линии между частями"],
+  ["accent", "Акцент", "Главные кнопки и выделения"],
+  ["accent-fg", "Текст на акценте", "Надписи на главных кнопках"],
+  ["danger", "Опасное", "Удаление и ошибки"],
+  ["success", "Успех", "Галочки и подтверждения"],
+];
+// Pairs that must stay readable: [text, background, what, minimum ratio].
+const READABLE = [["fg", "bg", "Текст на фоне", 4.5], ["fg", "panel", "Текст на панелях", 4.5],
+  ["muted", "bg", "Тихий текст на фоне", 3], ["accent-fg", "accent", "Надпись на главной кнопке", 4.5]];
+const root = () => document.documentElement;
+const readColors = () => Object.fromEntries(COLORS.map(([k]) => [k, toHex(getComputedStyle(root()).getPropertyValue("--" + k).trim())
+  || toHex(getComputedStyle(root()).getPropertyValue("--" + k)) || "#000000"]));
+const clearPreview = () => COLORS.forEach(([k]) => root().style.removeProperty("--" + k));
+
+// «Цвета»: change the main colours at once (live), then keep them as your own theme. A built-in theme is
+// never changed: saving makes a copy. Saving into your own theme keeps the old version («Версии» brings it back).
+function ColorEditor({ theme, onSaved, onError }) {
+  const [base, setBase] = useState(null); // colours of the look as it is saved
+  const [draft, setDraft] = useState(null);
+  const mine = theme && !theme.builtin;
+  const edited = useRef(false);
+  useEffect(() => {
+    edited.current = false;
+    const read = () => {
+      if (edited.current) return;
+      clearPreview();
+      const now = readColors();
+      setBase(now); setDraft(now);
+    };
+    read();
+    // the stylesheet of a just chosen or saved theme arrives a moment later: read again
+    const link = document.getElementById("theme-css");
+    const timer = setTimeout(read, 350);
+    if (link) link.addEventListener("load", read);
+    return () => { clearTimeout(timer); if (link) link.removeEventListener("load", read); clearPreview(); }; // leaving drops what was not saved
+  }, [theme && theme.id, theme && JSON.stringify(theme.colors || {})]);
+  if (!draft) return null;
+  const changed = COLORS.filter(([k]) => draft[k] !== base[k]).map(([k]) => k);
+  const set = (key, value) => {
+    edited.current = true;
+    setDraft((d) => ({ ...d, [key]: value }));
+    if (isHex(value)) root().style.setProperty("--" + key, value);
+  };
+  const reset = () => { edited.current = false; clearPreview(); setDraft(base); };
+  const bad = READABLE.filter(([a, b, , min]) => contrast(draft[a], draft[b]) < min);
+  const save = async () => {
+    try {
+      let id = theme.id;
+      if (!mine) {
+        const name = await askText("Название своей темы", { value: `${theme.name} (мои цвета)`, ok: "Создать",
+          hint: "Встроенная тема не меняется: цвета сохранятся в её копии." });
+        if (!name) return;
+        id = (await api.post("/themes", { name, from: theme.id })).id;
+      }
+      const colors = { ...(mine ? theme.colors : {}) };
+      COLORS.forEach(([k]) => { if (!mine || draft[k] !== base[k]) colors[k] = draft[k]; });
+      await api.put(`/themes/${id}/colors`, { colors });
+      clearPreview();
+      await onSaved(id, mine);
+      notify("Цвета сохранены", "ok");
+    } catch (e) { onError(e.message); }
+  };
+  const forget = async () => {
+    if (!await ask("Убрать свои цвета темы?", { ok: "Убрать", hint: "Тема вернётся к своим прежним цветам. Прошлую версию можно вернуть кнопкой «Версии»." })) return;
+    try {
+      await api.put(`/themes/${theme.id}/colors`, { colors: {} });
+      clearPreview();
+      await onSaved(theme.id, true);
+    } catch (e) { onError(e.message); }
+  };
+  return html`
+    <details class="colors-box" data-slot="theme-colors">
+      <summary>Цвета</summary>
+      <p class="hint">Измените основные цвета выбранной темы и сразу смотрите, как это выглядит. Сохранение создаёт вашу тему
+        (встроенные не меняются). Если у темы есть картинка фона, цвет фона виден не везде.</p>
+      <ul class="color-list">
+        ${COLORS.map(([key, label, hint]) => html`<li key=${key} class=${"color-row" + (draft[key] !== base[key] ? " changed" : "")}>
+          <input type="color" class="color-pick" value=${isHex(draft[key]) ? draft[key] : "#000000"} aria-label=${label}
+            onInput=${(e) => set(key, e.target.value)} />
+          <span class="color-name"><strong>${label}</strong><span class="hint">${hint}</span></span>
+          <input class="color-hex mono" value=${draft[key]} maxlength="7" aria-label=${label + ", код цвета"} spellcheck="false" autocapitalize="off"
+            onInput=${(e) => set(key, e.target.value.startsWith("#") ? e.target.value : "#" + e.target.value)} />
+        </li>`)}
+      </ul>
+      ${bad.length > 0 && html`<div class="notice" role="alert">
+        <strong>Плохо читается</strong>
+        <ul class="list-plain">${bad.map(([a, b, what]) => html`<li key=${a + b}>${what}: контраст ${contrast(draft[a], draft[b]).toFixed(1)}, нужен не меньше
+          ${READABLE.find((r) => r[0] === a && r[1] === b)[3]}</li>`)}</ul>
+        <span class="hint">Сохранить можно, но на телефоне текст будет трудно разобрать.</span></div>`}
+      <div class="row">
+        <button class="primary" disabled=${changed.length === 0} onClick=${save}>${mine ? "Сохранить цвета" : "Сохранить как свою тему"}</button>
+        <button disabled=${changed.length === 0} onClick=${reset}>Сбросить</button>
+        ${mine && Object.keys(theme.colors || {}).length > 0 && html`<button class="danger-text" onClick=${forget}>Убрать сохранённые цвета</button>`}
+      </div>
+      ${changed.length > 0 && html`<span class="hint">Изменено: ${changed.length}. Пока не сохранено, цвета видны только на этой странице.</span>`}
+    </details>`;
 }
 
 export function Themes({ themes, deleted, settings, characters, onChanged, onError }) {
@@ -164,6 +270,9 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
         <span class="muted">Можно и выбрать тему вручную в списке ниже.</span>
       </div>
     </div>`}
+
+    ${!SAFE_MODE && pending && !pending.error && html`<${ColorEditor} theme=${pending} onError=${onError}
+      onSaved=${async (id, same) => { if (same) { reloadThemeCss(); await onChanged(); } else await save({ theme: id }); }} />`}
 
     <h2>Темы</h2>
     <div class="theme-grid" data-slot="theme-grid">

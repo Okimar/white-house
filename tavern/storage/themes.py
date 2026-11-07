@@ -130,6 +130,23 @@ def normalize_manifest(raw: Any, *, theme_id: str) -> dict[str, Any]:
     }
 
 
+# Main colours the colour editor may set (variables of web/styles.css that themes really use).
+COLOR_VARS = ("bg", "panel", "fg", "muted", "line", "accent", "accent-fg", "danger", "success")
+COLORS_START = "/* tavern-colors: written by the colour editor, do not edit by hand */"
+COLORS_END = "/* /tavern-colors */"
+COLORS_BLOCK = re.compile(re.escape(COLORS_START) + r".*?" + re.escape(COLORS_END) + r"\n?", re.S)
+HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def read_colors(css: str) -> dict[str, str]:
+    """The colours of the editor's block in a stylesheet ({} when there is none)."""
+    block = COLORS_BLOCK.search(css)
+    if not block:
+        return {}
+    found = re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{6})\s*;", block.group(0))
+    return {name: value.lower() for name, value in found if name in COLOR_VARS}
+
+
 SCRIPT_SUFFIXES = (".js", ".mjs")
 
 
@@ -201,10 +218,17 @@ class ThemeStore:
             message = exc.message if isinstance(exc, ThemeError) else str(exc)
             return {"id": theme_id, "name": theme_id, "builtin": builtin, "error": message}
         script = manifest["script"]
+        colors: dict[str, str] = {}
+        if not builtin and (folder / STYLESHEET).is_file():
+            try:
+                colors = read_colors((folder / STYLESHEET).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                colors = {}
         return {
             **manifest,
             "builtin": builtin,
             "has_css": (folder / STYLESHEET).is_file(),
+            "colors": colors,
             # The browser runs a script only if the user approved exactly this content.
             "script_sha256": _scripts_sha256(folder, script) if script else None,
             "versions": len(self._version_dirs(theme_id)) if not builtin else 0,
@@ -298,6 +322,28 @@ class ThemeStore:
             if existing + len(data) > MAX_THEME_BYTES:
                 raise ThemeError("Theme is too large (max 30 MB)", code="theme_too_large")
             atomic_write_bytes(folder / rel, data)
+        return self.get(theme_id)
+
+    def set_colors(self, theme_id: str, colors: dict[str, str]) -> dict[str, Any]:
+        """Main colours of a user theme, written as one marked block at the end of its stylesheet
+        (it wins over the theme's own rules). The folder goes to the version history first, so
+        «Версии» undoes it. An empty dict removes the block. Built-in themes are never changed."""
+        folder = self._user_folder(theme_id)
+        clean: dict[str, str] = {}
+        for name, value in colors.items():
+            if name not in COLOR_VARS or not isinstance(value, str) or not HEX_COLOR.match(value):
+                raise ThemeError(f"Unknown colour {name!r} or it is not like #aabbcc", code="bad_color")
+            clean[name] = value.lower()
+        self._snapshot(folder)
+        path = folder / STYLESHEET
+        css = path.read_text(encoding="utf-8") if path.is_file() else ""
+        css = COLORS_BLOCK.sub("", css).rstrip("\n")
+        if clean:
+            lines = "".join(f"  --{name}: {value};\n" for name, value in clean.items())
+            css += f"\n{COLORS_START}\n:root:root {{\n{lines}}}\n{COLORS_END}\n"
+        elif css:
+            css += "\n"
+        atomic_write_text(path, css)
         return self.get(theme_id)
 
     def delete_file(self, theme_id: str, rel: str) -> None:
@@ -402,6 +448,14 @@ class ThemeStore:
         return self.get(theme_id)
 
     # -- internals -------------------------------------------------------------------------
+
+    def _snapshot(self, folder: Path) -> None:
+        """A copy of the folder in the version history; the folder itself stays where it is."""
+        target = self.user_dir / VERSIONS_DIR / folder.name / _stamp()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(folder, target)
+        for old in self._version_dirs(folder.name)[KEEP_VERSIONS:]:
+            shutil.rmtree(old, ignore_errors=True)
 
     def _archive(self, folder: Path, *, keep: Path | None = None) -> None:
         target = self.user_dir / VERSIONS_DIR / folder.name / _stamp()
