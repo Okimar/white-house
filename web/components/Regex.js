@@ -250,7 +250,7 @@ function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed
   const toggle = act((rule) => api.put(`/regex/rules/${rule.id}`, { enabled: !rule.enabled }));
   const copy = act((rule) => api.post(`/regex/rules/${rule.id}/copy`));
   const remove = act(async (rule) => {
-    if (await ask(`Удалить правило «${rule.name || rule.find}»?`, { ok: "Удалить", danger: true })) await api.del(`/regex/rules/${rule.id}`);
+    if (await ask(`Удалить правило «${rule.name || rule.find}»?`, { ok: "Удалить", danger: true, skip: "rule" })) await api.del(`/regex/rules/${rule.id}`);
   });
   const allow = act(async () => { await api.post("/regex/approve", { scope, owner }); notify("Правила разрешены", "ok"); });
   const importFile = act(async (e) => {

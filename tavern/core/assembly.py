@@ -28,6 +28,7 @@ from typing import Any
 
 from tavern.core import thinking
 from tavern.core.prompt import DEFAULT_CHAR_NAME, START_TURN, estimate_tokens, substitute
+from tavern.core.presets import when_texts
 from tavern.providers.base import ChatMessage
 
 MIN_HISTORY = 6
@@ -276,6 +277,8 @@ def assemble(data: PromptInput) -> Prompt:
             text, source = card_with_override(block, "system_prompt" if kind == "main" else
                                               "post_history_instructions")
             place(Entry(role, sub(text), source, block["name"], kind), block)
+        elif kind == "text" and block.get("when"):
+            continue  # a behaviour block: sent at the end, only while its behaviour is on
         elif kind == "text":
             place(Entry(role, sub(block["text"]), preset_source(block), block["name"], kind), block)
         elif kind == "thinking" and not data.impersonate and block["text"].strip():
@@ -389,15 +392,17 @@ def assemble(data: PromptInput) -> Prompt:
         injections.append(_Injection(note_depth, entry))
 
     tail: list[Entry] = []
+
+    def behaviour(key: str, label: str) -> None:
+        for b in when_texts(preset, key):
+            tail.append(Entry(b["role"], sub(b["text"]), f"prompt:{key}", label, "prompt"))
+
     if me is not None and not me.model_may_write and not data.impersonate:
-        tail.append(Entry("system", sub(preset["prompts"]["no_write_for_me"]), "prompt:no_write_for_me",
-                          f"Запрет: не писать за «{me.name}»", "prompt"))
-    if data.several and not data.impersonate and (preset["prompts"].get("speaker_reply") or "").strip():
-        tail.append(Entry("system", sub(preset["prompts"]["speaker_reply"]), "prompt:speaker_reply",
-                          f"Отвечает: {char}", "prompt"))
+        behaviour("no_write_for_me", f"Запрет: не писать за «{me.name}»")
+    if data.several and not data.impersonate:
+        behaviour("speaker_reply", f"Отвечает: {char}")
     if data.impersonate:
-        tail.append(Entry("user", sub(preset["prompts"]["impersonate"]), "prompt:impersonate",
-                          "Написать за меня", "prompt"))
+        behaviour("impersonate", "Написать за меня")
     elif (preset["prompts"].get("prefill") or "").strip():
         tail.append(Entry("assistant", sub(preset["prompts"]["prefill"]), "prompt:prefill",
                           "Начало ответа (prefill)", "prompt"))

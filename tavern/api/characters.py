@@ -151,6 +151,9 @@ SETTING_TYPES = {
     "thinking_display": str,  # a reply's «Размышление»: "folded" (default), "open" or "hidden"
     "message_actions": str,  # a message's buttons: "menu" (a "…" list, default) or "always" (all on its panel)
     "message_pinned": list,  # ids of the buttons kept on the panel in any mode (web/core/messageActions.js)
+    "notes_shown": int,  # how many of a message's notes the column shows before «Все заметки» (1..20, default 2)
+    "skip_confirms": dict,  # delete questions turned off: key -> true (web/components/Dialogs.js SKIP_ASKS)
+    "service_texts_moved": list,  # presets whose own texts became blocks; the page shows it once, then clears it
     "skip_delete_confirm": bool,  # delete bubbles without asking "are you sure?"
     "open_new_bubble": bool,  # "+ Пузырь" / "+ Подпузырь" opens the new bubble in the panel; default off
     "character_history": bool,  # keep the history of character changes ("Отменить", versions); default on
@@ -183,6 +186,14 @@ async def put_settings(request: Request) -> JSONResponse:
             raise BadRequest(f"Setting {key!r} must map short strings to short strings")
         if key in SETTING_CHOICES and value not in ("", None, *SETTING_CHOICES[key]):
             raise BadRequest(f"Setting {key!r} must be one of: {', '.join(SETTING_CHOICES[key])}")
+        if key == "notes_shown" and not 1 <= value <= 20:
+            raise BadRequest(f"Setting {key!r} must be from 1 to 20")
+        if key == "skip_confirms" and not all(
+            isinstance(k, str) and len(k) <= 40 and v is True for k, v in value.items()
+        ):
+            raise BadRequest(f"Setting {key!r} maps names of questions to true")
+        if key == "service_texts_moved" and not all(isinstance(v, str) for v in value):
+            raise BadRequest(f"Setting {key!r} is a list of names")
         if key == "message_pinned" and not all(isinstance(v, str) and v in MESSAGE_BUTTONS for v in value):
             raise BadRequest(f"Setting {key!r} takes these buttons: {', '.join(sorted(MESSAGE_BUTTONS))}")
         if key == "lorebooks" and value:

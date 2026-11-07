@@ -116,7 +116,7 @@ async def test_own_format_keeps_everything_and_st_format_drops_extras(client):
     data = created["data"]
     next(b for b in data["blocks"] if b["kind"] == "history")["history"] = {"mode": "last", "count": 7, "max_tokens": 0,
                                                                           "thoughts": 2}
-    data["prompts"]["no_write_for_me"] = "Hands off {{user}}."
+    next(b for b in data["blocks"] if b.get("when") == "no_write_for_me")["text"] = "Hands off {{user}}."
     await client.put(f"/api/presets/{created['id']}", json={"name": "Full", "data": data})
 
     native = await client.get(f"/api/presets/{created['id']}/export?format=tavern")

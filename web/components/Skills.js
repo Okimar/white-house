@@ -105,7 +105,7 @@ export function Skills({ onError }) {
     if (skill && skill.id === s.id) setSkill({ ...skill, enabled: !s.enabled });
   });
   const remove = () => act(async () => {
-    if (!(await ask(`Удалить инструкцию «${skill.title}»?`, { ok: "Удалить", danger: true }))) return;
+    if (!(await ask(`Удалить инструкцию «${skill.title}»?`, { ok: "Удалить", danger: true, skip: "skill" }))) return;
     await api.del(`/skills/${skill.id}`);
     setOpenId(null);
     await reload();

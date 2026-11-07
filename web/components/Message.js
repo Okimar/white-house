@@ -5,13 +5,15 @@
 // panel, and message_pinned lists those kept on the panel in any mode (core/messageActions.js).
 // Author's notes kept after the message hang beside it: visible ones on the right (folded once
 // AUTO_FOLD messages came after it), hidden ones on the left only when asked for. With the setting
-// notes_display = "few" a column shows its last FEW notes and an "ещё N" chip; the notes button and the chip
-// open the drop-down with every note of the message.
+// notes_display = "few" a column shows its last notes_shown notes (default 2, edited on the line under them)
+// and the line «Видны последние [2] из 5 · Все заметки»; the notes button and that button open the
+// drop-down with every note of the message.
 // With spending shown under messages (`spend` = the spending settings), a small line says what this
 // version cost ("≈" = the service gave no counts, or the reply was stopped).
 // Regex rules (stage 11): `shown` is how the rules make the text look on screen (core/regex.js); the saved text is untouched.
 // Plugins add buttons to the header and plain-text lines under the text (core/plugins.js).
-import { html, useState } from "../vendor/preact-htm.mjs";
+import { html, useEffect, useState } from "../vendor/preact-htm.mjs";
+import { MAX_SHOWN, setNotesShown, useNotesShown } from "../core/notesShown.js";
 import { ROLES, roleOf } from "./roles.js";
 import { usageLine } from "../core/spending.js";
 import { messageExtras, messageTrees, usePluginUi } from "../core/plugins.js";
@@ -29,15 +31,31 @@ function usageTitle(u) {
 }
 
 const AUTO_FOLD = 3;
-const FEW = 2;
+
+// «Видны последние [2] из 5 · Все заметки»: the number is edited right here (and in Settings), it is the same
+// setting for every message.
+function NotesShownInput({ value }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isInteger(n) && n >= 1 && n <= MAX_SHOWN) { if (n !== value) setNotesShown(n).catch(() => {}); }
+    else setDraft(String(value));
+  };
+  return html`<input class="num" type="number" min="1" max=${MAX_SHOWN} inputmode="numeric" value=${draft}
+    aria-label="Сколько последних заметок показывать" onInput=${(e) => setDraft(e.target.value)}
+    onBlur=${commit} onKeyDown=${(e) => e.key === "Enter" && e.target.blur()} />`;
+}
 
 function NoteColumn({ notes, side, few, onHide, onMore }) {
-  const shown = few && notes.length > FEW ? notes.slice(-FEW) : notes;
+  const limit = useNotesShown();
+  const shown = few && notes.length > limit ? notes.slice(-limit) : notes;
   return html`<aside class=${"msg-notes " + side}
     data-slot=${side === "left" ? "message-notes-hidden" : "message-notes-visible"}>
     ${shown.map((n) => html`<${NoteCard} key=${n.id} note=${n} onHide=${onHide} />`)}
-    ${shown.length < notes.length && html`<button class="notes-more" data-slot="notes-more" onClick=${onMore}
-      title="Все заметки этого сообщения">ещё ${notes.length - shown.length}</button>`}
+    ${shown.length < notes.length && html`<div class="notes-line" data-slot="notes-more">
+      <span>Видны последние</span><${NotesShownInput} value=${limit} /><span>из ${notes.length}.</span>
+      <button class="notes-more" onClick=${onMore}>Все заметки</button></div>`}
   </aside>`;
 }
 
@@ -107,7 +125,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     delete: {
       disabled: busy, danger: true,
       onClick: async () => {
-        if (await ask("Удалить это сообщение и всё после него?", { ok: "Удалить", danger: true })) onRemove(message.id);
+        if (await ask("Удалить это сообщение и всё после него?", { ok: "Удалить", danger: true, skip: "message" })) onRemove(message.id);
       },
     },
   };

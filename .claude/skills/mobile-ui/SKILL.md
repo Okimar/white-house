@@ -42,7 +42,7 @@ Opening or closing a window, tab, panel or menu must not make the page jump, fla
 - No scattered mini text fields when a prompt preset, author's notes or lorebooks already do the job. Before adding a setting, check those three; a setting that only appends text to the prompt belongs there.
 - Every control has a hint in plain words (what it does, what happens when on), under the control, visible on a phone (not a tooltip).
 - A tab with little in it is merged into a neighbour or finished; no tab with one switch.
-- Destructive actions use `ask(text, {danger: true})` and offer the same «Не спрашивать больше» choice everywhere. Today only bubble deletion has it (Settings.js); the aim is one shared option in `Dialogs.js` (`ask`) and one place in Settings to turn it back on. A new destructive action must use that, not a private switch. Where undo exists, prefer undo to asking.
+- Destructive actions use `ask(text, {danger: true})` and offer the same «Не спрашивать больше» choice everywhere. `ask(text, {danger: true, skip: "key"})` adds the checkbox and remembers it in the setting `skip_confirms`; the keys are listed in `SKIP_ASKS` (`Dialogs.js`) and shown in Settings > Основное > Удаление. Whole characters, chats, lorebooks, connections and backups never get a `skip`. A new safe destructive action adds a key there, not a private switch. Where undo exists, prefer undo to asking.
 - Words come from `docs/UI_AUDIT.md`.
 
 ## 6. Windows and menus

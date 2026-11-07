@@ -74,7 +74,8 @@ async def test_llm_stream_splits_thinking_only_when_asked_and_never_sends_the_op
 
 def preset_with(*extra: dict, thoughts: int = 0) -> dict:
     raw = default_preset()
-    raw["blocks"][-2:-2] = list(extra)  # just before the history block
+    at = next(i for i, b in enumerate(raw["blocks"]) if b["kind"] == "history")
+    raw["blocks"][at:at] = list(extra)  # just before the history block
     next(b for b in raw["blocks"] if b["kind"] == "history")["history"]["thoughts"] = thoughts
     return normalize_preset(raw)
 

@@ -53,7 +53,7 @@ ST_PRESET = {
 def test_import_maps_blocks_order_and_settings():
     name, data = from_st(ST_PRESET, "My preset")
     assert name == "My preset"
-    assert [(b["kind"], b["enabled"]) for b in data["blocks"]] == [
+    assert [(b["kind"], b["enabled"]) for b in data["blocks"] if not b.get("when")] == [
         ("main", True), ("text", False), ("cast", True), ("examples", True), ("history", True),
         ("text", True), ("post_history", True),
     ]
@@ -61,7 +61,7 @@ def test_import_maps_blocks_order_and_settings():
     assert (reminder["role"], reminder["position"], reminder["depth"]) == ("user", "depth", 2)
     assert data["params"] == {"temperature": 1.1, "top_p": 0.95, "presence_penalty": 0.2, "max_tokens": 900}
     assert data["max_context_tokens"] == 120000
-    assert data["prompts"]["impersonate"] == "[Write as {{user}}]"
+    assert next(b for b in data["blocks"] if b.get("when") == "impersonate")["text"] == "[Write as {{user}}]"
     assert data["st"] == {"wrap_in_quotes": False}
 
 

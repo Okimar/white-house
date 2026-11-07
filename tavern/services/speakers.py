@@ -222,7 +222,7 @@ def narrator_prompt(
     talk = "\n".join(f"{m.get('name') or m['role']}: {m['content'][:RECENT_CHARS]}"
                      for m in history[-RECENT:] if not m.get("exclude_from_prompt"))
     acts = "\n\n".join(f"{m['name']}: {m['content']}" for m in round_)
-    return [ChatMessage("system", instruction),
+    return [*([ChatMessage("system", instruction)] if instruction.strip() else []),
             ChatMessage("user", f"Characters in the scene:\n{cast}\n\nBefore this round:\n{talk or '(nothing yet)'}"
                                 f"\n\nThis round, all at the same time:\n{acts}")]
 

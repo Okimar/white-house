@@ -19,6 +19,13 @@ const KIND_HINTS = {
   history: "сама переписка", post_history: "после переписки", text: "свой текст",
   thinking: "размышление перед ответом",
 };
+// Behaviour blocks (block.when): text sent only while the behaviour is on. [what it is for, when it is sent]
+const WHEN_HINTS = {
+  no_write_for_me: "Когда в чате есть «это я» и модели нельзя писать за него (переключатель — в «Участниках»).",
+  speaker_reply: "Когда в чате несколько персонажей: говорит, за кого сейчас писать ({{char}} — говорящий).",
+  impersonate: "Когда вы нажали «Написать за меня».",
+  narrator: "Когда включён «Рассказчик» после хода «все сразу» (переключатель — в «Участниках»). Идёт только его запросу.",
+};
 const TEXT_KINDS = ["main", "post_history", "text", "thinking"];
 const REMOVABLE = ["text", "thinking"];
 const THINKING_HINT = ["Например:", "Сцена: [где, кто рядом]", "Чего хочет {{char}} сейчас: [...]",
@@ -32,10 +39,6 @@ const PARAMS = [
 ];
 // [key, label, rows, explanation]
 const SERVICE_TEXTS = [
-  ["no_write_for_me", "Запрет писать за моего персонажа", 3, ""],
-  ["narrator", "Рассказчик после хода «все сразу»", 3, "Сводит действия всех в одну сцену."],
-  ["speaker_reply", "За кого модель пишет сейчас", 2,
-    "Для чатов с несколькими персонажами. {{char}} — тот, кто говорит. Пусто — не говорить."],
   ["prefill", "Начало ответа модели", 3, "По-английски prefill: отправляется как начало её ответа. Пусто — нет."],
   ["personality_format", "Формат характера", 1,
     "Например, [{{char}}'s personality: {{personality}}]. Пусто — «Personality:»."],
@@ -51,13 +54,13 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
         <input type="checkbox" checked=${block.enabled} disabled=${readOnly} aria-label=${"Включить блок: " + block.name}
           onChange=${(e) => set({ enabled: e.target.checked })} />
         <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}>
-          <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> ${block.name} <span class="muted">· ${KIND_HINTS[block.kind]}
+          <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> ${block.name} <span class="muted">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
           ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
           ${block.group && html`<span class="tag" title="Из блоков группы включён только один"><${Icon} name="arrow-left-right" /> ${block.group}</span>`}</button>
         ${!readOnly && html`
           <${IconButton} icon="arrow-up" label="Выше" disabled=${index === 0} onClick=${() => onMove(index, -1)} />
           <${IconButton} icon="arrow-down" label="Ниже" disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
-          ${REMOVABLE.includes(block.kind) && html`<${IconButton} icon="trash-2" label="Удалить блок" class="danger-text"
+          ${REMOVABLE.includes(block.kind) && !block.when && html`<${IconButton} icon="trash-2" label="Удалить блок" class="danger-text"
             onClick=${() => onRemove(index)} />`}`}
       </div>
       ${open && html`<div class="stack block-edit">
@@ -83,6 +86,17 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
           </div>
           <p class="hint">Токенов: 0 — без ограничения. Прошлые размышления: сколько последних ответов уходят модели
             вместе с их размышлением; повторяющиеся строки не шлются; 0 — не слать.</p>`
+        : block.when ? html`
+          <p class="hint" data-slot="when-hint">${WHEN_HINTS[block.when]} Выключатель слева — отправлять ли этот текст вообще.</p>
+          <div class="row">
+            <label>От кого
+              <${Select} value=${block.role} disabled=${readOnly} onChange=${(e) => set({ role: e.target.value })}>
+                ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
+              </${Select}></label>
+          </div>
+          <textarea rows="4" value=${block.text} disabled=${readOnly} aria-label=${block.name}
+            placeholder="Текст. Можно {{char}} и {{user}}" onInput=${(e) => set({ text: e.target.value })}></textarea>
+          <p class="hint">Идёт в конце промпта, после переписки, и только в нужный момент.</p>`
         : html`
           <div class="row">
             <label>От кого
@@ -282,6 +296,13 @@ export function Presets({ settings, onChanged, onError }) {
   const readOnly = !current || current.builtin;
 
   return html`
+    ${Array.isArray(settings.service_texts_moved) && settings.service_texts_moved.length > 0 && html`
+      <div class="notice" data-slot="moved-notice" role="status">
+        <p>Служебные тексты («не писать за меня», «рассказчик», «кто отвечает», «написать за меня») стали блоками пресета.
+          Ваши формулировки перенесены без потерь в пресеты: ${settings.service_texts_moved.join(", ")}.</p>
+        <button onClick=${() => api.put("/settings", { service_texts_moved: [] }).then(onChanged).catch((e) => onError(e.message))}>
+          Понятно</button>
+      </div>`}
     <h2>Пресеты промпта</h2>
     <p class="hint">Пресет — это порядок блоков промпта и настройки модели. Пресет с пометкой «Общий»
       используется во всех чатах, где не выбран свой (меню «Участники» в чате).</p>
@@ -350,10 +371,8 @@ export function Presets({ settings, onChanged, onError }) {
       <label><input type="checkbox" checked=${current.data.prefer_card_prompts} disabled=${readOnly}
         onChange=${(e) => edit({ ...current.data, prefer_card_prompts: e.target.checked })} />
         Свой промпт карточки заменяет главный промпт пресета</label>
-      <h3>Служебные тексты</h3>
-      <label class="stack">«Написать за меня»
-        <textarea rows="3" disabled=${readOnly} value=${current.data.prompts.impersonate}
-          onInput=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, impersonate: e.target.value } })}></textarea></label>
+      <h3>Форматы</h3>
+      <p class="hint">Тексты «не писать за меня», «рассказчик», «кто отвечает» и «написать за меня» теперь блоки в списке выше.</p>
       ${SERVICE_TEXTS.map(([key, label, rows, hint]) => html`<label key=${key} class="stack">${label}
         <textarea rows=${rows} disabled=${readOnly} value=${current.data.prompts[key] || ""}
           onInput=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, [key]: e.target.value } })}></textarea>

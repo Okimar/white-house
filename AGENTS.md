@@ -105,6 +105,8 @@ tavern/                 Python package (backend)
                         words, pause, delay, one-per-group, filter), chains, lorebook pools by order
   storage/repos/blocks.py  character_blocks, block_embeddings, chat_block_hits
   core/presets.py       preset JSON shape and validation (block kinds, model params, groups «один из»,
+                        behaviour blocks = kind text + `when`: no_write_for_me, speaker_reply, impersonate, narrator,
+                        sent only while that behaviour is on; older presets' `prompts` texts migrate into them;
                         the «Размышление» block, how many past thinkings the history sends)
   core/thinking.py      `<thinking>`/`<think>` written in a reply: split out while streaming (LLMClient.stream
                         split_thinking=True, set for chat replies) into the reply's reasoning; old thinking

@@ -157,6 +157,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
             ctx.config = with_server_overrides(ctx.config, port=port)
         ctx.plugins.start()
         from tavern.services import look
+        from tavern.services import presets as preset_service
+
+        preset_service.migrate_behaviour_blocks(ctx)  # texts of older presets become blocks (once)
 
         if look.check_upgrade(ctx):  # the interface changed: the custom look is off, the page says so
             print("Интерфейс обновился: свои темы и стили отключены (ничего не удалено). "

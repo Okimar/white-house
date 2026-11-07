@@ -20,6 +20,7 @@ from tavern.core.presets import (
     DEFAULT_BLOCK_NAMES,
     DEFAULT_PROMPTS,
     REASONING_EFFORTS,
+    WHEN,
     PresetError,
     normalize_preset,
 )
@@ -145,7 +146,7 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
     for st_key, key in TEXTS.items():
         value = obj.get(st_key)
         if isinstance(value, str) and (value.strip() or key != "impersonate"):
-            prompts_out[key] = value
+            prompts_out[key] = value  # impersonate / speaker_reply become behaviour blocks in normalize_preset
     data = normalize_preset({
         "blocks": blocks,
         "params": params,
@@ -182,6 +183,8 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
                 add(identifier, block, marker=True)
         elif kind in ("main", "post_history"):
             add(KIND_IDENTIFIERS[kind], block, marker=False, content=block["text"])
+        elif kind == "text" and block.get("when"):
+            continue  # a behaviour block: ST keeps these as separate texts (below)
         elif kind == "text":
             add(block["id"], block, marker=False, content=block["text"])
         elif kind == "thinking":  # ST has no such kind: the template goes framed, as plain text
@@ -196,7 +199,11 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
     if data.get("max_context_tokens"):
         result["openai_max_context"] = data["max_context_tokens"]
     for st_key, key in TEXTS.items():
-        result[st_key] = data["prompts"][key]
+        if key in WHEN:
+            found = [b["text"] for b in data["blocks"] if b.get("when") == key and b["enabled"]]
+            result[st_key] = found[0] if found else ""
+        else:
+            result[st_key] = data["prompts"][key]
     if "reasoning_effort" in data["params"]:
         result["reasoning_effort"] = data["params"]["reasoning_effort"]
     result["prompts"] = prompts

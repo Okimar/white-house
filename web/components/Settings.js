@@ -18,6 +18,8 @@ import { Updates } from "./Updates.js";
 import { IconButton } from "./Icon.js";
 import { backdrop, useEscape } from "../core/keys.js";
 import { notify } from "../core/notify.js";
+import { SKIP_ASKS, setSkip, syncSkips } from "./Dialogs.js";
+import { MAX_SHOWN, setNotesShown, syncNotesShown } from "../core/notesShown.js";
 import { useLayout, setMenuMode } from "../core/layout.js";
 import { DEFAULT_PINNED, MESSAGE_ACTIONS } from "../core/messageActions.js";
 
@@ -53,6 +55,8 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
     .catch((e) => onError(e.message));
   useEffect(() => { reload(); }, [tab]);
 
+  syncSkips(settings.skip_confirms); // the delete questions turned off (Dialogs.js) follow the saved setting
+  syncNotesShown(settings.notes_shown);
   const saveSetting = async (patch) => {
     try {
       await api.put("/settings", patch);
@@ -150,9 +154,14 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         <h2>Заметки возле сообщения</h2>
         <${Select} value=${settings.notes_display || "few"} aria-label="Сколько заметок показывать возле сообщения"
           onChange=${(e) => saveSetting({ notes_display: e.target.value })}>
-          <option value="few">Две последние и «ещё N»</option>
+          <option value="few">Только последние, остальные по кнопке «Все заметки»</option>
           <option value="all">Все подряд</option>
         </${Select}>
+        <label class="stack">Сколько последних заметок показывать
+          <input type="number" min="1" max=${MAX_SHOWN} value=${settings.notes_shown || 2}
+            onChange=${(e) => setNotesShown(e.target.value).then(onChanged).catch((err) => onError(err.message))} /></label>
+        <p class="hint">Возле сообщения видны только последние заметки, под ними строка «Видны последние N из M».
+          Число можно менять и прямо на этой строке.</p>
         <h2>Размышления модели</h2>
         <${Select} value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
           onChange=${(e) => saveSetting({ thinking_display: e.target.value })}>
@@ -162,9 +171,15 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         </${Select}>
         <p class="hint">Отправлять ли прошлые размышления модели, настраивается в пресете: блок «История чата».</p>
         <h2>Удаление</h2>
-        <label><input type="checkbox" checked=${Boolean(settings.skip_delete_confirm)}
-          onChange=${(e) => saveSetting({ skip_delete_confirm: e.target.checked })} />
-          не спрашивать подтверждение при удалении пузырей</label>
+        <p class="hint">Вопрос «Удалить?» с галочкой «Больше не спрашивать» можно отключить в самом окне.
+          Здесь его можно вернуть. Персонажи, чаты, лорбуки и копии спрашивают всегда.</p>
+        <label class="check"><input type="checkbox" checked=${!settings.skip_delete_confirm}
+          onChange=${(e) => saveSetting({ skip_delete_confirm: !e.target.checked })} />
+          спрашивать при удалении пузырей</label>
+        ${SKIP_ASKS.map(([key, label]) => html`<label key=${key} class="check"><input type="checkbox"
+          checked=${!(settings.skip_confirms || {})[key]}
+          onChange=${(e) => setSkip(key, !e.target.checked).then(onChanged).catch((err) => onError(err.message))} />
+          спрашивать: ${label[0].toLowerCase() + label.slice(1)}</label>`)}
         <h2>Новые пузыри</h2>
         <label><input type="checkbox" checked=${Boolean(settings.open_new_bubble)}
           onChange=${(e) => saveSetting({ open_new_bubble: e.target.checked })} />

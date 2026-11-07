@@ -1083,3 +1083,12 @@ small, .muted small { font-size: var(--text-sm); }
 .list-plain { margin: 4px 0; padding-left: 18px; }
 .lore-order { margin: 0; padding-left: 20px; }
 .lore-settings .param-grid input.num { width: 100%; }
+
+/* Members panel: one block per person, parts under small headings */
+.member-part { margin: 12px 0 0; font-size: var(--text-sm); color: var(--text2); }
+.member .hint { margin: 0 0 4px; }
+.check { display: flex; align-items: center; gap: 8px; min-height: var(--tap); }
+.ask-never { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--tap); margin: 4px 0; }
+.ask-never .hint { flex-basis: 100%; margin: 0; }
+.notes-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--text-sm); color: var(--muted); }
+.notes-line .num { width: 4.5em; min-height: var(--tap); }

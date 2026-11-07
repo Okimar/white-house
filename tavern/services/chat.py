@@ -18,19 +18,23 @@ from tavern.core.budget import BudgetExceeded, RunBudget
 from tavern.core.assembly import PromptInput
 from tavern.core.generation import DefaultGenerator, GenerationJob
 from tavern.core.llm import LLMClient
+from tavern.core.presets import when_texts
 from tavern.core.prompt import DEFAULT_CHAR_NAME, substitute
 from tavern.core.runs import Run
+
 from tavern.providers.params import request_params
 from tavern.services import cast, character_tree, lorebooks, parallel, speakers, spending
 from tavern.services import notes as note_service
 from tavern.services import presets as preset_service
 from tavern.services import regex as regex_service
+
 from tavern.errors import AppError, Conflict, NotFound, TavernError
 from tavern.formats.cards import greetings
 from tavern.formats.media import media_type, sniff_image
 from tavern.storage.repos.chats import ROLES
 
 log = logging.getLogger(__name__)
+NARRATOR_JOIN = chr(10) * 2  # several narrator blocks are sent as paragraphs
 
 DEFAULT_USER_NAME = "User"
 BUDGET_KEYS = ("max_steps", "max_tokens", "max_cost", "timeout")
@@ -868,8 +872,9 @@ async def _narrate(
     round_ids = {m["id"] for m in round_}
     history = [m for m in ctx.chats.active_path(chat["id"]) if m["id"] not in round_ids]
     preset = preset_service.resolve(ctx, chat)
-    instruction = substitute(preset["data"]["prompts"]["narrator"], char=narrator["name"],
-                             user=user_name(ctx, chat["id"]))
+    instruction = NARRATOR_JOIN.join(
+        substitute(b["text"], char=narrator["name"], user=user_name(ctx, chat["id"]))
+        for b in when_texts(preset["data"], "narrator"))
     prompt = speakers.narrator_prompt(instruction, rows, history, round_)
     message = ctx.chats.add_message(chat["id"], role="system", content="", parent_id=chat["leaf_id"],
                                     name=narrator["name"])

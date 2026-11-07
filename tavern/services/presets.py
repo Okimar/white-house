@@ -148,3 +148,32 @@ def export_st(ctx: AppContext, preset_id: str) -> tuple[str, dict[str, Any]]:
     if scripts:
         out["extensions"] = {**(out.get("extensions") or {}), "regex_scripts": scripts}
     return preset["name"], out
+
+
+MOVED_SETTING = "service_texts_moved"  # names of presets whose own wording was moved into blocks (page tells once)
+
+
+def migrate_behaviour_blocks(ctx: AppContext) -> list[str]:
+    """Stored presets from before the behaviour blocks kept «не писать за меня», «рассказчик», the
+    speaker line and «написать за меня» as text fields in `prompts`. Each becomes a block (own wording
+    kept; an empty field becomes a switched-off block) and the preset is saved. Returns the names of
+    presets where a person's own wording was moved; the page tells them once (setting MOVED_SETTING)."""
+    from tavern.core.presets import DEFAULT_PROMPTS_OLD, WHEN  # noqa: PLC0415
+
+    moved: list[str] = []
+    for row in ctx.presets.list():
+        preset = ctx.presets.get(row["id"])
+        data = preset["data"]
+        old = data.get("prompts") if isinstance(data.get("prompts"), dict) else {}
+        present = {b.get("when") for b in data.get("blocks", []) if isinstance(b, dict)}
+        if all(key in present for key in WHEN) and not any(key in old for key in WHEN):
+            continue
+        custom = any(key not in present and isinstance(old.get(key), str) and old[key] != DEFAULT_PROMPTS_OLD[key]
+                     for key in WHEN)
+        ctx.presets.update(preset["id"], preset["name"], normalize_preset(data))
+        if custom:
+            moved.append(preset["name"])
+    if moved:
+        known = ctx.settings.get(MOVED_SETTING) or []
+        ctx.settings.set(MOVED_SETTING, [*known, *[n for n in moved if n not in known]])
+    return moved

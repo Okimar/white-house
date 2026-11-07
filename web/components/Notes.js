@@ -58,7 +58,7 @@ function NoteRow({ note, onSave, onDelete }) {
         <input class="grow" value=${title} placeholder="Название" aria-label="Название"
           onInput=${(e) => setTitle(e.target.value)} onBlur=${() => title !== note.title && onSave({ title })} />
         <${IconButton} icon="trash-2" label="Удалить заметку"
-          onClick=${async () => { if (await ask("Удалить заметку?", { ok: "Удалить", danger: true })) onDelete(); }} />
+          onClick=${async () => { if (await ask("Удалить заметку?", { ok: "Удалить", danger: true, skip: "note" })) onDelete(); }} />
       </div>
       <textarea rows="3" value=${text} placeholder="Текст заметки. Можно использовать {{char}} и {{user}}"
         aria-label="Текст заметки" onInput=${(e) => setText(e.target.value)}
@@ -122,7 +122,7 @@ export function Notes({ chat, showHidden, onShowHidden, onClearHidden, onEditNum
   useEffect(load, [chat.id]);
 
   const removeByNumbers = async () => {
-    if (!numbers.trim() || !await ask(`Удалить заметки у сообщений ${numbers}?`, { ok: "Удалить", danger: true })) return;
+    if (!numbers.trim() || !await ask(`Удалить заметки у сообщений ${numbers}?`, { ok: "Удалить", danger: true, skip: "note" })) return;
     api.post(`/chats/${chat.id}/message-notes/delete-by-numbers`, { numbers })
       .then((d) => { notify(`Удалено заметок: ${d.removed}`, "ok"); onChanged(); }).catch((e) => onError(e.message));
   };
@@ -177,7 +177,7 @@ function AttachedNote({ note, onChanged, onError }) {
   useEffect(() => setText(note.text), [note.id, note.text]);
   const save = (patch) => api.put(`/message-notes/${note.id}`, patch).then(onChanged).catch((e) => onError(e.message));
   const remove = async () => {
-    if (await ask("Удалить заметку?", { ok: "Удалить", danger: true })) {
+    if (await ask("Удалить заметку?", { ok: "Удалить", danger: true, skip: "note" })) {
       api.del(`/message-notes/${note.id}`).then(onChanged).catch((e) => onError(e.message));
     }
   };

@@ -62,7 +62,7 @@ export function Gallery({ settings, connections, onChanged, onError }) {
   };
 
   const remove = async (asset) => {
-    if (!await ask(`Удалить картинку ${asset.name}?`, { ok: "Удалить", danger: true })) return;
+    if (!await ask(`Удалить картинку ${asset.name}?`, { ok: "Удалить", danger: true, skip: "picture" })) return;
     try {
       await api.del(`/assets/${encodeURIComponent(asset.name)}`);
       reload();
