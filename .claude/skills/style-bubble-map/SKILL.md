@@ -6,8 +6,8 @@ description: How to restyle the character bubble map (the "Дерево" tab of 
 # Styling the bubble map
 
 The bubble map is a custom menu, and it must look good: calm, readable, with clear depth. The owner
-judges it by eye, so check every change in a real browser (see `modify-ui`), in the light and dark
-themes, at phone width, and with a big tree (1500 bubbles must stay at ~60 fps).
+judges it by eye: agents do not open a browser (AGENTS.md rule 9), so give the owner steps to check each
+change in the light and dark themes, at phone width, and with a big tree (1500 bubbles must stay at ~60 fps).
 
 Code: `web/components/CharacterTree.js` (logic, do not restyle from there), `web/styles.css`
 (base look). A theme restyles it from its own `theme.css` (see `make-theme`): override the
@@ -98,3 +98,9 @@ The legend uses `.swatch.line-*` and `.swatch.tree-refs`: keep it matching the l
 - [ ] Opened space: the background reads as further away, the path above is clear
 - [ ] Phone width: ports big enough, panel slides from the bottom, nothing overflows
 - [ ] 1500 bubbles: no frame drops when panning or dragging
+
+## Added in the 2026-11-07 batch
+
+- `.tree-map.far`: zoomed far out, bubbles drop ports, numbers, shadows and transitions. Do not restore them in a theme.
+- Bubbles outside the view are culled lazily; do not rely on every bubble being in the DOM.
+- Group maps use the classes `group-map`, `group-frame`, `group-label`, `group-item` (web/styles.css).

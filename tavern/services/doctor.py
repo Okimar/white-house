@@ -66,7 +66,7 @@ def full(ctx: AppContext) -> list[dict[str, Any]]:
         tables = sorted({r[0] for r in broken})
         out.append(_finding("links", "warn", f"Строк со ссылкой на удалённое: {len(broken)}",
                             "Таблицы: " + ", ".join(tables) + ". «Исправить» удалит эти строки.", fix=True))
-    out += _assets(ctx) + _themes(ctx) + _plugins(ctx) + _space(ctx) + _folder(ctx) + _copies(ctx) + _layers(ctx)
+    out += _assets(ctx) + _themes(ctx) + _plugins(ctx) + _space(ctx) + _folder(ctx) + _copies(ctx) + _layers(ctx) + _regex(ctx)
     junk = leftovers(ctx.paths.root, ctx.backups.folders())
     if junk:
         out.append(_finding("leftovers", "info", f"Остатки прерванных операций: {len(junk)}",
@@ -87,6 +87,23 @@ def _folder(ctx: AppContext) -> list[dict[str, Any]]:
     problem = ctx.backups.own_dir_problem()
     return [_finding("folder", "warn", "Своя папка для копий недоступна",
                      problem + ". Копии пока кладутся в папку данных.")] if problem else []
+
+
+def _regex(ctx: AppContext) -> list[dict[str, Any]]:
+    """Regex rules (stage 11): ones whose character or preset is gone, and ones whose pattern cannot be used."""
+    from tavern.services import regex  # noqa: PLC0415 - it imports the services that import this one
+
+    found = regex.problems(ctx)
+    orphans = [p for p in found if p["orphan"]]
+    out = []
+    if orphans:
+        out.append(_finding("regex_orphans", "warn", f"Регекс-правил без хозяина: {len(orphans)}",
+                            "Их персонажа или пресета уже нет. «Исправить» удалит эти правила.", fix=True))
+    for item in found:
+        if item["error"] and not item["orphan"]:
+            out.append(_finding(f"regex:{item['id']}", "warn", f"Регекс-правило «{item['name'] or item['id']}» не работает",
+                                item["error"] + ". Исправьте шаблон на вкладке «Регекс»."))
+    return out
 
 
 def _plugins(ctx: AppContext) -> list[dict[str, Any]]:
@@ -242,6 +259,12 @@ def fix(ctx: AppContext, ids: list[str]) -> dict[str, Any]:
             with ctx.db.transaction() as conn:
                 for table, rowid, _parent, _fk in conn.execute("PRAGMA foreign_key_check").fetchall():
                     conn.execute(f'DELETE FROM "{table}" WHERE rowid = ?', (rowid,))
+        elif finding_id == "regex_orphans":
+            from tavern.services import regex  # noqa: PLC0415
+
+            for item in regex.problems(ctx):
+                if item["orphan"]:
+                    regex.repo(ctx).delete(item["id"])
         elif finding_id.startswith("theme:"):
             ctx.settings.delete("theme")
         elif finding_id in ("copy_age", "copy_error") and not copied:

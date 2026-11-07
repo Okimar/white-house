@@ -10,6 +10,8 @@ Secrets have no tool. Text read from cards and books reaches the model marked as
 
 from __future__ import annotations
 
+import math
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -39,6 +41,13 @@ class ToolError(AppError):
 class Env:
     ctx: AppContext
     chat_id: str | None = None  # the chat open on the page, if any
+    # Links made by this request, per owner (the engine keeps it on the task, so it holds for the whole
+    # work), and what the user wrote: only the user can ask for more links than the usual limit.
+    link_counts: dict[str, int] = field(default_factory=dict)
+    asked_for: str = ""
+    # Asks the person «Разрешить?» in the middle of a tool (install_skill shows what it downloaded first);
+    # the engine sets it, "auto" mode answers yes. None: the tool runs without a person (tests of the tool alone).
+    ask: Callable[[str], Awaitable[bool]] | None = None
 
 
 @dataclass
@@ -179,13 +188,48 @@ async def delete_character(env: Env, args: dict[str, Any]) -> Outcome:
 # --- bubbles (of a character or a lorebook) --------------------------------------------------
 
 
+LIST_PAGE = 40  # entries one list_bubbles answer carries: a longer list is paged, never cut silently
+
+
+def _int_arg(args: dict[str, Any], key: str, default: int, low: int, high: int) -> int:
+    value = args.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ToolError(f"Argument {key!r} must be a whole number")
+    return max(low, min(high, value))
+
+
 async def list_bubbles(env: Env, args: dict[str, Any]) -> Outcome:
     owner_id = _text(args, "owner_id")
-    return Outcome([_block_view(b) for b in character_tree.list_blocks(env.ctx, owner_id)])
+    blocks = character_tree.list_blocks(env.ctx, owner_id)
+    offset = _int_arg(args, "offset", 0, 0, len(blocks))
+    limit = _int_arg(args, "limit", LIST_PAGE, 1, 100)
+    if len(blocks) <= limit and offset == 0:
+        return Outcome([_block_view(b) for b in blocks])
+    page = blocks[offset:offset + limit]
+    out: dict[str, Any] = {"total": len(blocks),
+                           "showing": f"{offset + 1}-{offset + len(page)}" if page else "none",
+                           "entries": [_block_view(b) for b in page]}
+    if offset + limit < len(blocks):
+        out["more"] = (f"{len(blocks) - offset - limit} more entries are NOT shown. Call list_bubbles again with "
+                       f"offset={offset + limit}. For a job over every entry, use begin_sweep.")
+    return Outcome(out)
 
 
 async def read_bubble(env: Env, args: dict[str, Any]) -> Outcome:
-    return Outcome(_block_view(env.ctx.blocks.get(_text(args, "id")), full=True))
+    block = env.ctx.blocks.get(_text(args, "id"))
+    view = _block_view(block, full=True)
+    view["linked_to"] = _linked(env, block["owner_id"], block["id"])
+    return Outcome(view)
+
+
+def _linked(env: Env, owner_id: str, block_id: str) -> list[dict[str, str]]:
+    titles = {b["id"]: b["title"] for b in env.ctx.blocks.list(owner_id)}
+    out = []
+    for a, b in env.ctx.blocks.links([owner_id]):
+        if block_id in (a, b):
+            other = b if a == block_id else a
+            out.append({"id": other, "title": titles.get(other, "")})
+    return out
 
 
 def _block_fields(fields: dict[str, Any]) -> dict[str, Any]:
@@ -223,6 +267,103 @@ async def delete_bubble(env: Env, args: dict[str, Any]) -> Outcome:
     undo = snapshot.capture(env.ctx.db, "character_blocks", {"id": block["id"]}, cascade=True)
     await character_tree.delete_block(env.ctx, block["id"])
     return Outcome({"ok": True}, f"{_owner_name(env, block['owner_id'])}: удалён пузырь «{block['title']}»",
+                   undo, ("blocks",))
+
+
+# --- links between bubbles --------------------------------------------------------------------
+#
+# A link makes the search bring the partner whenever one of the two is found, so every link adds
+# text to many replies. A model that is allowed to link "whatever is related" links everything.
+# So the limit lives here, in code, not only in the skill.
+
+MIN_LINKS = 3  # even a tiny book may have a few
+LINKS_PER_ENTRY = 0.12  # about one link per eight entries: an average entry then has 0.25 links
+MAX_PER_ENTRY = 2  # no entry becomes a hub that drags half the book along
+MANY_RE = re.compile(r"как можно больше|по максимуму|максимум связ|все возможные связ|много связ|"
+                     r"as many (?:links|connections)|many links|lots of links|every possible link|"
+                     r"link everything|свяжи всё|свяжи все", re.IGNORECASE)
+NUMBER_RE = re.compile(r"(\d+)\s*(?:новых\s+)?(?:связ\w*|ссыл\w*|links?|connections?)", re.IGNORECASE)
+
+
+def link_limits(entries: int, asked_for: str = "") -> tuple[int, int]:
+    """(links one request may make in a book, links one entry may have). Sized to the book: about one link
+    per eight entries (100 entries: 12 links), at least 3; two per entry. Only the user's own words raise
+    it: a number ("20 связей") or "as many as possible" (four times the usual, at least 12)."""
+    base = max(MIN_LINKS, math.ceil(entries * LINKS_PER_ENTRY))
+    match = NUMBER_RE.search(asked_for or "")
+    if match:
+        return max(1, int(match.group(1))), MAX_PER_ENTRY + 2
+    if MANY_RE.search(asked_for or ""):
+        return max(12, base * 4), MAX_PER_ENTRY + 2
+    return base, MAX_PER_ENTRY
+
+
+def _pair(env: Env, args: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    owner_id = _text(args, "owner_id")
+    a, b = (env.ctx.blocks.get(_text(args, k)) for k in ("a", "b"))
+    return owner_id, a, b
+
+
+async def list_links(env: Env, args: dict[str, Any]) -> Outcome:
+    owner_id = _text(args, "owner_id")
+    character_tree.owner_of(env.ctx, owner_id)
+    titles = {b["id"]: b["title"] for b in env.ctx.blocks.list(owner_id)}
+    pairs = env.ctx.blocks.links([owner_id])
+    cap, per = link_limits(len(titles), env.asked_for)
+    return Outcome({"links": [{"a": a, "b": b, "titles": [titles.get(a, ""), titles.get(b, "")]} for a, b in pairs],
+                    "this_request_may_still_make": max(0, cap - env.link_counts.get(owner_id, 0)),
+                    "limit_per_request": cap, "limit_per_entry": per})
+
+
+async def link_bubbles(env: Env, args: dict[str, Any]) -> Outcome:
+    owner_id, a, b = _pair(env, args)
+    reason = _text(args, "reason").strip()
+    if len(reason) < 12:
+        raise ToolError("Argument 'reason' must say in a sentence why one of these entries cannot be understood "
+                        "without the other")
+    character_tree.owner_of(env.ctx, owner_id)
+    if a["id"] == b["id"]:
+        raise ToolError("An entry cannot link to itself")
+    if {a["owner_id"], b["owner_id"]} != {owner_id}:
+        raise ToolError("Both entries must belong to the owner given in owner_id")
+    if a.get("parent_id") == b["id"] or b.get("parent_id") == a["id"]:
+        # Owner's rule: a parent and its direct child already travel together, a link adds nothing, even if asked.
+        raise ToolError(f"«{a['title']}» and «{b['title']}» are parent and child in the tree, they already go "
+                        "together. Never link an entry with its direct parent. Choose another pair, or stop "
+                        "linking and say so in the final answer.")
+    pairs = env.ctx.blocks.links([owner_id])
+    if tuple(sorted((a["id"], b["id"]))) in pairs:
+        return Outcome({"ok": True, "note": "already linked"})
+    cap, per = link_limits(len(env.ctx.blocks.list(owner_id)), env.asked_for)
+    made = env.link_counts.get(owner_id, 0)
+    if made >= cap:
+        raise ToolError(
+            f"Link limit reached: this request already made {made} of {cap} links in this book. Do not make "
+            "more and do not try another way. A link is only for entries that cannot be understood without each "
+            "other. In your final answer tell the user you stopped at the limit and that more can be made if they "
+            "ask for more.")
+    for block in (a, b):
+        degree = sum(1 for pair in pairs if block["id"] in pair)
+        if degree >= per:
+            raise ToolError(f"«{block['title']}» already has {degree} links (the most one entry may have is {per}). "
+                            "Choose another pair.")
+    await character_tree.link_blocks(env.ctx, owner_id, a["id"], b["id"])
+    env.link_counts[owner_id] = made + 1
+    x, y = sorted((a["id"], b["id"]))
+    undo = snapshot.created(snapshot.empty(), "block_links", {"a": x, "b": y})
+    return Outcome({"ok": True, "links_made_in_this_request": made + 1, "limit": cap},
+                   f"{_owner_name(env, owner_id)}: связь «{a['title']}» ↔ «{b['title']}» — {_preview(reason)}",
+                   undo, ("blocks",))
+
+
+async def unlink_bubbles(env: Env, args: dict[str, Any]) -> Outcome:
+    owner_id, a, b = _pair(env, args)
+    x, y = sorted((a["id"], b["id"]))
+    if (x, y) not in env.ctx.blocks.links([owner_id]):
+        return Outcome({"ok": True, "note": "they were not linked"})
+    undo = snapshot.capture(env.ctx.db, "block_links", {"a": x, "b": y})
+    await character_tree.unlink_blocks(env.ctx, owner_id, a["id"], b["id"])
+    return Outcome({"ok": True}, f"{_owner_name(env, owner_id)}: связь «{a['title']}» ↔ «{b['title']}» убрана",
                    undo, ("blocks",))
 
 
@@ -336,9 +477,24 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
          update_character, required=("id", "changes")),
     Tool("delete_character", "Delete a character (the user is asked first).", {"id": "character id"},
          delete_character, _ask_delete_character, ("id",)),
-    Tool("list_bubbles", "Bubbles (the knowledge tree) of a character, or the entries of a lorebook.",
-         {"owner_id": "character id or lorebook id"}, list_bubbles, required=("owner_id",)),
-    Tool("read_bubble", "One bubble in full.", {"id": "bubble id"}, read_bubble, required=("id",)),
+    Tool("list_bubbles", "Bubbles (the knowledge tree) of a character, or the entries of a lorebook. A long list "
+         f"comes in pages of {LIST_PAGE}: the answer says how many are not shown and the offset for the next page.",
+         {"owner_id": "character id or lorebook id", "offset": "optional, start of the page",
+          "limit": "optional, page size (at most 100)"}, list_bubbles, required=("owner_id",)),
+    Tool("read_bubble", "One bubble in full, with the entries it is linked to.", {"id": "bubble id"}, read_bubble,
+         required=("id",)),
+    Tool("list_links", "The links between the bubbles of a character or the entries of a lorebook, and how many "
+         "more links this request may still make.", {"owner_id": "character id or lorebook id"}, list_links,
+         required=("owner_id",)),
+    Tool("link_bubbles", "Link two bubbles of ONE owner (a character, or one lorebook): when one is found by the "
+         "search the other goes to the model too. Only for a pair where one cannot be understood without the "
+         "other. Tavern limits the number of links per request, sized to the book.",
+         {"owner_id": "character id or lorebook id that both belong to", "a": "bubble id", "b": "bubble id",
+          "reason": "one sentence: why one cannot be understood without the other"},
+         link_bubbles, required=("owner_id", "a", "b", "reason")),
+    Tool("unlink_bubbles", "Remove the link between two bubbles.",
+         {"owner_id": "character id or lorebook id", "a": "bubble id", "b": "bubble id"}, unlink_bubbles,
+         required=("owner_id", "a", "b")),
     Tool("create_bubble", "Add a bubble to a character, or an entry to a lorebook.",
          {"owner_id": "character id or lorebook id", "title": "short title", "content": "the text",
           "mode": "always (always sent; under a search bubble: sent whenever that one is) | search (sent when its own keywords appear, default; a parent never brings it) | off",

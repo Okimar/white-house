@@ -4,9 +4,11 @@
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
+import { getChoice, setChoice } from "../core/choice.js";
 import { backdrop, useEscape } from "../core/keys.js";
 import { ROLES } from "./roles.js";
 import { NoteList } from "./Notes.js";
+import { RegexOwner } from "./Regex.js";
 import { Icon, IconButton } from "./Icon.js";
 import { ask, askText } from "./Dialogs.js";
 
@@ -175,9 +177,16 @@ export function Presets({ settings, onChanged, onError }) {
 
   const reload = () => api.get("/presets").then((d) => { setPresets(d.presets); setActive(d.active); return d; })
     .catch((e) => onError(e.message));
-  const open = (id) => api.get(`/presets/${id}`).then((p) => { setCurrent(p); setDirty(false); })
+  const open = (id) => api.get(`/presets/${id}`).then((p) => { setCurrent(p); setDirty(false); setChoice("preset", id); })
     .catch((e) => onError(e.message));
-  useEffect(() => { reload().then((d) => d && open(d.active)); }, []);
+  // Reopens the preset that was being looked at; if it was deleted meanwhile, the active one.
+  useEffect(() => {
+    reload().then((d) => {
+      if (!d) return;
+      const mine = getChoice("preset");
+      open(mine && d.presets.some((p) => p.id === mine) ? mine : d.active);
+    });
+  }, []);
 
   // Leaving a preset with unsaved edits asks first.
   const discardOk = async () => !dirty || ask("Выбросить несохранённые правки?", { ok: "Выбросить", danger: true });
@@ -311,6 +320,10 @@ export function Presets({ settings, onChanged, onError }) {
         ${!hasThinking && html`<button onClick=${addThinking}><${Icon} name="plus" /> Размышление</button>`}
       </div>
       ${!hasThinking && html`<p class="hint">«Размышление» — шаблон, который модель заполняет перед ответом.</p>`}`}
+
+      ${!current.builtin && html`<details class="preset-regex"><summary><strong>Регекс-правила пресета</strong></summary>
+        <p class="hint">Работают в чатах с этим пресетом, после общих правил. Правила, пришедшие с файлом пресета, ждут вашего разрешения.</p>
+        <${RegexOwner} scope="preset" owner=${current.id} onError=${onError} /></details>`}
 
       <h3>Модель</h3>
       <div class="param-grid">

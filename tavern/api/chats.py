@@ -13,6 +13,7 @@ from starlette.routing import Route
 from tavern.api.util import BadRequest, copy_before, ctx_of, field, json_body
 from tavern.errors import NotFound
 from tavern.services import chat as chat_service
+from tavern.services import regex as regex_service
 from tavern.services import speakers
 
 PAGE_DEFAULT = 50
@@ -265,7 +266,11 @@ async def edit_message(request: Request) -> JSONResponse:
     if "content" not in body and "exclude_from_prompt" not in body:
         raise BadRequest("Nothing to change: give content and/or exclude_from_prompt")
     if "content" in body:
-        ctx.chats.set_content(message_id, field(body, "content", str))
+        text, original = regex_service.stored(ctx, message["chat_id"], field(body, "content", str),
+                                              message["role"], editing=True)
+        ctx.chats.set_content(message_id, text)
+        if original is not None:  # a saved-text rule that runs on edit changed it: keep the text as typed
+            ctx.chats.update_swipe_meta(message_id, message["active_swipe"], {"regex_before": original})
     if "exclude_from_prompt" in body:
         ctx.chats.set_excluded(message_id, field(body, "exclude_from_prompt", bool))
     return JSONResponse(ctx.chats.get_message(message_id))

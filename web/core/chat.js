@@ -123,7 +123,12 @@ export function useChat(chatId, onError) {
       if (dead) return;
       setState({ chat: data.chat, messages: data.messages, hasMore: data.has_more, running: !!data.run });
       if (data.run) follow(data.run.id); // the page was reloaded mid-generation: replay it
-    }).catch((e) => { if (!dead) { onError(e.message); setState((s) => ({ ...s, failed: e.message })); } });
+    }).catch((e) => {
+      if (dead) return;
+      // A remembered chat that was deleted meanwhile: the shell drops it once the chat list is in, no error to show.
+      if (e.status !== 404) onError(e.message);
+      setState((s) => ({ ...s, failed: e.message }));
+    });
     return () => { dead = true; stopFollowing(); };
   }, [chatId]);
 

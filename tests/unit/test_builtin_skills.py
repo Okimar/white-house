@@ -41,3 +41,22 @@ def test_the_character_skill_carries_the_owners_rules_and_asks_twice():
         assert rule in writer
     assert "FIRST ROUND" in skills.part(skill, "planner") and "SECOND ROUND" not in skills.part(skill, "planner")
     assert any("{{user}}" in check for check in skills.checks(skill))
+
+
+def test_the_lorebook_work_skill_sets_the_rules_for_existing_books():
+    _, body = skills.parse((SHIPPED / "lorebook-work.md").read_text(encoding="utf-8"))
+    skill = {"name": "lorebook-work", "body": body}
+    writer, planner = skills.part(skill, "writer"), skills.part(skill, "planner")
+    for rule in ("Never ask the user to send", "SWEEP", "LINKS", "cannot be understood without", "list_links",
+                 "Link limit reached", "One card per person"):
+        assert rule in writer
+    assert '"over"' in planner and "No questions about how it is done" in planner
+    checks = skills.checks(skill)
+    assert any("N of N" in c for c in checks) and any("limit" in c for c in checks)
+
+
+def test_the_new_lorebook_skill_says_links_are_few():
+    _, body = skills.parse((SHIPPED / "lorebooks.md").read_text(encoding="utf-8"))
+    skill = {"name": "lorebooks", "body": body}
+    assert "link_bubbles" in skills.part(skill, "writer")
+    assert any("Links: few or none" in c for c in skills.checks(skill))

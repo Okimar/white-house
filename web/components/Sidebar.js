@@ -1,16 +1,18 @@
-// Left panel: chats, characters (import a card from a JSON or PNG file) and lorebooks.
+// Menu: chats, characters (import a card from a JSON or PNG file) and lorebooks. `mode` "side" = the left
+// panel; "top" = a drop-down under the menu bar (main.js), one section at a time like on a phone.
 // On a phone it is a sheet under the top bar showing one section (`section`), chosen by the small icons
 // in the bar. A press on a character only opens its list of actions: a new chat is an explicit choice.
 import { html, useRef } from "../vendor/preact-htm.mjs";
 import { LorebookShelf } from "./Lorebooks.js";
+import { GroupedItems } from "./Groups.js";
 import { IconButton } from "./Icon.js";
 import { MenuButton, openMenu } from "./Menu.js";
 import { ask, askText } from "./Dialogs.js";
 import { EmptyNote } from "./State.js";
 
 export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat, onRenameChat,
-  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, section,
-  settings, onError }) {
+  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, onSearch, onHome, section,
+  settings, onError, mode, onFold }) {
   const fileInput = useRef(null);
   const chatFileInput = useRef(null);
 
@@ -20,31 +22,37 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
     if (file) await onImport(file);
   };
 
-  const characterActions = (c) => [
+  const characterActions = (c, tools) => [
     { icon: "message-square-plus", label: "Новый чат", onClick: () => onNewChat(c.id) },
     { icon: "pencil", label: "Карточка персонажа", onClick: () => onEditCharacter(c.id) },
     { icon: "download", label: "Скачать (PNG)", onClick: () => onExportCharacter(c.id) },
+    { icon: "library", label: "В группу…", onClick: tools.move },
     { icon: "trash-2", label: "Удалить", danger: true, onClick: async () => {
       if (await ask(`Удалить персонажа «${c.name}»?`, { ok: "Удалить", danger: true, hint: "Чаты останутся." })) onDeleteCharacter(c.id);
     } },
   ];
 
-  const chatActions = (c) => [
+  const chatActions = (c, tools) => [
     { icon: "pencil", label: "Переименовать", onClick: async () => {
       const title = ((await askText("Название чата", { value: c.title })) || "").trim();
       if (title && title !== c.title) onRenameChat(c.id, title);
     } },
     { icon: "download", label: "Скачать", href: `/api/chats/${c.id}/export.jsonl` },
+    { icon: "library", label: "В группу…", onClick: tools.move },
     { icon: "trash-2", label: "Удалить", danger: true, onClick: async () => {
       if (await ask(`Удалить чат «${c.title}»?`, { ok: "Удалить", danger: true })) onDeleteChat(c.id);
     } },
   ];
 
   return html`
-    <aside class="sidebar" data-slot="sidebar" data-section=${section || ""}>
+    <aside class="sidebar" data-slot="sidebar" data-section=${section || ""} data-mode=${mode || "side"}>
       <div class="side-head only-wide">
-        <strong class="brand">White House</strong>
+        ${onFold && html`<${IconButton} icon="chevron-left" label="Свернуть меню" class="fold-menu" data-slot="fold-menu"
+          onClick=${onFold} />`}
+        <button class="brand brand-home" data-slot="home-button" title="На главную: чат останется в списке"
+          aria-label="На главную" onClick=${onHome}>White House</button>
         <span class="spacer"></span>
+        <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="search-button" onClick=${onSearch} />
         <${IconButton} icon="wand" label="Помощник" data-slot="assistant-button" onClick=${onAssistant} />
         <${IconButton} icon="settings" label="Настройки" onClick=${onSettings} />
       </div>
@@ -60,14 +68,16 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
         <input ref=${chatFileInput} type="file" accept=".jsonl,application/x-ndjson" hidden
           onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
         ${chats.length === 0 && html`<${EmptyNote} hint="Чатов пока нет. Новый чат начинается с персонажа: нажмите на него в разделе «Персонажи»." />`}
-        <ul class="list">
-          ${chats.map((c) => html`
+        <${GroupedItems} kind="chat" items=${chats} idOf=${(c) => c.id} labelOf=${(c) => c.title} activeId=${chatId}
+          onError=${onError}
+          onPress=${(c, el, tools) => openMenu(el, [
+            { icon: "message-square", label: "Открыть", onClick: () => onOpenChat(c.id) }, ...chatActions(c, tools)])}
+          renderRow=${(c, tools) => html`
             <li key=${c.id} class=${c.id === chatId ? "active" : ""}>
               <button class="item" aria-current=${c.id === chatId ? "true" : null} onClick=${() => onOpenChat(c.id)}
-                title=${"Изменён: " + new Date(c.updated_at).toLocaleString("ru-RU")}>${c.title}</button>
-              <${MenuButton} label=${"Действия с чатом " + c.title} data-slot="chat-rename" items=${() => chatActions(c)} />
-            </li>`)}
-        </ul>
+                title=${c.title + "\nИзменён: " + new Date(c.updated_at).toLocaleString("ru-RU")}>${c.title}</button>
+              <${MenuButton} label=${"Действия с чатом " + c.title} data-slot="chat-rename" items=${() => chatActions(c, tools)} />
+            </li>`} />
       </section>
 
       <section class="side-section" data-name="characters" data-slot="characters">
@@ -78,13 +88,13 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
         </div>
         <input ref=${fileInput} type="file" accept=".json,.png,application/json,image/png" hidden onChange=${pickFile} />
         ${characters.length === 0 && html`<${EmptyNote} hint="Создайте персонажа или загрузите карточку, чтобы начать чат." />`}
-        <ul class="list">
-          ${characters.map((c) => html`
+        <${GroupedItems} kind="character" items=${characters} idOf=${(c) => c.id} labelOf=${(c) => c.name}
+          onError=${onError} onPress=${(c, el, tools) => openMenu(el, characterActions(c, tools))}
+          renderRow=${(c, tools) => html`
             <li key=${c.id}>
-              <button class="item" aria-haspopup="menu" title="Действия с персонажем"
-                onClick=${(e) => openMenu(e.currentTarget, characterActions(c))}>${c.name}</button>
-            </li>`)}
-        </ul>
+              <button class="item" aria-haspopup="menu" title=${c.name + " — действия с персонажем"}
+                onClick=${(e) => openMenu(e.currentTarget, characterActions(c, tools))}>${c.name}</button>
+            </li>`} />
       </section>
 
       <section class="side-section" data-name="lorebooks">

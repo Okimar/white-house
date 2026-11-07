@@ -10,6 +10,13 @@ import json
 import pytest
 
 from tavern.services import skills
+from tavern.services import assistant_engine as engine
+
+
+@pytest.fixture(autouse=True)
+def _no_mini_plan(monkeypatch):
+    """These tests queue the model's answers one by one; the mini-plan call has its own tests."""
+    monkeypatch.setattr(engine, "MINI_PLAN", False)
 
 J = lambda **kw: json.dumps(kw, ensure_ascii=False)  # noqa: E731
 

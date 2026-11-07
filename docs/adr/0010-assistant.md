@@ -88,3 +88,5 @@ choose, and seeing the model's inner workings to explain its answers.
 Consequences: undo of a generic action is exact for rows but not for side effects outside the
 database (a reply already sent to the model, money spent). A reply started by the assistant (send /
 regenerate) is undone by deleting its messages.
+
+Addendum (2026-11-07, ADR 0018): the assistant can now write skills, but only through its dedicated tools.

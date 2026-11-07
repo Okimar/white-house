@@ -41,6 +41,7 @@ fi
 say "Installing dependencies (pure Python wheels, no compilation)"
 # --only-binary: fail loudly instead of trying to build anything from source.
 .venv/bin/python -m pip install --disable-pip-version-check -q --only-binary=:all: -r requirements.txt
+cp requirements.txt .venv/requirements.installed  # start.sh compares it after an update
 
 say "Checking installation"
 .venv/bin/python -m tavern check

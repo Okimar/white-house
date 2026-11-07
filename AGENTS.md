@@ -9,7 +9,7 @@ White House (formerly Tavern; the package is still `tavern`): a roleplay chat fr
 SillyTavern code: it is AGPL). Compatible with SillyTavern data formats. Python backend
 (Starlette), browser UI without a build step. Must run on Termux (Android).
 
-Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done; 10а (the assistant's engine for weak models: questions, plan, items with the task pinned, a checklist critic, a model per role, live test stand) and 10б (skills inside the app: «Инструкции» tab, parts per role, checks for the critic) and 10в (layers in bubbles: a found bubble brings only its «Всегда» sub-bubbles; the doctor gives bare «По теме» sub-bubbles keywords by the model) and 10г (the «Лорбуки» skill: core of the world, «Если … →» lines, banned clichés, names; try_phrase tests keywords like a reply) done; 10д (the «Персонажи» skill: the core in the description, bubbles per person/place/item, greetings; a second round of questions for skills with «## More questions») done; 10е-1 (preset groups «один из», the «Размышление» block, `<thinking>` cut out of replies, show / send / repeats dropped) done**. An inventory of what really works, with what it found and fixed: [docs/STATUS.md](docs/STATUS.md) (2026-11-04). The interface was then brought to order: [docs/UI_AUDIT.md](docs/UI_AUDIT.md) (2026-11-05).
+Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–5 done; 6а (connections, keys with proxies, Gemini) 6б (Claude, thinking, pictures, web search) 6в (instruct templates, text mode) 6г (profiles, fallbacks) 6д (parallel requests), 6е (spending) and 6ж (structured output) done; 7а (several characters in any chat: who speaks, what the model knows about the others) and 7б (turns of several replies: «пусть поговорят», everyone at once, narrator) done; 8а (plugins: approval, install from a file / GitHub, model access with their own limits, dice and Google translation) done; 8б (assistant over the chat: window, conversations, steps by form with any model, everything the page can do through one generic tool with undo of any change, themes, reading chats and what the model saw) done; 8в (tree of thoughts: thinkers for every character + own list, rounds, live tree under the reply or in a side panel) done; 9а (whole-data copies on a schedule and before risky actions, live restore, plugin versions, the doctor) and 9б (copies on Google Drive: own OAuth client, sign-in, auto upload with resume, restore from Drive) done; 10а (the assistant's engine for weak models: questions, plan, items with the task pinned, a checklist critic, a model per role, live test stand) and 10б (skills inside the app: «Инструкции» tab, parts per role, checks for the critic) and 10в (layers in bubbles: a found bubble brings only its «Всегда» sub-bubbles; the doctor gives bare «По теме» sub-bubbles keywords by the model) and 10г (the «Лорбуки» skill: core of the world, «Если … →» lines, banned clichés, names; try_phrase tests keywords like a reply) done; 10д (the «Персонажи» skill: the core in the description, bubbles per person/place/item, greetings; a second round of questions for skills with «## More questions») done; 10е-1 (preset groups «один из», the «Размышление» block, `<thinking>` cut out of replies, show / send / repeats dropped) done; then a batch from the owner's list of 2026-11-06 (look kept across updates and safe mode, update from the page, change log, groups, search across chats, regex rules, assistant files / internet / skill writing, spelling plugin, menu layout) written and covered by tests but almost none of it seen on screen: [docs/STATUS.md](docs/STATUS.md), section 2026-11-07**. An inventory of what really works, with what it found and fixed: [docs/STATUS.md](docs/STATUS.md) (2026-11-04). The interface was then brought to order: [docs/UI_AUDIT.md](docs/UI_AUDIT.md) (2026-11-05).
 
 ## How a session starts
 
@@ -139,6 +139,27 @@ tavern/                 Python package (backend)
                         params (every setting: type, range, kinds, sent or Tavern's own), catalog
                         (known services with ready addresses), fallback (steps when a connection fails
                         before writing: other model / connection / key, refusal phrases, empty reply)
+  services/look.py      the look kept across updates and safe mode (themes, styles, plugin parts); `safe-mode on|off`
+                        command and `--safe` (one run); ADR 0015
+  util/streams.py       small helpers for byte streams
+  services/updates.py   update from the page («Обновить»: GitHub, copy first); api/updates.py, web/components/Updates.js;
+                        the app ends with exit code 75 and start.sh / start.bat (TAVERN_SUPERVISED=1) start it
+                        again; ADR 0016
+  services/changes.py   change log of what the user and the assistant changed; api/changes.py, web/components/Changes.js
+  services/groups.py    groups in the left panel; storage/repos/groups.py (migration 0020), api/groups.py,
+                        web/components/Groups.js
+  services/search.py    search across all chats; api/search.py, web/components/Search.js
+  core/regex.py         regex rules (stage 11): JS patterns translated to Python re, applied to text / display /
+                        prompt; core/regex_worker.py + core/regex_runner.py run them in a separate process with a
+                        time limit; core/safe_html.py cleans the HTML a rule makes; services/regex.py,
+                        storage/repos/regex.py (migration 0022), api/regex.py, formats/st_regex.py (SillyTavern
+                        regex files), web/components/Regex.js, web/core/regex.js; ADR 0017
+  services/assistant_files.py   files given to the assistant (pictures only in short requests; binary files only described)
+  services/web_access.py        the assistant's internet tools (search, read a page); proxies are ignored
+  services/assistant_extras.py  more assistant tools (skills it writes through its own tools); ADR 0018
+  web/core/layout.js, choice.js  menu layout (top / side, folded) and the «choice» setting control
+  builtin_plugins/spelling  spelling strip above the chat message box; first user of t.composerHelper / t.composer
+  skills/*.md           built-in skills now: characters, lorebooks, lorebook-work, regex, unslop, theme-scripts
   services/skills.py    skills (10б): instructions the assistant reads for a kind of work; built-in files in
                         tavern/skills/*.md (English, header name/title/description/audience, parts ## Plan /
                         ## Write / ## Check for planner / writer / critic), the user's own and copies (table
@@ -182,7 +203,7 @@ web/                    browser UI: Preact + htm vendored in web/vendor, plain E
 tests/unit/             pure logic, no I/O beyond tmp_path (test_web_syntax parses every web/ module with Node)
 tests/integration/      HTTP API through httpx.ASGITransport, CLI commands
 tests/smoke/            starts the real server in a subprocess
-docs/                   ROADMAP.md, adr/ (architecture decisions)
+docs/                   ROADMAP.md, STATUS.md, adr/ (decisions 0001 to 0018), parked/ (stopped drafts, not collected by pytest: voice-plugin)
 .claude/skills/         task guides for agents (see below)
 data/                   user data, git-ignored. Never commit, never delete
 ```
@@ -209,6 +230,11 @@ data/                   user data, git-ignored. Never commit, never delete
    swallow exceptions silently.
 8. **Style:** type hints, `from __future__ import annotations`, module docstring stating the
    module's role, comments only where the *why* is not obvious. Python 3.11 compatible.
+9. **Agents do not drive a browser and do not call a live model.** Owner's decision (2026-11-06):
+   checks are `python -m pytest` plus the command line (CLI, HTTP requests to a `--sandbox` or
+   temp `--data-dir` run, the fake LLM). The owner checks the look and the live model personally.
+   Never open chrome-devtools or any browser tool unless the owner asks for it in that task.
+   Anything not seen on screen is reported as unverified, with short steps for the owner.
 
 ## Skills
 

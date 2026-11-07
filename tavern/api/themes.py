@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body, read_body
+from tavern.services import look
 from tavern.storage.themes import MAX_FILE_BYTES, MAX_THEME_BYTES, safe_relpath
 
 
@@ -96,7 +97,34 @@ async def add_asset(request: Request) -> JSONResponse:
     return JSONResponse({**theme, "path": rel})
 
 
+async def look_status(request: Request) -> JSONResponse:
+    """Safe mode on or off and what the last update switched off (services/look.py)."""
+    run_safe = bool(getattr(request.app.state, "safe_run", False))
+    return JSONResponse(look.status(ctx_of(request), run_safe=run_safe))
+
+
+async def look_restore(request: Request) -> JSONResponse:
+    """Switch the look that an update parked back on."""
+    return JSONResponse(look.restore(ctx_of(request)))
+
+
+async def look_dismiss(request: Request) -> JSONResponse:
+    look.dismiss(ctx_of(request))
+    return JSONResponse({"ok": True})
+
+
+async def look_safe(request: Request) -> JSONResponse:
+    """Body: {on}. Persistent safe mode, the same switch as `python -m tavern safe-mode`."""
+    body = await json_body(request)
+    look.set_safe_mode(ctx_of(request), field(body, "on", bool))
+    return await look_status(request)
+
+
 routes = [
+    Route("/look", look_status, methods=["GET"]),
+    Route("/look/restore", look_restore, methods=["POST"]),
+    Route("/look/dismiss", look_dismiss, methods=["POST"]),
+    Route("/look/safe", look_safe, methods=["POST"]),
     Route("/themes", list_themes, methods=["GET"]),
     Route("/themes", create_theme, methods=["POST"]),
     Route("/themes/import", import_theme, methods=["POST"]),

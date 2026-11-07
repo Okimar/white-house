@@ -1,7 +1,7 @@
 ---
 name: lorebooks
 title: Лорбуки
-description: Making a new lorebook (a world, a city, a school, a setting for roleplay or a text RPG) or rewriting a large part of one.
+description: Making a NEW lorebook (a world, a city, a school, a setting for roleplay or a text RPG) or rewriting a large part of one. Not for going through an existing book entry by entry (see lorebook-work).
 audience: assistant
 ---
 A good lorebook is not an encyclopedia. It gives the chat model the RULES of the world, what the world lives on
@@ -108,6 +108,9 @@ The plan shows the skeleton so the user's "go" approves it:
   (you get it from the result). Every sub-entry has its own keywords.
 - Check each entry before you send it: concrete things? what it wants now and what blocks it? 2–4 "If … →"
   lines? 60–150 words (sub-entries 40–120)? memorable names that show looks? nothing from the banned list?
+- Links between entries: none by default. Make one (link_bubbles, with a reason) only when one entry cannot
+  be understood without the other; Tavern limits them and refuses beyond the limit. Never link an entry with its
+  direct parent or child (they already go together), even if the user asks for more links.
 - Do not repeat the core of the world inside other entries; refer to its laws through concrete effects.
 - Before each entry, reread the core laws (they are in the summary of item 1): nothing in the entry may break
   one (forgeries where the law says none exist, coins where the law says there is one currency). Numbers must
@@ -145,3 +148,5 @@ The plan shows the skeleton so the user's "go" approves it:
   law and the entry). Check numbers that compare (prices, wages, ages) for sense.
 - The core says how the twist is given, taken by force, faked or stored, and what else people pay with, if
   entries use any of these.
+- Links: few or none. Each link has a reason and joins two entries where one cannot be understood without the
+  other (not merely related ones); fail every link that does not pass.

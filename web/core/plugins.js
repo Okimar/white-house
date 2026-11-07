@@ -5,14 +5,24 @@
 //   t.call(action, payload) -> the server part's api.action result
 //   t.command("/roll 2d6") runs a chat command in the open chat; t.chatId() the open chat
 //   t.on(type, fn): "chat" {chatId,...}, "generation" {running}, "message" {role, text}, "send" {text},
-//     "trace" {kind, chatId, ...} (progress its reply writer reports with job.run.trace)
+//     "trace" {kind, chatId, ...} (progress its reply writer reports with job.run.trace),
+//     "assistant_message" {id, text} (the assistant finished a reply)
 //   t.onNotice(name, fn): what the server part sends with api.notify(name, **data)
 //   t.messageButton({icon, title, onClick(message)}), t.messageFooter(message => text | null),
-//   t.composerButton({icon, title, onClick()}): places in the chat; t.refresh() redraws them
+//   t.composerButton({icon, title, onClick(), show}): places in the chat; t.refresh() redraws them;
+//     t.assistantButton(...) the same beside the assistant's box; icon, title and show may be functions
+//     (called on every redraw); show() === false hides the button
+//   t.insertText(text, {target: "chat" | "assistant", send}): puts text into that box (send: and sends it)
+//   t.reloadSettings(): reads this plugin's settings again (after the server part changed them)
 //   t.messageTree(message => tree | null): a folded tree under the message;
 //   t.panel({icon, title, render: () => tree | null}) -> {open(), close()}: a side panel with a
 //     button in the top bar. tree = {title, open, items: [{title, text, state, children}]},
 //     state "wait" | "done" | "error" | ""; everything is plain text, never HTML
+//   t.composerHelper({onText(text, caret), view()}): a strip above the message box. onText runs on
+//     every change of the typed text (it never delays sending); view() returns null or
+//     {note, items: [{label, title, options: [{label, onClick}]}], undo: {label, onClick}} (plain text);
+//     t.composer.text() / .caret() / .replace([{start, end, text}], caret?) read and edit the box
+//     (the caret stays where it was unless `caret` is given); call t.refresh() to redraw the strip
 //   t.toast(text), t.reloadChat(), t.url(path) -> this plugin's file
 // A plugin's style.css is added while it is on. Errors are caught and reported with the plugin's
 // name; a failing setup leaves that plugin's web part off. Safe mode (/?safe) loads none of them.
@@ -20,7 +30,7 @@ import { useEffect, useState } from "../vendor/preact-htm.mjs";
 import { api } from "./api.js";
 import { SAFE_MODE, on as onEvent } from "./theme.js";
 
-const ui = { messageButtons: [], messageFooters: [], composerButtons: [], messageTrees: [], panels: [] };
+const ui = { messageButtons: [], messageFooters: [], composerButtons: [], composerHelpers: [], assistantButtons: [], messageTrees: [], panels: [] };
 const listeners = new Set();
 const loaded = new Map(); // id -> {hash, controller, cleanup}
 const current = new Map(); // id -> plugin summary from /api/plugins (fresh settings)
@@ -37,6 +47,21 @@ export function usePluginUi() {
   useEffect(() => { listeners.add(set); return () => listeners.delete(set); }, []);
   return ui;
 }
+
+// The message box registers itself here so plugins can read and edit what is typed.
+let composerBridge = null;
+export function setComposerBridge(bridge) { composerBridge = bridge; }
+
+// A message box takes text a plugin hands over (t.insertText): the chat composer and the assistant's box.
+export function useTextInput(target, fn) {
+  useEffect(() => {
+    inputs.set(target, fn);
+    return () => { if (inputs.get(target) === fn) inputs.delete(target); };
+  });
+}
+
+// Props of a plugin button that may be a function (icon, title, show).
+export const resolve = (value) => (typeof value === "function" ? value() : value);
 
 export function setPluginEnv(next) { env = { ...env, ...next }; }
 
@@ -94,6 +119,12 @@ async function load(p) {
     toast: (text) => env.toast(text),
     refresh: changed,
     reloadChat: () => env.reloadChat(),
+    insertText: (text, { target = "chat", send = false } = {}) => {
+      const fn = inputs.get(target);
+      if (!fn) throw new Error(target === "assistant" ? "Окно помощника закрыто" : "Поле ввода сейчас недоступно");
+      fn(String(text), Boolean(send));
+    },
+    reloadSettings: async () => { current.set(p.id, await api.get(`/plugins/${p.id}`)); },
     url: (path) => `/plugins/${p.id}/${path}`,
     on: (type, fn) => onEvent(type, guard(fn), controller.signal),
     onNotice: (name, fn) => {
@@ -101,7 +132,16 @@ async function load(p) {
     },
     messageButton: ({ icon, title, onClick }) => add("messageButtons", { icon, title, onClick: guard(onClick) }),
     messageFooter: (fn) => add("messageFooters", { fn: guard(fn) }),
-    composerButton: ({ icon, title, onClick }) => add("composerButtons", { icon, title, onClick: guard(onClick) }),
+    composerButton: ({ icon, title, onClick, show }) =>
+      add("composerButtons", { icon, title, show, onClick: guard(onClick) }),
+    assistantButton: ({ icon, title, onClick, show }) =>
+      add("assistantButtons", { icon, title, show, onClick: guard(onClick) }),
+    composerHelper: ({ onText, view }) => add("composerHelpers", { onText: guard(onText || (() => {})), view: guard(view) }),
+    composer: {
+      text: () => (composerBridge ? composerBridge.text() : ""),
+      caret: () => (composerBridge ? composerBridge.caret() : 0),
+      replace: (edits, caret) => (composerBridge ? composerBridge.replace(edits, caret) : false),
+    },
     messageTree: (fn) => add("messageTrees", { fn: guard(fn) }),
     panel: ({ icon, title, render }) => {
       const panel = { icon, title, render: guard(render), shown: false, key: p.id + ":" + ui.panels.length };

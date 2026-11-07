@@ -1,0 +1,50 @@
+{
+  "id": "voice",
+  "name": "🎙 Голос",
+  "version": "1.0.0",
+  "author": "Tavern",
+  "description": "Говорить вместо набора и слушать вместо чтения. Две независимые половины. 1) Распознавание: кнопка 🎤 у поля ввода чата и помощника, нажали, сказали, нажали снова; текст ложится в поле, чтобы вы его проверили, сам он не отправляется (если не включить «сразу отправлять»). Сервис: любой, похожий на OpenAI (OpenAI, Groq, свой сервер) или ElevenLabs. Своё распознавание не пишется: запись уходит в выбранный вами сервис. 2) Озвучка: кнопка 🔊 у сообщения и «Читать ответы вслух» для чата и для помощника. Сервис: ElevenLabs, любой, похожий на OpenAI, или бесплатный голос самого браузера (качество и список голосов зависят от телефона или компьютера, ключ не нужен). Ключи хранятся только на сервере и в браузер не отдаются; весь звук идёт через сервер White House. Платные сервисы берут деньги за знаки (озвучка) или за минуты (распознавание), в токенах расход не считается: впишите цену, чтобы видеть сумму на вкладке «Расход». Микрофон браузер разрешает только по https или по адресу localhost / 127.0.0.1; на телефоне с Termux это работает, по обычному адресу из сети (http://192.168…) нет. Телефоны не разрешают звук без нажатия: первое чтение вслух начнётся после вашего первого касания экрана.",
+  "server": "server.py",
+  "web": "web.js",
+  "uses": ["storage", "ui", "network", "microphone", "secrets"],
+  "settings": [
+    {"key": "stt_service", "label": "Распознавание речи: сервис", "type": "choice", "default": "off", "choices": [
+      ["off", "Выключено"], ["openai", "Как у OpenAI (OpenAI, Groq, свой сервер)"], ["elevenlabs", "ElevenLabs Scribe"]]},
+    {"key": "stt_url", "label": "Распознавание: адрес сервиса", "type": "text", "default": "https://api.openai.com/v1",
+     "help": "OpenAI: https://api.openai.com/v1, модель whisper-1. Groq: https://api.groq.com/openai/v1, модель whisper-large-v3-turbo. Только для «как у OpenAI»."},
+    {"key": "stt_model", "label": "Распознавание: модель", "type": "text", "default": "whisper-1"},
+    {"key": "stt_key", "label": "Распознавание: ключ (для «как у OpenAI»)", "type": "secret",
+     "help": "Хранится на сервере, назад в браузер не приходит. Для ElevenLabs ключ один, ниже."},
+    {"key": "stt_language", "label": "Язык речи (ru, en …; пусто = сервис определит сам)", "type": "text", "default": "ru"},
+    {"key": "stt_send", "label": "Сразу отправлять распознанное (иначе оно ляжет в поле, чтобы вы проверили)", "type": "bool", "default": false},
+    {"key": "stt_price", "label": "Цена распознавания за минуту записи, $ (0 = не считать сумму)", "type": "number", "default": 0, "min": 0, "max": 100},
+    {"key": "stt_test", "label": "Проверить распознавание", "type": "action", "action": "test_stt"},
+
+    {"key": "tts_service", "label": "Озвучка: сервис", "type": "choice", "default": "off", "choices": [
+      ["off", "Выключено"], ["elevenlabs", "ElevenLabs"], ["openai", "Как у OpenAI (OpenAI, свой сервер)"],
+      ["browser", "Голос браузера (бесплатно, без ключа)"]],
+     "help": "Голос браузера: список и качество голосов даёт ваше устройство, русского голоса может не быть; на части телефонов длинные тексты читаются рывками. Звук идёт не через сервер."},
+    {"key": "eleven_key", "label": "ElevenLabs: ключ (и для озвучки, и для Scribe)", "type": "secret",
+     "help": "Хранится на сервере, назад в браузер не приходит."},
+    {"key": "eleven_model", "label": "ElevenLabs: модель озвучки", "type": "text", "default": "eleven_multilingual_v2"},
+    {"key": "tts_url", "label": "Озвучка «как у OpenAI»: адрес", "type": "text", "default": "https://api.openai.com/v1"},
+    {"key": "tts_model", "label": "Озвучка «как у OpenAI»: модель", "type": "text", "default": "tts-1"},
+    {"key": "tts_key", "label": "Озвучка «как у OpenAI»: ключ", "type": "secret"},
+    {"key": "voice", "label": "Голос по умолчанию", "type": "choice", "choices_from": "voices", "default": "",
+     "help": "Список приходит от выбранного сервиса (нужен ключ). Не выбран: первый голос ключа (ElevenLabs), alloy (OpenAI), голос браузера для языка ниже."},
+    {"key": "voices", "label": "Свои голоса персонажей", "type": "list", "default": [], "fields": [
+      {"key": "character", "label": "Персонаж", "type": "choice", "choices_from": "characters", "default": ""},
+      {"key": "voice", "label": "Голос", "type": "choice", "choices_from": "voices", "default": ""}]},
+    {"key": "tts_lang", "label": "Язык голоса браузера (ru-RU, en-US …)", "type": "text", "default": "ru-RU"},
+    {"key": "read_chat", "label": "Читать ответы вслух в чатах", "type": "bool", "default": false},
+    {"key": "read_assistant", "label": "Читать ответы помощника вслух", "type": "bool", "default": false},
+    {"key": "skip_thinking", "label": "Не читать размышления (<thinking>)", "type": "bool", "default": true},
+    {"key": "skip_code", "label": "Не читать код", "type": "bool", "default": true},
+    {"key": "skip_actions", "label": "Не читать *действия в звёздочках*", "type": "bool", "default": true},
+    {"key": "max_chars", "label": "Читать не больше знаков в сообщении (защита кошелька)", "type": "number", "default": 4000, "min": 100, "max": 50000},
+    {"key": "tts_price", "label": "Цена озвучки за 1000 знаков, $ (0 = не считать сумму)", "type": "number", "default": 0, "min": 0, "max": 100},
+    {"key": "cache_mb", "label": "Запоминать озвученное, МБ (повтор бесплатный; 0 = не запоминать)", "type": "number", "default": 50, "min": 0, "max": 2000},
+    {"key": "tts_test", "label": "Проверить озвучку", "type": "action", "action": "test_tts"},
+    {"key": "clear_cache", "label": "Очистить запомненное", "type": "action", "action": "clear_cache"}
+  ]
+}

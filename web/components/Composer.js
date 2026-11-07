@@ -4,10 +4,10 @@
 // 📎 (or pasting a picture) adds pictures to the message: they go to the picture library and the
 // model sees them with the message. Plugins add buttons here (core/plugins.js); "/command" text
 // is offered to plugins first by the app shell (main.js).
-import { html, useState, useRef } from "../vendor/preact-htm.mjs";
+import { html, useState, useRef, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
-import { usePluginUi } from "../core/plugins.js";
+import { usePluginUi, setComposerBridge, resolve } from "../core/plugins.js";
 import { Icon, IconButton } from "./Icon.js";
 
 const MAX_IMAGES = 8;
@@ -19,6 +19,45 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
   const [uploading, setUploading] = useState(false);
   const box = useRef(null);
   const picker = useRef(null);
+  const textRef = useRef("");
+  const wantCaret = useRef(null); // where the caret goes after a plugin edited the text
+  const [openChip, setOpenChip] = useState(null);
+  textRef.current = text;
+
+  // Plugin helpers (spelling and the like) read and edit the typed text through this bridge.
+  // Telling them about a change is fire-and-forget: sending never waits for them.
+  useEffect(() => {
+    setComposerBridge({
+      text: () => textRef.current,
+      caret: () => (box.current ? box.current.selectionStart : textRef.current.length),
+      replace: (edits, caret) => {
+        const old = textRef.current;
+        const at = box.current ? box.current.selectionStart : old.length;
+        let next = old;
+        let shifted = at;
+        for (const e of [...edits].sort((a, b) => b.start - a.start)) {
+          if (e.start < 0 || e.end > next.length || e.start > e.end) return false;
+          next = next.slice(0, e.start) + e.text + next.slice(e.end);
+          if (e.end <= at) shifted += e.text.length - (e.end - e.start);
+          else if (e.start < at) shifted = e.start + e.text.length;
+        }
+        wantCaret.current = typeof caret === "number" ? caret : shifted;
+        setText(next);
+        return true;
+      },
+    });
+    return () => setComposerBridge(null);
+  }, []);
+  useEffect(() => {
+    if (wantCaret.current !== null && box.current) {
+      const at = Math.min(wantCaret.current, text.length);
+      if (document.activeElement !== box.current) box.current.focus({ preventScroll: true });
+      box.current.setSelectionRange(at, at);
+    }
+    wantCaret.current = null;
+    const caret = box.current ? box.current.selectionStart : text.length;
+    for (const h of plugins.composerHelpers) h.onText(text, caret);
+  }, [text]);
 
   const submit = async () => {
     const value = text.trim();
@@ -76,6 +115,18 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
           <${IconButton} icon="x" label="Убрать картинку" onClick=${() => setImages(images.filter((n) => n !== name))} />
         </span>`)}
       </div>`}
+      ${plugins.composerHelpers.map((h) => ({ owner: h.owner, view: h.view() })).filter((x) => x.view).map((x) => html`
+        <div key=${x.owner} class="composer-helper" data-slot="composer-helper" data-plugin=${x.owner}>
+          ${x.view.note && html`<span class="muted composer-helper-note">${x.view.note}</span>`}
+          ${(x.view.items || []).map((item, i) => html`<span key=${i} class="composer-helper-item">
+            <button type="button" class="composer-helper-chip" title=${item.title || ""}
+              onClick=${() => setOpenChip(openChip === x.owner + i ? null : x.owner + i)}>${item.label}</button>
+            ${openChip === x.owner + i && (item.options || []).map((o, j) => html`<button key=${j} type="button"
+              class="composer-helper-option" onClick=${() => { setOpenChip(null); o.onClick(); }}>${o.label}</button>`)}
+          </span>`)}
+          ${x.view.undo && html`<button type="button" class="composer-helper-undo"
+            onClick=${() => x.view.undo.onClick()}>${x.view.undo.label}</button>`}
+        </div>`)}
       <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение" data-slot="composer-input"
         aria-label="Сообщение" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown} onPaste=${onPaste}></textarea>
@@ -83,9 +134,10 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
         <${IconButton} icon=${uploading ? "loader-circle" : "paperclip"} class="attach" data-slot="attach-button"
           label="Прикрепить картинку" disabled=${disabled || uploading || images.length >= MAX_IMAGES}
           onClick=${() => picker.current && picker.current.click()} />
-        ${plugins.composerButtons.map((b, i) => html`<button key=${b.owner + i} type="button" class="attach icon-btn"
-          data-slot="composer-plugin-button" data-plugin=${b.owner} title=${b.title} aria-label=${b.title}
-          disabled=${disabled || running} onClick=${() => b.onClick()}>${b.icon}</button>`)}
+        ${plugins.composerButtons.filter((b) => resolve(b.show) !== false).map((b, i) => html`<button key=${b.owner + i}
+          type="button" class="attach icon-btn" data-slot="composer-plugin-button" data-plugin=${b.owner}
+          title=${resolve(b.title)} aria-label=${resolve(b.title)}
+          disabled=${disabled || running} onClick=${() => b.onClick()}>${resolve(b.icon)}</button>`)}
         <input ref=${picker} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
           onChange=${(e) => { attach(e.target.files); e.target.value = ""; }} />
         <label class="role-pick" title="От чьего имени модель пишет следующее сообщение">

@@ -3,15 +3,21 @@
 // and a duplicate of a built-in one replaces it for the assistant. Each can be switched off. The text is
 // English (models follow it best). A skill opened from the assistant's «Инструкция» line is remembered in
 // localStorage "tavern.skill" and shown here first. The programmer's guides are folded (closed by default).
-import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
+import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
+import { getChoice, setChoice } from "../core/choice.js";
 import { Icon } from "./Icon.js";
 import { ask } from "./Dialogs.js";
 import { Pending, EmptyNote, useLoad } from "./State.js";
 
 export const OPEN_SKILL_KEY = "tavern.skill";
-const GROUPS = [["builtin", "Встроенные"], ["own", "Ваши"], ["plugin", "Из дополнений"], ["dev", "Для программиста"]];
+const GROUPS = [["builtin", "Встроенные"], ["own", "Ваши"], ["imported", "Загруженные"], ["plugin", "Из дополнений"],
+  ["dev", "Для программиста"]];
+// Imported ones (a file or a link) are someone else's text: they get their own group and show their source.
+const groupOf = (s) => (s.source === "own" && /^(url|file):/.test(s.origin || "") ? "imported" : s.source);
+const originLabel = (o) => (o === "assistant" ? "Написана помощником" : o.startsWith("url:") ? `Загружена по ссылке: ${o.slice(4)}`
+  : o.startsWith("file:") ? `Загружена из файла: ${o.slice(5)}` : "");
 const AUDIENCE = { assistant: "помощник", programmer: "программист", both: "помощник и программист" };
 
 function wanted() {
@@ -21,15 +27,21 @@ function wanted() {
 export function Skills({ onError }) {
   const loaded = useLoad(() => api.get("/skills").then((d) => d.skills), []);
   const list = loaded.data || [];
-  const [openId, setOpenId] = useState(wanted);
+  const [openId, setOpenIdRaw] = useState(() => wanted() || getChoice("skill"));
+  const setOpenId = (id) => { setOpenIdRaw(id); setChoice("skill", id); };
   const [skill, setSkill] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [link, setLink] = useState("");
+  const [notes, setNotes] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const fileInput = useRef(null);
 
   const reload = () => loaded.reload();
+  const remembered = useRef(getChoice("skill")); // a remembered skill may be gone: then no error, just no selection
   useEffect(() => {
     if (!openId) { setSkill(null); setDraft(null); return; }
     api.get(`/skills/${encodeURIComponent(openId)}`).then((s) => { setSkill(s); setDraft(s.readonly ? null : { ...s }); })
-      .catch((e) => { onError(e.message); setOpenId(null); });
+      .catch((e) => { if (remembered.current !== openId) onError(e.message); setOpenId(null); });
   }, [openId]);
 
   const changed = Boolean(draft && skill && ["name", "title", "description", "body", "audience"].some((k) => draft[k] !== skill[k]));
@@ -55,6 +67,29 @@ export function Skills({ onError }) {
     const made = await api.post("/skills", { name, title: "Новая инструкция", body: "" });
     await reload();
     setOpenId(made.id);
+  });
+  // A SKILL.md from a file or a link (the same kind Claude Code uses). Text only: nothing in it runs; files it
+  // mentions are not carried over, and the notes say what could not be.
+  const imported = async (body) => {
+    setBusy(true);
+    try {
+      const made = await api.post("/skills/import", body);
+      setNotes(made.notes || []);
+      await reload();
+      setOpenId(made.skill.id);
+      notify("Инструкция добавлена", "ok");
+    } finally { setBusy(false); }
+  };
+  const fromLink = () => act(async () => {
+    if (!link.trim() || !(await discardOk())) return;
+    await imported({ url: link.trim() });
+    setLink("");
+  });
+  const fromFile = (e) => act(async () => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file || !(await discardOk())) return;
+    await imported({ text: await file.text(), filename: file.name });
   });
   const save = () => act(async () => {
     const { name, title, description, body, audience } = draft;
@@ -90,11 +125,24 @@ export function Skills({ onError }) {
       <p class="hint">Инструкции помощнику для разных работ. Он сам выбирает подходящую; в беседе видно строку
         <${Icon} name="book-open" /> «Инструкция: …». Текст на английском — так модели держат его надёжнее.</p>
       <button onClick=${create}><${Icon} name="plus" /> Новая инструкция</button>
+      <div class="skills-import" data-slot="skills-import">
+        <div class="row">
+          <input value=${link} placeholder="Ссылка на файл SKILL.md" aria-label="Ссылка на файл инструкции"
+            onInput=${(e) => setLink(e.target.value)} onKeyDown=${(e) => { if (e.key === "Enter") fromLink(); }} />
+          <button disabled=${busy || !link.trim()} onClick=${fromLink}><${Icon} name="download" /> Загрузить</button>
+        </div>
+        <button onClick=${() => fileInput.current && fileInput.current.click()} disabled=${busy}><${Icon} name="upload" /> Загрузить из файла</button>
+        <input ref=${fileInput} type="file" accept=".md,text/markdown,text/plain" hidden onChange=${fromFile} />
+        <p class="hint">Подходят инструкции в формате Claude Code (SKILL.md). Загружается только текст, ничего не запускается;
+          файлы, на которые ссылается инструкция, не переносятся. Ссылка открывается через защищённую загрузку: адреса вашей
+          сети и этого устройства закрыты.</p>
+        ${notes.length > 0 && html`<ul class="skills-notes">${notes.map((n, i) => html`<li key=${i}>${n}</li>`)}</ul>`}
+      </div>
       ${!loaded.data && html`<${Pending} error=${loaded.error} onRetry=${loaded.reload} />`}
       ${loaded.data && list.length === 0 && html`<${EmptyNote} title="Инструкций пока нет"
         hint="Создайте свою или дублируйте встроенную." />`}
       ${GROUPS.map(([source, label]) => {
-        const items = list.filter((s) => s.source === source);
+        const items = list.filter((s) => groupOf(s) === source);
         if (!items.length) return null;
         if (source === "dev") {
           return html`<details key=${source} class="skills-group skills-dev" open=${skill?.source === "dev" || undefined}>
@@ -113,6 +161,10 @@ export function Skills({ onError }) {
         <h3>${skill.title}</h3>
         <span class="muted">${skill.name} · для: ${AUDIENCE[skill.audience] || skill.audience}${skill.plugin ? ` · дополнение ${skill.plugin}` : ""}</span>
       </div>
+      ${originLabel(skill.origin || "") && html`<p class="muted">${originLabel(skill.origin)}</p>`}
+      ${/^(url|file):/.test(skill.origin || "") && html`<p class="hint">Это чужой текст: он подсказывает помощнику, как работать, но не
+        даёт ему новых инструментов и не открывает закрытое (ключи, установка дополнений, разрешение скриптов остаются за вами).
+        Не доверяете источнику — выключите галочкой слева.</p>`}
       ${skill.readonly ? html`
         <p>${skill.description}</p>
         <div class="row">

@@ -76,7 +76,9 @@ h3 { font-size: var(--text-md); margin: 16px 0 8px; }
 .item { display: block; flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: transparent; background: transparent; }
 
 /* Shell. 100dvh follows the phone's visible area when the keyboard opens. */
-.app { display: flex; height: 100%; height: 100dvh; position: relative; }
+/* --notice-h: height of the bar the page puts on top after an update / in safe mode (core/theme.js); 0 when none. */
+body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
+.app { display: flex; height: 100%; height: calc(100dvh - var(--notice-h, 0px)); position: relative; }
 .sidebar {
   width: var(--sidebar-width); flex: none; background: var(--sidebar-bg); border-right: 1px solid var(--line);
   padding: 12px; padding-left: max(12px, env(safe-area-inset-left)); overflow-y: auto; z-index: 2;
@@ -102,8 +104,6 @@ h3 { font-size: var(--text-md); margin: 16px 0 8px; }
 .scene, .overlay-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .scene { z-index: 0; }
 .overlay-layer { z-index: 3; }
-.safe-banner { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 40; display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: var(--radius); background: var(--panel); color: var(--fg); border: 1px solid var(--warning); }
-.safe-banner a { color: inherit; font-weight: 600; }
 
 .vlist { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 0 12px; overscroll-behavior: contain; }
 .vitem { padding: 8px 0; max-width: var(--chat-width); margin: 0 auto; }
@@ -305,6 +305,11 @@ input.num { width: 4.5em; }
 .mode-search { --mode-color: var(--mode-search); }
 .mode-off { --mode-color: var(--mode-off); }
 .bubble.mode-off { opacity: .55; }
+/* Zoomed far out: bubbles are plain (no ports, numbers, shadows, transitions), so hundreds stay cheap to paint. */
+.tree-map.far .bubble { box-shadow: none; transition: none; }
+.tree-map.far .bubble-port, .tree-map.far .bubble-order, .tree-map.far .bubble-vec, .tree-map.far .bubble-chance { display: none; }
+.tree-map.far .tree-lines path { stroke-dasharray: none; }
+.tree-map.far .bubble.selected { box-shadow: 0 0 0 3px var(--accent); }
 .mode-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--mode-color); flex: none; }
 .mode-pick { display: flex; gap: 4px; flex-wrap: wrap; }
 .mode-btn[aria-checked="true"] { border-color: var(--mode-color); box-shadow: inset 0 0 0 1px var(--mode-color); font-weight: 600; }
@@ -374,6 +379,12 @@ input.num { width: 4.5em; }
 
 /* Character history */
 .history { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; max-height: 40vh; overflow: auto; }
+.dialog { position: relative; }
+.history-pop { position: absolute; z-index: 6; top: 60px; right: 16px; width: min(440px, calc(100% - 32px)); height: min(300px, 50vh);
+  box-sizing: border-box; max-height: none; background: var(--dialog-bg); box-shadow: var(--shadow); }
+.imported-fields { border: 1px dashed var(--line); border-radius: var(--radius-sm); padding: 8px; }
+.imported-fields > summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; }
+.history-pop .empty-note { padding: 24px 8px; text-align: center; }
 .history-version summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; gap: 8px; }
 .history-steps { margin: 4px 0 8px; padding-left: 1.4em; font-size: var(--text-sm); }
 .history-steps li.undone { opacity: .5; text-decoration: line-through; }
@@ -522,9 +533,11 @@ input.num { width: 4.5em; }
 .assistant-msg.error { color: var(--danger); border: 1px solid var(--danger); }
 .assistant-action { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; font-size: var(--text-sm);
   padding: 2px 8px; border-left: 3px solid var(--accent); }
+.assistant-action > span { display: inline-flex; gap: 6px; align-items: baseline; min-width: 0; }
+.assistant-action > span .icon { align-self: center; }
 .assistant-action.undone span, .assistant-action.denied span { opacity: .65; }
 .assistant-action.undone span { text-decoration: line-through; }
-.assistant-note { font-size: var(--text-sm); color: var(--muted); }
+.assistant-note { font-size: var(--text-sm); color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .assistant-ask { border: 1px solid var(--danger); border-radius: var(--radius-sm); padding: 8px; }
 .assistant-ask p { margin: 0 0 8px; }
 .assistant-card { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; background: var(--panel);
@@ -539,9 +552,13 @@ input.num { width: 4.5em; }
 .assistant-items li.sub { padding-left: 1.4em; }
 .assistant-items li.done { opacity: .75; }
 .assistant-items li.now { font-weight: 600; color: var(--accent); }
+.assistant-substeps { list-style: none; margin: 2px 0 4px; padding-left: 1.4em; font-weight: 400; color: var(--text2); font-size: var(--text-sm); }
+.assistant-substeps li { display: flex; gap: 6px; align-items: flex-start; }
+.assistant-substeps li.done { color: var(--muted); }
 .assistant-items .mark { display: inline-block; width: 1.2em; }
 .assistant-line { font-size: var(--text-sm); color: var(--text2); }
-.assistant-line summary { cursor: pointer; }
+div.assistant-line { display: flex; gap: 6px; align-items: center; }
+.assistant-line summary { cursor: pointer; display: flex; align-items: center; gap: 6px; min-height: 28px; }
 .assistant-detail { white-space: pre-wrap; font-size: var(--text-sm); padding: 4px 0 0 1.2em; color: var(--text2); }
 .assistant-step { font-size: var(--text-sm); color: var(--muted); padding-left: 1em; }
 .assistant-msg.report { border-left: 3px solid var(--accent); }
@@ -562,6 +579,9 @@ input.num { width: 4.5em; }
 .skills-text { width: 100%; white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--text-sm);
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px;
   max-height: 60vh; overflow: auto; margin: 0; }
+.skills-import { display: grid; gap: 8px; margin: 8px 0; }
+.skills-import .row input { flex: 1; min-width: 0; }
+.skills-notes { margin: 0; padding-left: 18px; font-size: var(--text-sm); color: var(--muted); }
 @media (max-width: 720px) { .skills { grid-template-columns: 1fr; } }
 .assistant-mark { font-size: var(--text-sm); white-space: nowrap; }
 .assistant-mark.waiting { color: var(--accent); font-weight: 600; }
@@ -691,6 +711,7 @@ input.num { width: 4.5em; }
 .assistant-head strong { flex: 0 0 auto; }
 .assistant-head .icon-btn { flex: 0 0 auto; }
 .assistant .mark .icon { vertical-align: -2px; }
+.assistant small .icon, .assistant .assistant-file .icon, .assistant .mark .icon, .assistant button.link .icon { display: inline-block; vertical-align: -3px; }
 
 /* From the characters screens */
 /* Rules for the characters group (CharacterEditor, CharacterTree, Lorebooks, Gallery, Themes). Append to styles.css. */
@@ -776,3 +797,219 @@ a.button.icon-btn:hover { color: var(--fg); }
 .book-head { align-items: flex-end; }
 .conn-pick { justify-content: flex-start; }
 .safe-link { display: inline-flex; align-items: center; min-height: var(--tap); }
+
+/* Way home from a chat, and long names (Russian phrases or one long word) that must not break the layout */
+.brand-home { border-color: transparent; background: transparent; padding: 0 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-back { flex: none; }
+.dialog-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.book-picker .pick-name, .check-grid label, .dialog label { overflow-wrap: anywhere; min-width: 0; }
+.book-picker label { align-items: flex-start; }
+.book-picker input[type="checkbox"] { flex: none; margin-top: 8px; }
+.dialog select, .settings-body select { max-width: 100%; text-overflow: ellipsis; }
+.speakers { min-width: 0; max-width: 100%; }
+.speakers button { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.speakers button { display: inline-flex; align-items: center; }
+.sidebar .section-head h2, .sidebar .brand { min-width: 0; }
+@media (max-width: 720px) {
+  /* Touch has no hover title: lists wrap so the whole name can be read */
+  .sidebar .list .item, .lorebook-shelf .book-name { white-space: normal; overflow-wrap: anywhere; }
+  .sidebar .list .item { text-align: start; }
+  .home-back { width: 36px; margin-left: -8px; }
+}
+
+/* Menu: on top (default) or at the side, and folded. On a phone neither applies: the bar's own icons open
+   sheets (above). Everything here is wide screens only, so a phone keeps its layout as it was. */
+:where(:root) { --menubar-h: 44px; }
+.menubar { display: flex; align-items: center; gap: 4px; min-height: var(--menubar-h); padding: 4px 8px; box-sizing: border-box;
+  border-bottom: 1px solid var(--line); background: var(--topbar-bg); }
+.menubar .brand-home { flex: none; }
+.menubar-sections { display: flex; gap: 2px; align-items: center; }
+.menubar .has-mark { position: relative; color: var(--accent); }
+.menubar .has-mark::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.menu-folded { display: flex; align-items: center; gap: 2px; flex: none; }
+.menubar .fold-menu .icon { transform: rotate(180deg); } /* chevron-down turned up: folds the bar upwards */
+@media (min-width: 721px) {
+  .app[data-menu="top"] .sidebar { position: absolute; top: var(--menubar-h); left: 8px; z-index: 20; display: none;
+    width: min(420px, calc(100vw - 16px)); max-height: calc(100dvh - var(--menubar-h) - 16px); box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--menu-shadow); }
+  .app[data-menu="top"] .sidebar[data-section="chats"], .app[data-menu="top"] .sidebar[data-section="characters"],
+  .app[data-menu="top"] .sidebar[data-section="lorebooks"] { display: block; }
+  .app[data-menu="top"] .sidebar .side-head { display: none; }
+  .app[data-menu="top"] .side-section { display: none; }
+  .app[data-menu="top"] .sidebar[data-section="chats"] [data-name="chats"],
+  .app[data-menu="top"] .sidebar[data-section="characters"] [data-name="characters"],
+  .app[data-menu="top"] .sidebar[data-section="lorebooks"] [data-name="lorebooks"] { display: block; }
+  .app[data-menu="top"] .side-section .section-head { margin-top: 0; }
+  .app[data-menu="top"][data-menu-folded="true"] .sidebar, .app[data-menu="side"][data-menu-folded="true"] .sidebar { display: none; }
+}
+
+/* Side panels of plugins: folded = a thin strip on a wide screen, just the header bar on a phone */
+.plugin-panel .fold-panel { flex: none; }
+.plugin-panel.folded { flex: 0 0 auto; padding: 8px 4px; overflow: hidden; }
+@media (min-width: 721px) {
+  .plugin-panel.folded header { flex-direction: column; }
+  .plugin-panel.folded header > :not(.fold-panel) { display: none; }
+}
+@media (max-width: 720px) {
+  .plugin-panel .fold-panel .icon { transform: rotate(90deg); }
+  .plugin-panel.folded .fold-panel .icon { transform: rotate(-90deg); }
+  .plugin-panel.folded header { margin-bottom: 0; }
+  .plugin-panel header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* Settings tab «Изменения»: what the assistant changed, by day and by request */
+.changes { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.changes-filters { flex-wrap: wrap; gap: 8px; align-items: center; }
+.changes-filters select { max-width: 100%; }
+.changes-day h3 { margin: 12px 0 6px; }
+.changes-commit { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 8px; min-width: 0; background: var(--panel); }
+.changes-commit.undone { opacity: .7; }
+.changes-commit header { flex-wrap: wrap; gap: 8px; align-items: center; }
+.changes-time { font-variant-numeric: tabular-nums; color: var(--muted); }
+.changes-conv { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.changes-badge { font-size: var(--text-sm); padding: 0 6px; border-radius: var(--radius-sm); border: 1px solid var(--line); color: var(--muted); }
+.changes-request { margin: 4px 0; overflow-wrap: anywhere; }
+.changes-actions, .changes-entries, .changes-fields { margin: 4px 0; padding-left: 18px; overflow-wrap: anywhere; }
+.changes-actions li.undone > span:first-child { text-decoration: line-through; }
+.changes-was { text-decoration: line-through; color: var(--muted); }
+.changes-plan { margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--danger); }
+.changes-plan .row { gap: 8px; flex-wrap: wrap; }
+.changes-warn { color: var(--danger); }
+
+/* The assistant: conversation list, attachments, auto mode */
+.assistant-body[hidden] { display: none; }
+.assistant-conv-btn { flex: 1 1 80px; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 4px;
+  text-align: left; }
+.assistant-conv-btn > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.assistant-running { color: var(--accent); }
+.assistant-convs { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; overflow: hidden; }
+.assistant-convs-top { display: flex; gap: 8px; }
+.assistant-convs-top input { flex: 1; min-width: 0; }
+.assistant-conv-rows { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.assistant-conv { display: flex; align-items: center; gap: 2px; border-radius: var(--radius-sm); }
+.assistant-conv.current { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.assistant-conv-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0; text-align: left;
+  border: 0; background: transparent; min-height: var(--tap); padding: 4px 8px; }
+.assistant-conv-title { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-conv .icon-btn { flex: 0 0 auto; }
+.assistant-attached { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 4px 8px 0; }
+.assistant-file { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0 0 0 8px; border: 1px solid var(--line);
+  border-radius: 999px; font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assistant-attached .assistant-file button { border: 0; background: transparent; min-height: var(--tap); min-width: var(--tap); padding: 0; }
+.assistant-files { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.assistant-files .assistant-file { padding: 0 8px; }
+.assistant-library { border-top: 1px solid var(--line); padding: 8px; max-height: 40%; overflow-y: auto; }
+.assistant-library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 4px; }
+.assistant-library-grid button { padding: 0; min-height: 64px; border-radius: var(--radius-sm); overflow: hidden; }
+.assistant-library-grid img { width: 100%; height: 64px; object-fit: cover; display: block; }
+.assistant-auto { display: flex; align-items: center; gap: 8px; min-height: var(--tap); }
+
+/* Groups (Groups.js): foldable groups in a list, or the same groups as bubbles on the map's own classes. */
+.groups { margin-bottom: 4px; }
+.group-bar { display: flex; align-items: center; gap: 2px; min-height: 32px; }
+.group-bar-note { font-size: var(--text-sm); }
+.group-head { display: flex; align-items: center; gap: 2px; margin-top: 4px; }
+.group-fold { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; text-align: start; border-color: transparent; background: transparent; min-height: 36px; }
+.group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.group-empty { margin: 0 0 4px 24px; font-size: var(--text-sm); }
+.group > .list { margin-left: 12px; }
+.group-map { flex: none; height: min(60vh, 420px); border: 1px solid var(--line); border-radius: var(--radius); margin-top: 4px; }
+.group-map.big { height: 100%; min-height: 360px; flex: 1; margin-top: 0; }
+.group-frame { --mode-color: var(--accent); }
+.group-label { position: absolute; left: 10px; top: 6px; max-width: calc(100% - 20px); display: flex; gap: 8px; align-items: baseline;
+  border-color: transparent; background: transparent; padding: 4px 8px; cursor: pointer; }
+.group-label-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.group-item { --mode-color: var(--mode-search, var(--line)); }
+.group-picker .list .item[aria-pressed="true"] { background: var(--raised); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+.group-picker .list { max-height: 50vh; overflow-y: auto; }
+.group-big .group-map { flex: 1; }
+
+/* Phone: the top bar folds to a thin strip (unfold, home, settings, the chat's title). It stays in the flow,
+   so it never covers the first lines of the chat or the composer. Wide screens fold the menu bar instead. */
+.phone-folded { display: none; }
+.fold-top .icon { transform: rotate(180deg); }
+@media (max-width: 720px) {
+  .topbar[data-folded="true"] > :not(.phone-folded):not(.title) { display: none !important; }
+  .topbar[data-folded="true"] { min-height: calc(32px + env(safe-area-inset-top)); padding-top: max(0px, env(safe-area-inset-top));
+    padding-bottom: 0; padding-left: 4px; gap: 4px; }
+  .topbar[data-folded="true"] .phone-folded { display: flex; align-items: center; flex: none; }
+  .topbar[data-folded="true"] .phone-folded .icon-btn { width: 36px; min-height: 32px; height: 32px; }
+  .topbar[data-folded="true"] .title { font-size: var(--text-sm); color: var(--text2); }
+}
+
+/* Bubble map's side panel: folded = a thin strip on a wide screen, just the header row on a phone. Content stays
+   mounted (a draft being typed is kept); only hidden. */
+.tree-panel .fold-panel { flex: none; }
+.tree-panel.folded { overflow: hidden; }
+.tree-panel.folded > :not(:first-child) { display: none; }
+@media (min-width: 721px) {
+  .tree-panel.folded { width: 44px; padding: 12px 4px; }
+  .tree-panel.folded > .row > :not(.fold-panel) { display: none; }
+}
+@media (max-width: 720px) {
+  .tree-panel .fold-panel .icon { transform: rotate(90deg); }
+  .tree-panel.folded .fold-panel .icon { transform: rotate(-90deg); }
+  .tree-panel.folded { max-height: none; padding-top: 4px; padding-bottom: 4px; }
+}
+
+/* Search across all chats (components/Search.js) */
+.search-window { display: flex; flex-direction: column; gap: 8px; max-height: 100%; }
+.search-window .tabs { margin: 0; }
+.search-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.search-filters label { flex-direction: column; align-items: stretch; gap: 4px; font-size: var(--text-xs); color: var(--muted); min-width: 0; }
+.search-filters select, .search-filters input { max-width: 100%; min-width: 0; }
+.search-form { display: flex; align-items: center; gap: 8px; }
+.search-form input { flex: 1; min-width: 0; }
+.search-results-list { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; }
+.search-hit { display: flex; flex-direction: column; align-items: stretch; gap: 4px; text-align: left; width: 100%; flex: none;
+  min-height: 44px; padding: 8px; border-color: transparent; background: transparent; }
+.search-hit:hover, .search-hit:focus-visible { background: var(--raised); }
+.search-hit-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.search-hit-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-hit-date { flex: none; font-size: var(--text-xs); }
+.search-hit-meta { font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-snippet { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.search-snippet mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 2px; }
+.search-reason { font-size: var(--text-xs); color: var(--text2); overflow-wrap: anywhere; }
+.search-more { align-self: center; }
+.search-ask textarea { width: 100%; resize: vertical; }
+.search-cost { margin: 0; }
+.assistant-found { display: flex; flex-direction: column; border-radius: var(--radius-sm); animation: assistant-found 2.5s ease-out; }
+@keyframes assistant-found { from { outline: 2px solid var(--accent); outline-offset: 2px; } to { outline: 2px solid transparent; outline-offset: 2px; } }
+@media (prefers-reduced-motion: reduce) { .assistant-found { animation: none; outline: 2px solid var(--accent); } }
+
+/* Regex rules (stage 11): the «Регекс» tab, the rule window, HTML written by screen rules */
+.regex-tab h3 { margin: 16px 0 4px; }
+.regex-group { margin-top: 16px; }
+.regex-group details { margin: 4px 0; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 4px 8px; }
+.regex-group summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; gap: 8px; min-width: 0; }
+.regex-owner { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.regex-rule { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.regex-rule.off .regex-name { opacity: .6; }
+.regex-name { flex: 1 1 180px; min-width: 0; display: flex; flex-direction: column; }
+.regex-name .link { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.regex-buttons { display: flex; gap: 0; flex: none; margin-left: auto; }
+.regex-problem { color: var(--danger); overflow-wrap: anywhere; }
+.regex-problem .icon { display: inline-block; vertical-align: -3px; }
+.regex-pending { border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0; }
+.regex-actions { margin-top: 8px; flex-wrap: wrap; gap: 8px; }
+.regex-editor .mono, .regex-tab .mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.regex-editor fieldset { border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.regex-where label { margin-right: 12px; }
+.regex-depth { gap: 12px; flex-wrap: wrap; }
+.regex-depth input { width: 6em; }
+.regex-try { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.rx-sample { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: var(--text-sm);
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; max-height: 14em; overflow: auto; }
+.rx-sample mark { background: var(--accent); color: var(--accent-fg); border-radius: 2px; }
+.rx-result { max-height: 20em; overflow: auto; }
+/* what a screen rule wrote as HTML: kept inside the message, never wider than it */
+.rx-html { white-space: normal; overflow-wrap: anywhere; max-width: 100%; overflow-x: auto; }
+.rx-html img { max-width: 100%; height: auto; }
+.rx-html table { border-collapse: collapse; max-width: 100%; }
+.rx-html td, .rx-html th { padding: 2px 6px; }
+.msg .body.regex-pending { visibility: hidden; }
+.msg-regex-note { font-size: var(--text-sm); }
+@media (max-width: 720px) {
+  .regex-buttons { width: 100%; justify-content: flex-end; }
+}

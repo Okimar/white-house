@@ -9,8 +9,9 @@ export class ApiError extends Error {
   }
 }
 
-async function request(method, path, body) {
+async function request(method, path, body, signal) {
   const options = { method, headers: {} };
+  if (signal) options.signal = signal; // an outdated search is cancelled by its caller
   if (body !== undefined) {
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
@@ -19,6 +20,7 @@ async function request(method, path, body) {
   try {
     response = await fetch("/api" + path, options);
   } catch (e) {
+    if (e && e.name === "AbortError") throw e;
     throw new ApiError(0, "network", "Нет связи с сервером");
   }
   const text = await response.text();
@@ -37,8 +39,8 @@ async function request(method, path, body) {
 }
 
 export const api = {
-  get: (path) => request("GET", path),
-  post: (path, body = {}) => request("POST", path, body),
+  get: (path, signal) => request("GET", path, undefined, signal),
+  post: (path, body = {}, signal) => request("POST", path, body, signal),
   postBinary: async (path, body, contentType) => {
     let response;
     try {

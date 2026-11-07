@@ -1,6 +1,8 @@
 // Applies a theme: its stylesheet, its light/dark base and, if the user allowed it, its effects
 // script. A failing script is switched off and reported; the app itself keeps working.
-// Safe mode (/?safe) skips all of this, so a broken theme can always be fixed from the UI.
+// Safe mode skips all of this, so a broken theme can always be fixed from the UI. It is on with /?safe in
+// the address, with `python -m tavern safe-mode on` (kept) or `python -m tavern --safe` (one run); the
+// server tells which (GET /api/look). The same call says whether an update switched the old look off.
 //
 // Effects script contract (see .claude/skills/make-theme/SKILL.md):
 //   export default function setup(t) { ...; return () => { /* undo everything */ }; }
@@ -8,7 +10,16 @@
 // Events: "chat" {chatId, characterId, characterName}, "generation" {running},
 //         "message" {role, text}, "send" {text}.
 
-export const SAFE_MODE = new URLSearchParams(location.search).has("safe");
+async function fetchLook() {
+  try {
+    const reply = await fetch("/api/look", { credentials: "same-origin" });
+    if (reply.ok) return await reply.json();
+  } catch (e) { /* server too old or unreachable: the address alone decides */ }
+  return {};
+}
+export const LOOK = await fetchLook();
+const SAFE_IN_ADDRESS = new URLSearchParams(location.search).has("safe");
+export const SAFE_MODE = SAFE_IN_ADDRESS || !!LOOK.safe_mode;
 const CACHE_KEY = "tavern.theme";
 const bus = new EventTarget();
 // State-like events are replayed to late subscribers: a script loads after the chat opened.
@@ -55,7 +66,8 @@ export function applyCachedLook() {
   if (SAFE_MODE) return;
   try {
     const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-    if (cached && /^[a-z0-9][a-z0-9_-]*$/.test(cached.id)) setLook(cached.id, cached.base, cached.hasCss);
+    // Only a built-in look is reused before the answer: a user theme may have been switched off by an update.
+    if (cached && cached.builtin && /^[a-z0-9][a-z0-9_-]*$/.test(cached.id)) setLook(cached.id, cached.base, cached.hasCss);
   } catch (e) { /* storage off or junk: start with the base look */ }
 }
 
@@ -81,7 +93,7 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
   const key = `${theme.id}:${runScript ? theme.script_sha256 : "-"}`;
   setLook(theme.id, theme.base, theme.has_css);
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ id: theme.id, base: theme.base, hasCss: theme.has_css }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ id: theme.id, base: theme.base, hasCss: theme.has_css, builtin: !!theme.builtin }));
   } catch (e) { /* storage off */ }
   if (key === active.key) return;
   stopScript();
@@ -139,3 +151,106 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
     fail(error);
   }
 }
+
+// --- notices that must work even when the rest of the page does not -------------------------------------
+// Plain DOM with inline styles: they do not depend on the app's own components or on any theme.
+
+const BAR = "display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;"
+  + "background:var(--panel,#1f1f24);color:var(--fg,#eee);border-bottom:2px solid var(--warning,#e0a030);"
+  + "font:14px/1.4 system-ui,sans-serif;";
+const BTN = "padding:6px 12px;min-height:36px;border-radius:6px;border:1px solid currentColor;"
+  + "background:transparent;color:inherit;font:inherit;cursor:pointer;";
+
+function el(tag, style, text, children = []) {
+  const node = document.createElement(tag);
+  if (style) node.style.cssText = style;
+  if (text) node.textContent = text;
+  for (const child of children) node.appendChild(child);
+  return node;
+}
+
+function button(label, onClick) {
+  const node = el("button", BTN, label);
+  node.type = "button";
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+async function post(path, body) {
+  const reply = await fetch(path, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}),
+  });
+  if (!reply.ok) throw new Error("HTTP " + reply.status);
+}
+
+function safeBar() {
+  const bar = el("div", BAR);
+  bar.setAttribute("role", "status");
+  bar.dataset.slot = "safe-mode-bar";
+  const how = [];
+  if (LOOK.safe_persistent) how.push("Включён навсегда: команда `python -m tavern safe-mode on`.");
+  if (LOOK.safe_run) how.push("Включён только на этот запуск (`--safe`): перезапустите без него.");
+  if (SAFE_IN_ADDRESS) how.push("Включён адресом /?safe.");
+  bar.appendChild(el("strong", "", "Безопасный режим: темы, свои стили и скрипты не загружаются."));
+  bar.appendChild(el("span", "opacity:.85", how.join(" ")));
+  if (LOOK.safe_persistent || SAFE_IN_ADDRESS) {
+    bar.appendChild(button("Выйти из безопасного режима", async () => {
+      try { if (LOOK.safe_persistent) await post("/api/look/safe", { on: false }); } catch (e) { /* try anyway */ }
+      location.href = "/";
+    }));
+  } else {
+    bar.appendChild(el("span", "opacity:.85", "Выход: закройте программу и запустите без `--safe`."));
+  }
+  return bar;
+}
+
+function parkedBar() {
+  const p = LOOK.parked;
+  const bar = el("div", BAR);
+  bar.setAttribute("role", "alert");
+  bar.dataset.slot = "look-parked-bar";
+  const what = p.theme ? `«${p.theme_name || p.theme}»` : p.characters ? "свои темы персонажей" : "стили сторонних дополнений";
+  bar.appendChild(el("span", "", `White House обновился, и ваше прежнее оформление ${what} отключено: `
+    + "оно писалось под старый вид и могло сломать меню. Ничего не удалено, сейчас включён стандартный вид."));
+  const actions = el("span", "display:flex;flex-wrap:wrap;gap:8px");
+  const warning = el("div", "flex-basis:100%;display:none;opacity:.9",
+    "Внимание: прежнее оформление может сломать меню. Если так случится, откройте безопасный режим "
+    + "(адрес /?safe или команда `python -m tavern safe-mode on`) и отключите оформление в «Настройки → Оформление».");
+  const confirm = button("Всё равно вернуть", async () => {
+    try { await post("/api/look/restore"); location.reload(); } catch (e) { confirm.textContent = "Не вышло, попробуйте ещё раз"; }
+  });
+  confirm.style.display = "none";
+  const ask = button("Вернуть прежний вид", () => {
+    warning.style.display = "block";
+    confirm.style.display = "";
+    ask.style.display = "none";
+  });
+  const ok = button("Понятно", async () => {
+    try { await post("/api/look/dismiss"); } catch (e) { /* the notice may come back once more */ }
+    bar.remove();
+  });
+  actions.append(ask, confirm, ok);
+  bar.append(actions, warning);
+  return bar;
+}
+
+function mountNotices() {
+  if (!document.body) return;
+  const bars = [];
+  if (SAFE_MODE) bars.push(safeBar());
+  if (LOOK.parked && !LOOK.parked.seen) bars.push(parkedBar());
+  if (!bars.length) return;
+  const hideOld = document.createElement("style");
+  hideOld.textContent = ".safe-banner{display:none!important}"; // this bar replaces the page's own safe-mode line
+  document.head.appendChild(hideOld);
+  const box = el("div", "position:fixed;top:0;left:0;right:0;z-index:100000");
+  box.dataset.slot = "look-notices";
+  for (const bar of bars) box.appendChild(bar);
+  document.body.appendChild(box);
+  // The bar must not cover the menu: the page is pushed down by its height (styles.css uses --notice-h).
+  const sync = () => document.documentElement.style.setProperty("--notice-h", box.offsetHeight + "px");
+  sync();
+  if (window.ResizeObserver) new ResizeObserver(sync).observe(box);
+}
+mountNotices();

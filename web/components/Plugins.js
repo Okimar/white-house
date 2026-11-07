@@ -7,6 +7,7 @@ import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { money } from "../core/spending.js";
 import { notify } from "../core/notify.js";
+import { getChoice, setChoice } from "../core/choice.js";
 import { backdrop, useEscape } from "../core/keys.js";
 import { Icon, IconButton } from "./Icon.js";
 import { ask } from "./Dialogs.js";
@@ -21,6 +22,8 @@ const USES = {
   events: "реагирует на события (новый ответ, участники…)",
   ui: "добавляет кнопки в окно",
   network: "ходит в интернет",
+  microphone: "записывает голос с микрофона (только по вашему нажатию)",
+  secrets: "хранит ключи сервисов на сервере (в браузер они не отдаются)",
 };
 const SOURCE = { builtin: "встроенное", folder: "папка", file: "из файла", github: "GitHub" };
 
@@ -66,7 +69,7 @@ function ConnectionField({ field, value, onSave }) {
 }
 
 // "list": rows of small fields (e.g. the thinkers of the tree of thoughts); add, remove, edit.
-function ListField({ field, value, onSave }) {
+function ListField({ field, value, onSave, plugin }) {
   const rows = value || [];
   const blank = () => Object.fromEntries(field.fields.map((f) => [f.key, f.default]));
   const put = (i, key, v) => onSave(rows.map((r, j) => (j === i ? { ...r, [key]: v } : r)));
@@ -75,7 +78,7 @@ function ListField({ field, value, onSave }) {
   };
   return html`<fieldset class="setting-list" data-slot="plugin-setting-list"><legend>${field.label}</legend>
     ${rows.map((row, i) => html`<div key=${i} class="setting-row">
-      ${field.fields.map((f) => html`<${SettingField} key=${f.key} field=${f} value=${row[f.key]}
+      ${field.fields.map((f) => html`<${SettingField} key=${f.key} field=${f} value=${row[f.key]} plugin=${plugin}
         onSave=${(v) => put(i, f.key, v)} />`)}
       <${IconButton} icon="trash-2" label="Убрать строку" class="danger-text" onClick=${() => dropRow(i)} />
     </div>`)}
@@ -83,10 +86,69 @@ function ListField({ field, value, onSave }) {
   </fieldset>`;
 }
 
-function SettingField({ field, value, onSave }) {
+// "secret": a key or password. It is written once and never comes back from the server, so the box is
+// always empty and only says whether something is kept.
+function SecretField({ field, plugin, onSave }) {
+  const [draft, setDraft] = useState("");
+  const set = Boolean(plugin && plugin.secrets_set && plugin.secrets_set[field.key]);
+  const save = () => { const v = draft.trim(); if (v) { onSave(v); setDraft(""); } };
+  return html`<label>${field.label} ${set ? html`<span class="muted">(задан)</span>` : html`<span class="muted">(не задан)</span>`}<br />
+    <input type="password" autocomplete="off" value=${draft} placeholder=${set ? "введите новый, чтобы заменить" : "вставьте ключ"}
+      onInput=${(e) => setDraft(e.target.value)} onBlur=${save}
+      onKeyDown=${(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></label>
+    ${set && html`<button type="button" onClick=${() => onSave(null)}>Убрать ключ</button>`}`;
+}
+
+// "action": a button that asks the plugin's server part to do something and shows its answer.
+function ActionField({ field, plugin }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const run = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = (await api.post(`/plugins/${plugin.id}/actions/${field.action}`, {})).result || {};
+      setResult({ ok: r.ok !== false, message: r.message || "Готово" });
+    } catch (e) { setResult({ ok: false, message: e.message }); } finally { setBusy(false); }
+  };
+  return html`<div><button type="button" disabled=${busy || !plugin.active} onClick=${run}>${field.label}</button>
+    ${!plugin.active && html` <span class="muted">(сначала включите дополнение)</span>`}
+    ${busy && html` <span class="muted">проверяю…</span>`}
+    ${result && html` <span class=${result.ok ? "muted" : "error"} role="status">${result.message}</span>`}</div>`;
+}
+
+// "choice" with choices_from: the options are asked of the plugin (e.g. the voices of a service).
+function DynamicChoice({ field, value, plugin, onSave }) {
+  const [options, setOptions] = useState(null);
+  const [problem, setProblem] = useState("");
+  const stamp = JSON.stringify([plugin.values, plugin.secrets_set, plugin.active]);
+  useEffect(() => {
+    let alive = true;
+    setProblem("");
+    if (!plugin.active) { setOptions([]); return undefined; }
+    api.post(`/plugins/${plugin.id}/actions/${field.choices_from}`, {})
+      .then((r) => { if (alive) setOptions(Array.isArray(r.result) ? r.result : []); })
+      .catch((e) => { if (alive) { setOptions([]); setProblem(e.message); } });
+    return () => { alive = false; };
+  }, [stamp]);
+  const list = options || [];
+  const known = list.some(([v]) => v === value);
+  return html`<label>${field.label}<br /><select value=${value} onChange=${(e) => onSave(e.target.value)}>
+    <option value="">По умолчанию</option>
+    ${!known && value && html`<option value=${value}>${value}</option>`}
+    ${list.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
+  </select></label>${problem && html`<div class="muted">Список не получен: ${problem}</div>`}`;
+}
+
+function SettingField({ field, value, onSave, plugin }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
-  if (field.type === "list") return html`<${ListField} field=${field} value=${value} onSave=${onSave} />`;
+  if (field.type === "secret") return html`<${SecretField} field=${field} plugin=${plugin} onSave=${onSave} />`;
+  if (field.type === "action") return html`<${ActionField} field=${field} plugin=${plugin} />`;
+  if (field.type === "choice" && field.choices_from) {
+    return html`<${DynamicChoice} field=${field} value=${value} plugin=${plugin} onSave=${onSave} />`;
+  }
+  if (field.type === "list") return html`<${ListField} field=${field} value=${value} plugin=${plugin} onSave=${onSave} />`;
   if (field.type === "connection") return html`<${ConnectionField} field=${field} value=${value} onSave=${onSave} />`;
   if (field.type === "bool") {
     return html`<label><input type="checkbox" checked=${Boolean(value)}
@@ -133,7 +195,8 @@ function Access({ plugin, settings, onSave }) {
 }
 
 function PluginCard({ plugin, spending, onChanged, onError }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenRaw] = useState(() => getChoice("plugin") === plugin.id); // the last card opened stays open
+  const setOpen = (on) => { setOpenRaw(on); if (on) setChoice("plugin", plugin.id); else if (getChoice("plugin") === plugin.id) setChoice("plugin", null); };
   const [approving, setApproving] = useState(false);
   const [update, setUpdate] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -184,7 +247,7 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
       ${plugin.commands.length > 0 && html`<p class="muted">Команды: ${plugin.commands.map((c) => "/" + c).join(", ")}</p>`}
       ${plugin.settings.length > 0 && html`<h3>Настройки</h3>
         <div class="plugin-settings">${plugin.settings.map((f) => html`<div key=${f.key}>
-          <${SettingField} field=${f} value=${plugin.values[f.key]} onSave=${(v) => saveSetting(f.key, v)} />
+          <${SettingField} field=${f} value=${plugin.values[f.key]} plugin=${plugin} onSave=${(v) => saveSetting(f.key, v)} />
           ${f.help && html`<div class="muted">${f.help}</div>`}</div>`)}</div>`}
       <h3>Модели</h3>
       <${Access} plugin=${plugin} settings=${spending} onSave=${saveAccess} />

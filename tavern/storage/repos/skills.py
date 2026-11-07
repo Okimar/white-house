@@ -8,7 +8,7 @@ from tavern.errors import NotFound
 from tavern.storage.db import Database
 from tavern.util.ids import new_id, now_iso
 
-FIELDS = ("name", "title", "description", "body", "audience", "based_on", "enabled")
+FIELDS = ("name", "title", "description", "body", "audience", "based_on", "enabled", "origin")
 
 
 def _skill(row: Any) -> dict[str, Any]:

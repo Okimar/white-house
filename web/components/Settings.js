@@ -9,19 +9,43 @@ import { LorebookSettings } from "./Lorebooks.js";
 import { Connections } from "./Connections.js";
 import { Templates } from "./Templates.js";
 import { Skills } from "./Skills.js";
+import { RegexTab } from "./Regex.js";
 import { SpendingSettings } from "./Spending.js";
 import { Plugins } from "./Plugins.js";
 import { BackupsTab } from "./Backups.js";
+import { Changes } from "./Changes.js";
+import { Updates } from "./Updates.js";
 import { IconButton } from "./Icon.js";
 import { backdrop, useEscape } from "../core/keys.js";
 import { notify } from "../core/notify.js";
+import { useLayout, setMenuMode } from "../core/layout.js";
 import { DEFAULT_PINNED, MESSAGE_ACTIONS } from "../core/messageActions.js";
 
 const TABS = [["main", "Основное"], ["connections", "Подключения"], ["templates", "Шаблоны"], ["spending", "Расход"], ["prompt", "Промпт"],
-  ["lore", "Лорбуки"], ["look", "Оформление"], ["pictures", "Картинки"], ["plugins", "Дополнения"], ["skills", "Инструкции"], ["backups", "Копии"]];
+  ["lore", "Лорбуки"], ["look", "Оформление"], ["regex", "Регекс"], ["pictures", "Картинки"], ["plugins", "Дополнения"], ["skills", "Инструкции"], ["changes", "Изменения"], ["backups", "Копии"]];
 
-export function Settings({ settings, themes, deletedThemes, characters, initialTab, onClose, onChanged, onError }) {
-  const [tab, setTab] = useState(initialTab || "main");
+// Where Settings was closed (tab and scroll of each tab) is kept on this device, only as a convenience.
+const VIEW_KEY = "tavern.settingsView";
+function loadView() {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_KEY) || "{}");
+    return { tab: TABS.some(([id]) => id === v.tab) ? v.tab : null, scroll: v.scroll && typeof v.scroll === "object" ? v.scroll : {} };
+  } catch (e) { return { tab: null, scroll: {} }; }
+}
+function saveView(view) {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (e) { /* storage off */ }
+}
+
+export function Settings({ settings, themes, deletedThemes, characters, initialTab, onClose, onChanged, onError, onOpenAssistant }) {
+  const saved = useRef(null);
+  if (saved.current === null) saved.current = loadView();
+  const [tab, setTab] = useState(initialTab || saved.current.tab || "main");
+  const body = useRef(null);
+  const view = useRef({ tab, scroll: { ...saved.current.scroll } });
+  const restoring = useRef(!initialTab); // a tab was just switched: scroll events are not the user's yet
+  const chooseTab = (id) => { restoring.current = true; setTab(id); view.current.tab = id; saveView(view.current); };
+  useEffect(() => { view.current.tab = tab; saveView(view.current); }, []);
+  const layout = useLayout(); // menu on top / at the side: a choice of this device
   const [connections, setConnections] = useState([]); // for the pictures tab
   const [userName, setUserName] = useState(settings.user_name || "");
 
@@ -47,6 +71,33 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
   });
 
   useEscape(onClose);
+  // Back to the scroll place of this tab; content may arrive late, so try a few times until it fits.
+  useEffect(() => {
+    const want = view.current.scroll[tab] || 0;
+    const el = body.current;
+    if (!el || !want || (initialTab === tab && !restoring.current)) {
+      if (el && !want) el.scrollTop = 0;
+      restoring.current = false;
+      return;
+    }
+    let tries = 0;
+    const timer = setInterval(() => {
+      el.scrollTop = want;
+      if (Math.abs(el.scrollTop - want) < 2 || ++tries > 15) { clearInterval(timer); restoring.current = false; }
+    }, 80);
+    const stop = () => { clearInterval(timer); restoring.current = false; };
+    el.addEventListener("wheel", stop, { once: true });
+    el.addEventListener("touchstart", stop, { once: true });
+    return () => { clearInterval(timer); el.removeEventListener("wheel", stop); el.removeEventListener("touchstart", stop); };
+  }, [tab]);
+  let scrollSave = 0;
+  const onScroll = (e) => {
+    if (restoring.current) return;
+    const y = e.currentTarget.scrollTop;
+    view.current.scroll[tab] = Math.round(y);
+    clearTimeout(scrollSave);
+    scrollSave = setTimeout(() => saveView(view.current), 150);
+  };
   // The chosen tab stays in view: on a phone the strip scrolls sideways.
   const strip = useRef(null);
   useEffect(() => {
@@ -62,11 +113,18 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         <div class="tabs" role="tablist" ref=${strip}>
           ${TABS.map(([id, label]) => html`<button key=${id} role="tab" aria-selected=${tab === id}
-            onClick=${() => setTab(id)}>${label}</button>`)}
+            onClick=${() => chooseTab(id)}>${label}</button>`)}
         </div>
-        <div class="settings-body">
+        <div class="settings-body" ref=${body} onScroll=${onScroll}>
 
         ${tab === "main" && html`
+        <h2>Меню</h2>
+        <select value=${layout.mode} aria-label="Где показывать меню" data-slot="menu-mode"
+          onChange=${(e) => setMenuMode(e.target.value)}>
+          <option value="top">Сверху: значки, списки выпадают</option>
+          <option value="side">Сбоку: панель слева</option>
+        </select>
+        <p class="hint">Выбор действует на этом устройстве. Меню можно свернуть кнопкой в левом верхнем углу, чтобы чату хватило места.</p>
         <h2>Кнопки сообщения</h2>
         <select value=${settings.message_actions || "menu"} aria-label="Как показывать кнопки сообщения"
           onChange=${(e) => saveSetting({ message_actions: e.target.value })}>
@@ -114,7 +172,8 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         <h2>История персонажей</h2>
         <label><input type="checkbox" checked=${settings.character_history !== false}
           onChange=${(e) => saveSetting({ character_history: e.target.checked })} />
-          сохранять историю изменений (кнопка «Отменить» и версии)</label>`}
+          сохранять историю изменений (кнопка «Отменить» и версии)</label>
+        <${Updates} onError=${onError} />`}
 
         ${tab === "prompt" && html`<${Presets} settings=${settings} onChanged=${onChanged} onError=${onError} />`}
         ${tab === "lore" && html`<${LorebookSettings} onChanged=${onChanged} onError=${onError} />`}
@@ -127,9 +186,11 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
         ${tab === "connections" && html`<${Connections} onChanged=${onChanged} onError=${onError} />`}
         ${tab === "templates" && html`<${Templates} onError=${onError} />`}
+        ${tab === "regex" && html`<${RegexTab} onError=${onError} />`}
         ${tab === "skills" && html`<${Skills} onError=${onError} />`}
         ${tab === "spending" && html`<${SpendingSettings} onError=${onError} />`}
         ${tab === "plugins" && html`<${Plugins} onError=${onError} />`}
+        ${tab === "changes" && html`<${Changes} onError=${onError} onOpenConversation=${onOpenAssistant} onChanged=${onChanged} />`}
         ${tab === "backups" && html`<${BackupsTab} onError=${onError} />`}
         </div>
       </div>

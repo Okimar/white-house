@@ -15,6 +15,7 @@ from tavern.errors import NotFound
 from tavern.formats.cards import card_to_png, decode_png_card, encode_card, parse_card
 from tavern.formats.media import media_type, sniff_image
 from tavern.services import character_tree, history, lorebooks
+from tavern.services import regex as regex_service
 
 
 async def list_characters(request: Request) -> JSONResponse:
@@ -31,6 +32,7 @@ async def create_character(request: Request) -> JSONResponse:
     spec, data = parse_card(await json_body(request))
     character = ctx.characters.create(data, spec=spec)
     character_tree.take_book(ctx, character["id"])  # embedded lorebook entries become blocks
+    regex_service.take_card_rules(ctx, character)  # scripts the card carries wait for «Разрешить»
     lorebooks.attach_card_world(ctx, character["id"])  # its named ST lorebook, if we have it
     return JSONResponse(ctx.characters.get(character["id"]), status_code=201)
 
@@ -45,6 +47,7 @@ async def import_character_png(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     character = ctx.characters.create(data, spec=spec, avatar=avatar)
     character_tree.take_book(ctx, character["id"])
+    regex_service.take_card_rules(ctx, character)
     lorebooks.attach_card_world(ctx, character["id"])
     return JSONResponse(ctx.characters.get(character["id"]), status_code=201)
 
@@ -52,14 +55,15 @@ async def import_character_png(request: Request) -> JSONResponse:
 async def export_character_json(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     character = ctx.characters.get(request.path_params["id"])
-    return JSONResponse(encode_card(character_tree.card_with_book(ctx, character), spec=character["spec"]))
+    data = regex_service.card_with_rules(ctx, character["id"], character_tree.card_with_book(ctx, character))
+    return JSONResponse(encode_card(data, spec=character["spec"]))
 
 
 async def export_character_png(request: Request) -> Response:
     ctx = ctx_of(request)
     character = ctx.characters.get(request.path_params["id"])
     safe_name = re.sub(r'[\\"\r\n\x00-\x1f\x7f]+', "_", character["name"]).strip(" .") or "character"
-    data = character_tree.card_with_book(ctx, character)
+    data = regex_service.card_with_rules(ctx, character["id"], character_tree.card_with_book(ctx, character))
     blob = card_to_png(data, spec=character["spec"])
     avatar = character.get("avatar") or ""
     if avatar.startswith("data:image/png;base64,"):

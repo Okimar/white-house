@@ -70,6 +70,11 @@ class PromptInput:
     # names the characters whose cards it does not get (name, short description or "").
     several: bool = False
     scene: list[tuple[str, str]] = field(default_factory=list)
+    # Regex rules for the model (stage 11): the text the model gets instead of a history message's own, by
+    # message id, and for lorebook entries by block id. The rewritten text goes through the same steps as
+    # the original (the speaker's name in front, the old thinking around it, macros).
+    rewritten: dict[str, str] = field(default_factory=dict)
+    lore_rewritten: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -211,7 +216,8 @@ def assemble(data: PromptInput) -> Prompt:
 
     def found_entry(found: Any, kind: str, owner: str = "") -> Entry:
         item = found.block
-        return Entry(item["role"], sub(f"[{found.path}]\n{item['content']}"), f"block:{item['id']}",
+        content = data.lore_rewritten.get(item["id"], item["content"]) if kind == "lore" else item["content"]
+        return Entry(item["role"], sub(f"[{found.path}]\n{content}"), f"block:{item['id']}",
                      found.path, kind, owner=owner)
 
     def own_place(found: Any) -> str | None:
@@ -336,7 +342,7 @@ def assemble(data: PromptInput) -> Prompt:
                              thinking.compact([m["swipe_meta"]["reasoning"] for m in thought_rows])))
 
     def message_entry(m: dict[str, Any]) -> Entry:
-        text = m["content"]
+        text = data.rewritten.get(m["id"], m["content"])
         together = (m.get("extra") or {}).get("together")  # a combined round names everyone inside
         if data.several and m["role"] == "assistant" and m.get("name") and m["name"] != char and not together:
             text = f"{m['name']}: {text}"  # another character's line, so the model does not take it as its own

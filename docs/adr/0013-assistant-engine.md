@@ -71,3 +71,5 @@ progress shown in full or as short lines.
 - Messages written while the critic reads are folded into the plan too, and what they add gets
   checked. Work left midway by a restart or a failure waits for «Продолжить»; after the user's own
   «Стоп» it does not call for attention.
+
+Addendum (2026-11-07, ADR 0018): the assistant can now write skills, but only through its dedicated tools.

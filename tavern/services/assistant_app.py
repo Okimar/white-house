@@ -4,7 +4,7 @@ The owner's wish: the assistant can do whatever a person can press on the page. 
 button, `app_call` makes the same HTTP requests the page makes, in process, with:
 - a catalog (`app_routes`): every route with its docstring or a hint below;
 - closed routes: API keys, installing / enabling plugins, approving theme scripts, the assistant
-  itself, live streams; theme files and pictures go through their own tools (files, not rows);
+  itself, updating the app, live streams; theme files and pictures go through their own tools (files, not rows);
 - "Отменить" for any change: while the request runs, storage/changelog.Recorder writes down every
   row it changes. Changes wait until no reply is being written anywhere (the recorder sees the
   whole connection) — up to QUIET_WAIT seconds;
@@ -35,7 +35,7 @@ MAX_THEME_TEXT = 200_000
 THEME_TEXT_FILES = (".css", ".js", ".json", ".svg", ".txt", ".md")
 SECRET_WORDS = re.compile(r"^(api_?key|key|keys|secret|token|password|proxy|proxies|access_token)$", re.I)
 
-ALWAYS_CLOSED = re.compile(r"^/(assistant|events|runs/|plugins/asks)")
+ALWAYS_CLOSED = re.compile(r"^/(assistant|events|runs/|plugins/asks|updates)")
 CLOSED_WRITES = (
     (re.compile(r"^/connections/[^/]+/keys"), "API keys are closed to the assistant"),
     (re.compile(r"^/backups/gdrive"), "the Google Drive sign-in and app pass are closed to the assistant"),
@@ -44,9 +44,13 @@ CLOSED_WRITES = (
     (re.compile(r"^/plugins(?!/command$|/[^/]+/actions/)"), "installing and switching plugins is closed to the assistant"),
     (re.compile(r"^/themes"), "use the theme tools (make_theme, write_theme_file, set_theme)"),
     (re.compile(r"^/assets"), "pictures are files: the assistant cannot add or delete them"),
+    (re.compile(r"^/regex/approve"),
+     "allowing the rules that came with a card or preset is the user's own decision (they change what the model gets)"),
     (re.compile(r"^/skills"), "the assistant reads skills (read_skill) but never changes its own instructions"),
 )
 ASK_FIRST = re.compile(r"/(delete-by-numbers)$")
+# POST routes that only look (they change no rows): they do not wait for replies being written.
+READ_POSTS = ("/regex/try", "/regex/display")
 
 # Routes without a docstring of their own: what they take. Everything else: read with GET first
 # and send the same field names.
@@ -208,7 +212,7 @@ async def app_call(env: Env, args: dict[str, Any]) -> Outcome:
     kwargs: dict[str, Any] = {"params": query}
     if body is not None and method != "GET":
         kwargs["json"] = body
-    if method == "GET":
+    if method == "GET" or path in READ_POSTS:
         response = await client.request(method, "/api" + path, **kwargs)
         return Outcome({"status": response.status_code, "data": _answer(response)})
     await wait_quiet(env)

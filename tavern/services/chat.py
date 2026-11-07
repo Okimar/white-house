@@ -18,12 +18,13 @@ from tavern.core.budget import BudgetExceeded, RunBudget
 from tavern.core.assembly import PromptInput
 from tavern.core.generation import DefaultGenerator, GenerationJob
 from tavern.core.llm import LLMClient
-from tavern.core.prompt import substitute
+from tavern.core.prompt import DEFAULT_CHAR_NAME, substitute
 from tavern.core.runs import Run
 from tavern.providers.params import request_params
 from tavern.services import cast, character_tree, lorebooks, parallel, speakers, spending
 from tavern.services import notes as note_service
 from tavern.services import presets as preset_service
+from tavern.services import regex as regex_service
 from tavern.errors import AppError, Conflict, NotFound, TavernError
 from tavern.formats.cards import greetings
 from tavern.formats.media import media_type, sniff_image
@@ -141,21 +142,22 @@ def start_send(
     _check_role(reply_role)
     chat = ctx.chats.get_chat(chat_id)
     _ensure_idle(ctx, chat_id)
+    text, original = regex_service.stored(ctx, chat_id, text, "user") if text else (text, None)
     waits = (reply_role == "assistant" and not speaker and speakers.get_settings(chat)["order"] == "manual"
              and speakers.several(ctx.members.list(chat_id)))
     if waits:  # the user picks who answers
         message = ctx.chats.add_message(
             chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id))
-        if images:
-            ctx.chats.update_swipe_meta(message["id"], 0, {"images": images})
+        if images or original:
+            ctx.chats.update_swipe_meta(message["id"], 0, {"images": images or None, "regex_before": original})
         return None
     connection = resolve_connection(ctx, chat)
     if _round_wanted(ctx, chat, reply_role, speaker):  # everyone answers at once
         warning = spending.guard(ctx)
         user_message = ctx.chats.add_message(
             chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id))
-        if images:
-            ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images})
+        if images or original:
+            ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images or None, "regex_before": original})
             user_message = ctx.chats.get_message(user_message["id"])
         return _start_turn(ctx, chat, connection, replies=1, user_message=user_message, warning=warning)
     pending = {"role": "user", "content": text, "name": user_name(ctx, chat_id), "character_id": None}
@@ -165,8 +167,8 @@ def start_send(
     user_message = ctx.chats.add_message(
         chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id)
     )
-    if images:
-        ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images})
+    if images or original:
+        ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images or None, "regex_before": original})
         user_message = ctx.chats.get_message(user_message["id"])
     character_id, name = _author(ctx, chat, reply_role, speaker, ask)
     reply = ctx.chats.add_message(
@@ -287,9 +289,14 @@ def add_message(ctx: AppContext, chat_id: str, text: str, role: str) -> dict[str
     chat = ctx.chats.get_chat(chat_id)
     _ensure_idle(ctx, chat_id)
     character_id, name = _author(ctx, chat, role, None)
-    return ctx.chats.add_message(
+    text, original = regex_service.stored(ctx, chat_id, text, role)
+    message = ctx.chats.add_message(
         chat_id, role=role, content=text, parent_id=chat["leaf_id"], name=name, character_id=character_id
     )
+    if original is not None:
+        ctx.chats.update_swipe_meta(message["id"], 0, {"regex_before": original})
+        message = ctx.chats.get_message(message["id"])
+    return message
 
 
 def parse_numbers(spec: str, limit: int) -> set[int]:
@@ -520,7 +527,11 @@ def _writer(
     def settle(text: str) -> bool:
         """Persist what was written. Returns False when the text was empty and got discarded."""
         if text.strip():
+            # Regex rules for the saved text (stage 11): once, here; the text before them is kept for «вернуть».
+            text, original = regex_service.stored(ctx, chat_id, text, reply["role"])
             ctx.chats.set_content(reply["id"], text, swipe_idx=swipe_idx)
+            if original is not None:
+                ctx.chats.update_swipe_meta(reply["id"], swipe_idx, {"regex_before": original})
             return True
         if not keep_empty:
             discard()
@@ -601,8 +612,13 @@ def _writer(
             lore = await lorebooks.select_for_chat(
                 ctx, chat, members, history, max_context=max_context,
                 seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found))
+            # Rules "for the model" (stage 11): in a thread, because the worker is waited for.
+            rewritten, lore_rewritten, skipped = await asyncio.to_thread(
+                regex_service.prompt_texts, ctx, chat, history, lore.found,
+                character["name"] if character else DEFAULT_CHAR_NAME, me)
+            regex_service.announce(ctx, skipped)
             prompt_input = PromptInput(
-                preset=preset["data"], preset_id=preset["id"],
+                preset=preset["data"], preset_id=preset["id"], rewritten=rewritten, lore_rewritten=lore_rewritten,
                 members=members,
                 history=note_service.with_attached(ctx, chat_id, history), user_name=me,
                 impersonate=reply["role"] == "user",

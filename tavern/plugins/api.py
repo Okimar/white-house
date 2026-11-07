@@ -24,7 +24,7 @@ from tavern.core.budget import RunBudget
 from tavern.core.generation import Generator
 from tavern.core.llm import LLMClient
 from tavern.errors import Conflict, NotFound
-from tavern.plugins.manifest import PluginError, with_defaults
+from tavern.plugins.manifest import PluginError, secret_name, with_defaults
 
 if TYPE_CHECKING:
     from tavern.context import AppContext
@@ -69,6 +69,10 @@ class PluginAPI:
     def settings(self) -> dict[str, Any]:
         row = self.ctx.plugin_repo.get(self.id) or {}
         return with_defaults(self.manifest["settings"], row.get("settings", {}))
+
+    def secret(self, key: str) -> str:
+        """A "secret" setting (a key, a password): "" when not set. Never pass it to the page or a log."""
+        return str(self.ctx.secrets.get(secret_name(self.id, key), "") or "")
 
     def on(self, event: str, fn: Callable[..., Any], *, priority: int = 100) -> None:
         """Events of core/events.py: "message.received", "chat.members_changed", "prompt.built" ..."""

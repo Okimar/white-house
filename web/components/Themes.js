@@ -46,12 +46,28 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
   const versionsBox = useRef(null);
   const current = settings.theme || "default";
   const byId = Object.fromEntries(themes.map((t) => [t.id, t]));
+  const [parked, setParked] = useState(null);
   const pending = byId[current];
   const needsApproval = pending && pending.script && !scriptAllowed(pending, settings);
 
   const save = async (patch) => {
     try {
       await api.put("/settings", patch);
+      await onChanged();
+    } catch (e) { onError(e.message); }
+  };
+
+  // What an update switched off (the old look): kept, and one action brings it back.
+  useEffect(() => {
+    api.get("/look").then((d) => setParked(d.parked)).catch(() => setParked(null));
+  }, [settings.theme]);
+  const restoreParked = async () => {
+    if (!await ask("Вернуть прежнее оформление?", { ok: "Вернуть", danger: true,
+      hint: "Оно писалось под старый вид приложения и может сломать меню. Если сломает: "
+        + "откройте безопасный режим (/?safe или команда python -m tavern safe-mode on) и выберите стандартную тему." })) return;
+    try {
+      await api.post("/look/restore", {});
+      setParked(null);
       await onChanged();
     } catch (e) { onError(e.message); }
   };
@@ -138,6 +154,16 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
       </div>
     </div>`}
 
+    ${parked && html`<div class="notice" role="status">
+      <p>После обновления приложения прежнее оформление${parked.theme ? ` «${parked.theme_name}»` : ""} отключено,
+        чтобы оно не сломало меню${parked.plugin_css ? `; стили сторонних дополнений (${parked.plugin_css}) тоже отключены, сами дополнения работают` : ""}.
+        Ничего не удалено.</p>
+      <div class="row">
+        <button onClick=${restoreParked}>Вернуть прежний вид…</button>
+        <span class="muted">Можно и выбрать тему вручную в списке ниже.</span>
+      </div>
+    </div>`}
+
     <h2>Темы</h2>
     <div class="theme-grid" data-slot="theme-grid">
       ${themes.map((t) => html`<${ThemeCard} key=${t.id} theme=${t} active=${t.id === current}
@@ -147,7 +173,7 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
       onChange=${(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importFile(f); }} />
     <div class="row">
       <button onClick=${() => fileInput.current.click()}>Установить тему из файла</button>
-      <a href="/?safe" class="muted safe-link">Безопасный режим</a>
+      <a href="/?safe" class="muted safe-link" title="Откроет страницу без тем и скриптов. Из консоли: python -m tavern safe-mode on">Безопасный режим</a>
     </div>
 
     ${deleted.length > 0 && html`

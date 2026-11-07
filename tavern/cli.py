@@ -49,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
     token = sub.add_parser("token", help="network access token")
     token.add_argument("--rotate", action="store_true", help="generate a new token")
 
+    safe = sub.add_parser("safe-mode", help="safe mode: the page starts without themes, styles and plugin parts")
+    safe.add_argument("state", choices=["on", "off", "status"],
+                      help="on / off stay until changed (a running server notices on the next page load)")
+
     sub.add_parser("check", help="verify the data directory and database, then exit")
     return parser
 
@@ -63,6 +67,8 @@ def _add_serve_args(parser: argparse.ArgumentParser) -> None:
         help="run on a temporary copy of the data directory; real data is never modified",
     )
     parser.add_argument("--keep-sandbox", action="store_true", help="do not delete the sandbox")
+    parser.add_argument("--safe", action="store_true",
+                        help="safe mode for this run only: no themes, custom styles or plugin parts in the page")
     parser.add_argument("--no-plugins", action="store_true",
                         help="start without plugins (when one of them breaks the start)")
 
@@ -86,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_token(args)
         if args.command == "check":
             return cmd_check(args)
+        if args.command == "safe-mode":
+            return cmd_safe_mode(args)
         if args.command == "doctor":
             return cmd_doctor(args)
         return cmd_serve(args)
@@ -148,10 +156,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
             # Through the config, because the Google Drive sign-in builds its address from it.
             ctx.config = with_server_overrides(ctx.config, port=port)
         ctx.plugins.start()
+        from tavern.services import look
+
+        if look.check_upgrade(ctx):  # the interface changed: the custom look is off, the page says so
+            print("Интерфейс обновился: свои темы и стили отключены (ничего не удалено). "
+                  "Вернуть можно на странице.", file=sys.stderr, flush=True)
         if not args.sandbox:  # a sandbox is thrown away: copies of it would only fill the real disk
             ctx.backups.start_scheduler()
         ctx.gdrive.start()  # a sandbox has its own sign-in (none until made there): safe to run
-        app = create_app(ctx)
+        app = create_app(ctx, safe_mode=args.safe)
         server_cfg = ctx.config.server
         config = uvicorn.Config(
             app,
@@ -163,16 +176,24 @@ def cmd_serve(args: argparse.Namespace) -> int:
             lifespan="off",
             log_config=None,
             access_log=False,
-            timeout_graceful_shutdown=3,
+            timeout_graceful_shutdown=2,
         )
-        server = uvicorn.Server(config)
+        server = _make_server(config, app.reaper)
+        from tavern.services import updates
+
+        # «Обновить» on the page ends the run this way; start.sh / start.bat then start it again (ADR 0016).
+        updates.install_exit_hook(lambda: setattr(server, "should_exit", True))
         url = _local_url(server_cfg.host, server_cfg.port)
+        # After an update the script starts us again: the page is already open and reconnects by itself.
+        reopen = server_cfg.open_browser and os.environ.get("TAVERN_RESTARTED") != "1"
         threading.Thread(
             target=_announce,
-            args=(server, url, ctx, started, server_cfg.open_browser),
+            args=(server, url, ctx, started, reopen),
             daemon=True,
         ).start()
         server.run()
+        if updates.exit_requested() and updates.supervised():
+            return updates.RESTART_CODE  # the database and the data lock are released in `finally` below
         return 0 if server.started else 1
     finally:
         if ctx is not None:
@@ -183,6 +204,19 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 log.info("Sandbox kept at %s", paths.root)
             else:
                 remove_sandbox(paths)
+
+
+def _make_server(config, reaper):
+    """uvicorn's server that first ends the live event streams of open pages, so Ctrl+C exits at once
+    instead of waiting for them ("Waiting for connections to close")."""
+    import uvicorn
+
+    class QuickExitServer(uvicorn.Server):
+        async def shutdown(self, sockets=None) -> None:  # type: ignore[no-untyped-def]
+            await reaper.close_all()
+            await super().shutdown(sockets)
+
+    return QuickExitServer(config)
 
 
 def _port_busy(host: str, port: int) -> bool:
@@ -302,6 +336,28 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if later:
         print("Пузыри без ключевых слов исправляет модель: «Настройки → Копии» → «Исправить» на странице")
     return 1 if any(f["level"] == "error" for f in findings) else 0
+
+
+def cmd_safe_mode(args: argparse.Namespace) -> int:
+    """Safe mode on / off / status. Works with the server stopped or running (no data lock taken):
+    a running server hands the state to the page on its next load."""
+    from tavern.context import open_context
+    from tavern.services import look
+
+    ctx = open_context(DataPaths(args.data_dir.resolve()), load_plugins=False)
+    try:
+        if args.state != "status":
+            look.set_safe_mode(ctx, args.state == "on")
+        on = bool(ctx.settings.get(look.KEY_SAFE))
+    finally:
+        ctx.close()
+    if on:
+        print("Безопасный режим ВКЛЮЧЁН: страница открывается без тем, своих стилей и скриптов.\n"
+              "Выключить: python -m tavern safe-mode off (или кнопка на странице).")
+    else:
+        print("Безопасный режим выключен.\nВключить: python -m tavern safe-mode on "
+              "(на один запуск: python -m tavern --safe).")
+    return 0
 
 
 def cmd_token(args: argparse.Namespace) -> int:

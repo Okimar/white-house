@@ -9,10 +9,16 @@ A plugin is a folder:
                    "settings": [{"key", "label", "type": bool|number|text|choice|connection|list,
                                  "default", "choices": [[value, label]], "min", "max", "help",
                                  "multiline": true  text only: a box of several lines
+                                 "choices_from": "action"  choice only: the options (a list of [value, label])
+                                                    come from the plugin's action of that name
+                                 "action": "name"  type "action": a button that calls the plugin's action
+                                                    and shows its {"message"} (e.g. «Проверить связь»)
                                  "fields": [...]   list only: the fields of one row (bool/number/text/choice)
                                 }]}
 "connection" is the id of one of the user's connections ("" = as in the chat); "list" is a list of rows,
-each an object with the row fields (e.g. the thinkers of the tree of thoughts).
+each an object with the row fields (e.g. the thinkers of the tree of thoughts). "secret" is a key or
+password: written once, kept in data/secrets.json, never returned to the browser (plugins read it with
+`api.secret(key)`).
 The hash covers every file (names and contents), so any change asks for approval again.
 """
 
@@ -30,8 +36,8 @@ from tavern.errors import AppError
 
 MANIFEST = "plugin.json"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
-USES = ("commands", "messages", "storage", "models", "generator", "events", "ui", "network")
-FIELD_TYPES = ("bool", "number", "text", "choice", "connection", "list")
+USES = ("commands", "messages", "storage", "models", "generator", "events", "ui", "network", "microphone", "secrets")
+FIELD_TYPES = ("bool", "number", "text", "choice", "connection", "list", "secret", "action")
 ROW_TYPES = ("bool", "number", "text", "choice")
 MAX_ROWS = 100
 EXTENSIONS = frozenset({
@@ -93,6 +99,11 @@ def files_hash(folder: Path) -> str:
     return digest.hexdigest()
 
 
+def secret_name(plugin_id: str, key: str) -> str:
+    """Where a plugin's "secret" setting lives in data/secrets.json."""
+    return f"plugin.{plugin_id}.{key}"
+
+
 def _text(raw: dict[str, Any], key: str, limit: int) -> str:
     value = raw.get(key, "")
     return value.strip()[:limit] if isinstance(value, str) else ""
@@ -106,7 +117,14 @@ def _field(raw: Any, types: tuple[str, ...] = FIELD_TYPES) -> dict[str, Any]:
         raise PluginError(f"plugin.json: тип настройки {kind!r} неизвестен ({', '.join(types)})")
     out: dict[str, Any] = {"key": raw["key"][:64], "label": _text(raw, "label", 200) or raw["key"],
                            "type": kind, "help": _text(raw, "help", 500)}
-    if kind == "choice":
+    if kind == "action":
+        if not isinstance(raw.get("action"), str) or not raw["action"]:
+            raise PluginError(f"plugin.json: у кнопки {out['key']!r} нет action")
+        out["action"] = raw["action"][:64]
+    if kind == "choice" and isinstance(raw.get("choices_from"), str) and raw["choices_from"]:
+        out["choices_from"] = raw["choices_from"][:64]
+        out["choices"] = []
+    elif kind == "choice":
         choices = raw.get("choices")
         if not isinstance(choices, list) or not choices:
             raise PluginError(f"plugin.json: у настройки {out['key']!r} нет choices")
@@ -134,7 +152,9 @@ def _field(raw: Any, types: tuple[str, ...] = FIELD_TYPES) -> dict[str, Any]:
 def _empty(kind: str, field: dict[str, Any]) -> Any:
     if kind == "list":
         return []
-    return {"bool": False, "number": 0, "text": "", "connection": ""}.get(kind, field.get("choices", [[""]])[0][0])
+    if kind == "choice":
+        return field["choices"][0][0] if field.get("choices") else ""
+    return {"bool": False, "number": 0, "text": "", "connection": "", "secret": "", "action": ""}.get(kind, "")
 
 
 def coerce(field: dict[str, Any], value: Any) -> Any:
@@ -161,7 +181,9 @@ def coerce(field: dict[str, Any], value: Any) -> Any:
         return rows
     if not isinstance(value, str):
         raise PluginError(f"{field['label']}: нужен текст")
-    if kind == "choice" and value not in [c[0] for c in field["choices"]]:
+    if kind == "action":
+        raise PluginError(f"{field['label']}: это кнопка, у неё нет значения")
+    if kind == "choice" and not field.get("choices_from") and value not in [c[0] for c in field["choices"]]:
         raise PluginError(f"{field['label']}: нет такого варианта")
     return value[:5000]
 

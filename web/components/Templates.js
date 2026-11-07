@@ -4,6 +4,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
+import { getChoice, setChoice } from "../core/choice.js";
 import { Icon } from "./Icon.js";
 import { ask } from "./Dialogs.js";
 
@@ -17,7 +18,8 @@ const FIELDS = [
 
 export function Templates({ onError }) {
   const [templates, setTemplates] = useState([]);
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenIdRaw] = useState(() => getChoice("template"));
+  const setOpenId = (id) => { setOpenIdRaw(id); setChoice("template", id); };
   const [draft, setDraft] = useState(null);
   const [preview, setPreview] = useState(null);
   const [mergeInto, setMergeInto] = useState(false);

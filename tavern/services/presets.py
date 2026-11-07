@@ -87,9 +87,33 @@ def _stem(filename: str) -> str:
     return stem
 
 
+async def _with_rules(ctx: AppContext, preset: dict[str, Any], scripts: Any) -> dict[str, Any]:
+    """Regex scripts that came with an imported preset become its rules, waiting for «Разрешить» (stage 11)."""
+    from tavern.services import regex as regex_service  # noqa: PLC0415
+
+    if scripts:
+        regex_service.import_rules(ctx, scripts, "preset", preset["id"], approved=False)
+    return preset
+
+
+def _split_rules(data: dict[str, Any]) -> tuple[dict[str, Any], Any]:
+    """The preset's data without `extensions.regex_scripts`, and those scripts."""
+    st = data.get("st") or {}
+    extensions = st.get("extensions")
+    scripts = extensions.get("regex_scripts") if isinstance(extensions, dict) else None
+    if not scripts:
+        return data, None
+    rest = {k: v for k, v in extensions.items() if k != "regex_scripts"}
+    st = {k: v for k, v in st.items() if k != "extensions"}
+    if rest:
+        st["extensions"] = rest
+    return {**data, "st": st}, scripts
+
+
 async def import_st(ctx: AppContext, obj: Any, filename: str = "") -> dict[str, Any]:
     name, data = st_preset.from_st(obj, _stem(filename))
-    return await create(ctx, name, data)
+    data, scripts = _split_rules(data)
+    return await _with_rules(ctx, await create(ctx, name, data), scripts)
 
 
 async def import_any(ctx: AppContext, obj: Any, filename: str = "") -> dict[str, Any]:
@@ -97,18 +121,30 @@ async def import_any(ctx: AppContext, obj: Any, filename: str = "") -> dict[str,
     if isinstance(obj, dict) and NATIVE_KEY in obj:
         if not isinstance(obj[NATIVE_KEY], int) or obj[NATIVE_KEY] > NATIVE_VERSION:
             raise AppError("This preset was made by a newer Tavern; update the app", code="bad_preset")
-        return await create(ctx, obj.get("name") or _stem(filename) or "Пресет", obj.get("data"))
+        preset = await create(ctx, obj.get("name") or _stem(filename) or "Пресет", obj.get("data"))
+        return await _with_rules(ctx, preset, obj.get("regex_scripts"))
     return await import_st(ctx, obj, filename)
 
 
 def export_native(ctx: AppContext, preset_id: str) -> tuple[str, dict[str, Any]]:
     """Our full format: every block option and setting survives."""
     preset = get(ctx, preset_id)
-    return preset["name"], {NATIVE_KEY: NATIVE_VERSION, "name": preset["name"],
-                            "data": normalize_preset(preset["data"])}
+    from tavern.services import regex as regex_service  # noqa: PLC0415
+
+    out = {NATIVE_KEY: NATIVE_VERSION, "name": preset["name"], "data": normalize_preset(preset["data"])}
+    scripts = regex_service.preset_scripts(ctx, preset_id)
+    if scripts:
+        out["regex_scripts"] = scripts
+    return preset["name"], out
 
 
 def export_st(ctx: AppContext, preset_id: str) -> tuple[str, dict[str, Any]]:
     """SillyTavern format: what ST has no place for (e.g. history limits) is left out."""
     preset = get(ctx, preset_id)
-    return preset["name"], st_preset.to_st(normalize_preset(preset["data"]))
+    from tavern.services import regex as regex_service  # noqa: PLC0415
+
+    out = st_preset.to_st(normalize_preset(preset["data"]))
+    scripts = regex_service.preset_scripts(ctx, preset_id)
+    if scripts:
+        out["extensions"] = {**(out.get("extensions") or {}), "regex_scripts": scripts}
+    return preset["name"], out

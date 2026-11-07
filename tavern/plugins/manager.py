@@ -37,7 +37,7 @@ from tavern.errors import AppError, Conflict, NotFound
 from tavern.plugins import install
 from tavern.plugins.api import PluginAPI
 from tavern.plugins.manifest import (
-    MANIFEST, PluginError, check_settings, files_hash, read_manifest, read_zip, with_defaults,
+    MANIFEST, PluginError, check_settings, files_hash, read_manifest, read_zip, secret_name, with_defaults,
 )
 from tavern.util.ids import new_id
 
@@ -154,8 +154,12 @@ class PluginManager:
         server = bool(manifest.get("server"))
         purpose = f"plugin:{item.id}"
         day = today()
+        from tavern.services import look  # an update parks the stylesheets of plugins that are not built in
+
+        style_parked = not item.builtin and item.id in look.css_off(self.ctx)
         return {
             **manifest,
+            **({"style": "", "style_parked": True} if style_parked else {}),
             "builtin": item.builtin,
             "enabled": enabled,
             "active": enabled and item.manifest is not None and (loaded or not server),
@@ -165,6 +169,9 @@ class PluginManager:
             "hash": current[:16],
             "source": row.get("source") or {"kind": "builtin" if item.builtin else "folder"},
             "values": with_defaults(manifest.get("settings", []), row.get("settings", {})),
+            # which keys are set (true/false): the keys themselves never leave the server
+            "secrets_set": {f["key"]: self.ctx.secrets.has(secret_name(item.id, f["key"]))
+                            for f in manifest.get("settings", []) if f["type"] == "secret"},
             "access": {**ACCESS_DEFAULTS, **row.get("access", {})},
             "commands": sorted(n for n, (owner, _, _) in self.commands.items() if owner == item.id),
             "data_count": self.ctx.plugin_repo.data_count(item.id),
@@ -195,6 +202,8 @@ class PluginManager:
         path = item.folder / rel
         if path.suffix.lower() not in WEB_EXTENSIONS or not path.is_file():
             raise NotFound("Нет такого файла")
+        if path.suffix.lower() == ".css" and self.get(plugin_id).get("style_parked"):
+            raise NotFound("Стили дополнения отключены после обновления")
         return path
 
     # -- on / off ----------------------------------------------------------------------------
@@ -428,6 +437,9 @@ class PluginManager:
             raise Conflict("Встроенное дополнение не удаляется, его можно только выключить", code="plugin_builtin")
         self._unload(plugin_id)
         self.errors.pop(plugin_id, None)
+        for field in (item.manifest or {}).get("settings", []):
+            if field["type"] == "secret":
+                self.ctx.secrets.delete(secret_name(plugin_id, field["key"]))
         shutil.rmtree(item.folder)
         shutil.rmtree(self._versions_root(plugin_id), ignore_errors=True)
         self.ctx.plugin_repo.delete(plugin_id, data=data)
@@ -439,6 +451,19 @@ class PluginManager:
         item = self._get(plugin_id)
         row = self.ctx.plugin_repo.get(plugin_id) or {}
         assert item.manifest is not None
+        if isinstance(raw, dict):
+            # Keys and passwords never go into the settings row (which the page reads): they go to
+            # data/secrets.json. "" or null removes one.
+            raw = dict(raw)
+            for field in item.manifest["settings"]:
+                if field["type"] == "secret" and field["key"] in raw:
+                    value = raw.pop(field["key"])
+                    if value is not None and not isinstance(value, str):
+                        raise PluginError(f"{field['label']}: нужен текст")
+                    if value and value.strip():
+                        self.ctx.secrets.set(secret_name(plugin_id, field["key"]), value.strip()[:2000])
+                    else:
+                        self.ctx.secrets.delete(secret_name(plugin_id, field["key"]))
         values = check_settings(item.manifest["settings"], raw, row.get("settings", {}))
         self.ctx.plugin_repo.save(plugin_id, settings=values)
         return self.get(plugin_id)

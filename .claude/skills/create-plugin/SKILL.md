@@ -107,3 +107,7 @@ for the critic). They are on while the plugin is active and show in Settings →
 Zip the folder (or the folder inside) → «Установить из файла»; or push to GitHub → «Установить по
 ссылке» (`https://github.com/me/repo`, `/tree/<branch>/<folder>` for a plugin inside a repository).
 Every update needs the user's approval again.
+
+## Composer helper (2026-11-07)
+
+`t.composerHelper({onText(text, caret), view()})` draws a strip above the chat message box; `t.composer.text()/.caret()/.replace(edits, caret?)` read and edit the box. Only the chat composer is bridged, not the assistant's box. Example: tavern/builtin_plugins/spelling.

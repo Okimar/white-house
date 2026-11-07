@@ -1,6 +1,6 @@
 ---
 name: modify-ui
-description: How the Tavern browser UI is built and how to change it safely - Preact + htm without a build step, VirtualList, SSE run following, manual browser checks. Use before editing anything under web/.
+description: How the Tavern browser UI is built and how to change it safely - Preact + htm without a build step, VirtualList, SSE run following, what to verify and how. Use before editing anything under web/.
 ---
 
 # Modifying the UI
@@ -91,7 +91,12 @@ page for them. The server answers `busy` to edits, swipes, deletes and branch sw
 - A height-changing child must be inside `.vitem` so the ResizeObserver sees it.
 - The scroll container needs a bounded height: `.main` has `min-height: 0` for that.
 
-## Verify in a real browser (the test suite cannot see the UI)
+## Verify: agents by command line, the owner by eye
+
+Agents do not drive a browser (AGENTS.md rule 9): run `python -m pytest` (test_web_syntax parses every
+module), add source-level tests where sensible, and call the page's own routes over HTTP on a sandbox.
+The test suite cannot see the UI, so report what you changed on screen as unverified and give the owner
+short steps. The list below is what the owner can check by hand:
 
 ```bash
 python -m tavern.devtools.fake_llm --port 5001 &
@@ -119,3 +124,11 @@ on the server. Hard-reload (ignore cache) after editing modules; the browser cac
 ## Done
 
 Run `python -m pytest` (backend must stay green), update the table above if files moved.
+
+## Added in the 2026-11-07 batch
+
+- New components: Changes, Groups, Regex, Search, Updates (web/components); web/core/layout.js, choice.js, regex.js.
+- "Text is never HTML" has one exception: regex rules. The server cleans the rule's HTML into a tree (core/safe_html.py) and the page builds elements from that tree with no `innerHTML` (web/core/regex.js). Do not widen it.
+- New localStorage keys: `tavern.menuMode`, `tavern.menuFolded`, `tavern.searchScope`, `tavern.settingsChoice`, `tavern.settingsView`. Wrap in try/catch like the others.
+- `api.get(path, signal)` and `api.post(path, body, signal)` take an AbortSignal; cancel outdated searches.
+- `Assistant` takes an `openMsg` prop (jump to a found message).

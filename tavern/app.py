@@ -25,16 +25,22 @@ from tavern.api import spending as spending_api
 from tavern.api import jsonl as jsonl_api
 from tavern.api import blocks as blocks_api
 from tavern.api import lorebooks as lorebooks_api
+from tavern.api import groups as groups_api
+from tavern.api import search as search_api
 from tavern.api import notes as notes_api
+from tavern.api import regex as regex_api
 from tavern.api import plugins as plugins_api
 from tavern.api import assistant as assistant_api
+from tavern.api import changes as changes_api
 from tavern.api import prompts as prompts_api
 from tavern.api import static as static_api
 from tavern.api import themes as themes_api
+from tavern.api import updates as updates_api
 from tavern.context import AppContext
 from tavern.errors import AppError, NotFound
 from tavern.paths import WEB_DIR
 from tavern.security import AccessControl
+from tavern.util.streams import StreamReaper
 
 log = logging.getLogger(__name__)
 
@@ -105,13 +111,18 @@ def api_routes() -> list[Route]:
         *profiles_api.routes,
         *spending_api.routes,
         *assistant_api.routes,
+        *changes_api.routes,
+        *updates_api.routes,
         *themes_api.routes,
         *assets_api.routes,
         *jsonl_api.routes,
         *prompts_api.routes,
         *blocks_api.routes,
         *lorebooks_api.routes,
+        *groups_api.routes,
+        *search_api.routes,
         *notes_api.routes,
+        *regex_api.routes,
         *plugins_api.routes,
         *backups_api.routes,
         *chats_api.routes,
@@ -120,7 +131,7 @@ def api_routes() -> list[Route]:
     ]
 
 
-def create_app(ctx: AppContext) -> Callable[..., Any]:
+def create_app(ctx: AppContext, *, safe_mode: bool = False) -> Callable[..., Any]:
     app = Starlette(
         routes=[
             Mount("/api", routes=api_routes()),
@@ -130,13 +141,17 @@ def create_app(ctx: AppContext) -> Callable[..., Any]:
         exception_handlers={AppError: handle_app_error, Exception: handle_unexpected},
     )
     app.state.ctx = ctx
+    app.state.safe_run = safe_mode  # `--safe`: this run only, nothing stored
     guarded = AccessControl(
         app,
         token_getter=ctx.secrets.access_token,
         remote_enabled=ctx.config.remote_enabled,
         trust_no_client=ctx.config.server.remote_access,
     )
-    return with_headers(guarded, SECURITY_HEADERS)
+    reaper = StreamReaper()
+    final = reaper.wrap(with_headers(guarded, SECURITY_HEADERS))
+    final.reaper = reaper  # type: ignore[attr-defined]  # the server ends live streams on Ctrl+C
+    return final
 
 
 def with_headers(app: Callable[..., Any], extra: list[tuple[bytes, bytes]]) -> Callable[..., Any]:

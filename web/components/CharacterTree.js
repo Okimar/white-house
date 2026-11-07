@@ -17,14 +17,18 @@ import { Icon, IconButton } from "./Icon.js";
 import { ask } from "./Dialogs.js";
 import { EmptyNote, Pending } from "./State.js";
 import { notify } from "../core/notify.js";
+import { panelFolded, setPanelFolded, useLayout } from "../core/layout.js";
 
 const COL = 230; // map: distance between levels
 const ROW = 66; // map: distance between leaves
-const W = 168; // bubble size
-const H = 46;
+export const W = 168; // bubble size
+export const H = 46;
 const PAD = 18; // space around a nested group
-const GAP = 14; // bubbles push each other apart to keep at least this much space
+export const GAP = 14; // bubbles push each other apart to keep at least this much space
 const MODES = [["always", "Всегда"], ["search", "По теме"], ["off", "Выключен"]];
+export const MARGIN_PX = 300; // bubbles this far outside the screen are kept in the page
+export const MOVE_REDRAW = 120; // the camera may move this many screen pixels before the bubbles are chosen again
+export const FAR_ZOOM = 0.45; // below this zoom bubbles are drawn plain: no ports, numbers or shadows
 const SAVE_AFTER = 600; // ms of quiet typing before a bubble's text is saved
 const PORT_TITLE = "Потяните линию к другому пузырю, чтобы связать их ссылкой";
 
@@ -229,6 +233,7 @@ function MoreRules({ rules, onRules }) {
 // bubble is picked), buttons and switches at once. There is no "Сохранить" button.
 function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order, onSave, onDelete, onAddChild, onMove,
   onOrder, onDetach, onStartLink, onUnlink, onChanceBelow, onOpen, onClose, onError, onNotice }) {
+  const { folded, button: foldButton } = useFoldPanel();
   const [below, setBelow] = useState(null); // chance for every sub-bubble, before "Применить"
   const [draft, setDraft] = useState(block);
   const [word, setWord] = useState("");
@@ -292,8 +297,8 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
   const depthInput = (e) => set({ depth: digitsOf(e, 1000) });
 
   return html`
-    <aside class="tree-panel" data-slot="tree-panel" aria-label="Пузырь">
-      <div class="row"><span class="muted path">${path}</span><span class="spacer"></span>
+    <aside class=${"tree-panel" + (folded ? " folded" : "")} data-slot="tree-panel" aria-label="Пузырь" data-folded=${folded ? "true" : "false"}>
+      <div class="row">${foldButton}<span class="muted path">${path}</span><span class="spacer"></span>
         <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
       <input class="tree-title" value=${draft.title} aria-label="Название"
         onInput=${(e) => set({ title: e.target.value })} />
@@ -453,6 +458,30 @@ function TreeList({ kids, selected, vectorized, open, loaded, error, onRetry, on
 
 // `character` is the owner of the tree: a character, or a lorebook given as {id, name, book: true}
 // (its bubbles live under /lorebooks/{id}; the root is the book itself).
+// The side panel folds to a thin strip (just its header on a phone), like the plugins' side panels. The choice is
+// kept per device. It lives in the panel's own component, so folding never re-renders the map and its bubbles.
+const PANEL_KEY = "tree-panel";
+function useFoldPanel() {
+  useLayout();
+  const folded = panelFolded(PANEL_KEY);
+  const button = html`<${IconButton} icon=${folded ? "chevron-left" : "chevron-right"} class="fold-panel" data-slot="fold-panel"
+    label=${folded ? "Развернуть панель" : "Свернуть панель"} aria-expanded=${!folded}
+    onClick=${() => setPanelFolded(PANEL_KEY, !folded)} />`;
+  return { folded, button };
+}
+
+function RootPanel({ character, onClose, onCreate }) {
+  const { folded, button } = useFoldPanel();
+  return html`<aside class=${"tree-panel" + (folded ? " folded" : "")} data-slot="tree-panel" data-folded=${folded ? "true" : "false"}>
+    <div class="row">${button}<strong>${character.name}</strong><span class="spacer"></span>
+      <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
+    <p class="muted">${character.book
+      ? "Это сам лорбук. Название и описание меняются наверху окна; модели уходят только его записи."
+      : "Это сама карточка — она уходит модели как обычно. Её текст меняется на вкладке «Карточка»."}</p>
+    <button onClick=${() => onCreate(null)}><${Icon} name="plus" /> Пузырь в корень</button>
+  </aside>`;
+}
+
 export function CharacterTree({ character, settings, revision = 0, onError }) {
   const base = character.book ? `/lorebooks/${character.id}` : `/characters/${character.id}`;
   // Good news ("done, 3 bubbles") is a quiet toast, not the red error one and not a line that pushes the map.
@@ -482,7 +511,10 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const cam = useRef(camera);
   const gesture = useRef(null);
   const frame = useRef(0);
+  const settle = useRef(0); // timer: the culling catches up a moment after the camera stops
+  const drawn = useRef(camera); // the camera the bubbles in the page were last chosen for
   const dragRef = useRef(null);
+  const dragFrame = useRef(0);
 
   const reload = useCallback(() => api.get(`${base}/blocks`).then((d) => {
     setBlocks(d.blocks);
@@ -551,18 +583,35 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     setSize({ w: box.width, h: box.height });
     const start = { x: 24, y: box.height / 2 - H / 2 - (pos.get("root")?.y || 0), s: 1 };
     cam.current = start;
+    drawn.current = start;
     setCamera(start);
     const observer = new ResizeObserver(([entry]) => setSize({ w: entry.contentRect.width, h: entry.contentRect.height }));
     observer.observe(viewport.current);
     return () => observer.disconnect();
   }, [view, character.id, blocks.length === 0]);
 
-  // Camera changes go straight to the layer; React state (for culling) catches up once per frame.
+  // Camera changes go straight to the layer (one transform, no re-render). Which bubbles are in the
+  // page (culling) is chosen again only when the camera has gone a good part of the margin away from
+  // where they were chosen, or a moment after it stops: re-drawing hundreds of bubbles on every
+  // pointer move is what made panning a big zoomed-out tree lag.
+  const commitCamera = () => {
+    clearTimeout(settle.current);
+    cancelAnimationFrame(frame.current);
+    frame.current = 0;
+    drawn.current = { ...cam.current };
+    setCamera(drawn.current);
+  };
   const applyCamera = (next) => {
     cam.current = next;
     if (world.current) world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.s})`;
-    if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; setCamera({ ...cam.current }); });
+    const d = drawn.current;
+    const far = Math.abs(next.x - d.x) > MOVE_REDRAW || Math.abs(next.y - d.y) > MOVE_REDRAW
+      || Math.abs(Math.log(next.s / d.s)) > 0.12;
+    clearTimeout(settle.current);
+    if (far) { if (!frame.current) frame.current = requestAnimationFrame(commitCamera); }
+    else settle.current = setTimeout(commitCamera, 120);
   };
+  useEffect(() => () => { clearTimeout(settle.current); cancelAnimationFrame(frame.current); }, []);
   const zoomAt = (px, py, factor) => {
     const c = cam.current;
     const s = Math.min(2.5, Math.max(0.12, c.s * factor));
@@ -620,8 +669,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     const g = gesture.current;
     if (!g || !g.pointers.has(e.pointerId)) return;
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const box = viewport.current.getBoundingClientRect();
     if (g.mode === "pinch" && g.pointers.size === 2) {
+      const box = viewport.current.getBoundingClientRect();
       const [a, b] = [...g.pointers.values()];
       const factor = (g.pinch.s * Math.hypot(a.x - b.x, a.y - b.y)) / g.pinch.dist / cam.current.s;
       zoomAt((a.x + b.x) / 2 - box.left, (a.y + b.y) / 2 - box.top, factor);
@@ -632,7 +681,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     if (g.mode === "wire") {
       const w = toWorld(e.clientX, e.clientY);
       dragRef.current = { from: g.bid, port: g.port, ...w, target: dropTarget(e.clientX, e.clientY, new Set([g.bid])) };
-      if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; setWire(dragRef.current); });
+      if (!dragFrame.current) dragFrame.current = requestAnimationFrame(() => { dragFrame.current = 0; setWire(dragRef.current); });
     } else if (g.mode === "pan") {
       applyCamera({ ...cam.current, x: g.start.cam.x + dx, y: g.start.cam.y + dy });
     } else if ((g.mode === "press" && Math.hypot(dx, dy) > 6) || g.mode === "drag") {
@@ -640,7 +689,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       const ids = g.ids || (g.ids = new Set([g.bid, ...descendants(kids, g.bid)]));
       const s = cam.current.s;
       dragRef.current = { ids, dx: dx / s, dy: dy / s, target: nestOnDrop ? dropTarget(e.clientX, e.clientY, ids) : null };
-      if (!frame.current) frame.current = requestAnimationFrame(() => { frame.current = 0; setDrag(dragRef.current); });
+      if (!dragFrame.current) dragFrame.current = requestAnimationFrame(() => { dragFrame.current = 0; setDrag(dragRef.current); });
     }
   };
 
@@ -650,6 +699,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     g.pointers.delete(e.pointerId);
     if (g.pointers.size > 0) { if (g.mode === "pinch") g.mode = "done"; return; }
     gesture.current = null;
+    const c0 = cam.current; const d0 = drawn.current;
+    if (c0.x !== d0.x || c0.y !== d0.y || c0.s !== d0.s) commitCamera();
     const still = Math.hypot(e.clientX - g.start.x, e.clientY - g.start.y) < 6;
     if (g.mode === "wire") {
       const current = dragRef.current;
@@ -704,12 +755,14 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     const box = viewport.current ? viewport.current.getBoundingClientRect() : { height: size.h };
     const p = pos.get(id);
     applyCamera({ x: 24 - p.x, y: box.height / 2 - H / 2 - p.y, s: 1 });
+    commitCamera();
   };
   const closeSpaces = (keep) => {
     setSelected(null);
     setSpaces((list) => {
       if (keep >= list.length) return list;
       applyCamera(list[keep].cam);
+      commitCamera();
       return list.slice(0, keep);
     });
   };
@@ -826,7 +879,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       const p = pos.get(id);
       return dragState && dragState.ids.has(id) ? { x: p.x + dragState.dx, y: p.y + dragState.dy } : p;
     };
-    const margin = 200 / view_.s;
+    const margin = MARGIN_PX / view_.s;
     const left = -view_.x / view_.s - margin;
     const top = -view_.y / view_.s - margin;
     const right = left + size.w / view_.s + 2 * margin;
@@ -934,7 +987,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       </div>`}
       <div key="body" class="tree-body">
         ${view === "map"
-          ? html`<div class=${"tree-map" + (spaces.length ? " in-space" : "")} ref=${viewport}
+          ? html`<div class=${"tree-map" + (spaces.length ? " in-space" : "") + (camera.s < FAR_ZOOM ? " far" : "")} ref=${viewport}
               onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
               onPointerUp=${onPointerUp} onPointerCancel=${onPointerUp}
               onDblClick=${(e) => openSpace(e.target.closest("[data-bid]")?.dataset.bid)}>
@@ -947,7 +1000,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                     style=${`transform: translate(${p.x}px, ${p.y}px)`}><${Ring} mode=${b.mode} /><span class="bubble-title">${b.title}</span></div>`)}
                 </div></div>`}
               <div class="tree-world" ref=${world}
-                style=${`transform: translate(${camera.x}px, ${camera.y}px) scale(${camera.s})`}>
+                style=${`transform: translate(${cam.current.x}px, ${cam.current.y}px) scale(${cam.current.s})`}>
                 ${shown.groups.map(({ b, box }) => html`<div key=${"g" + b.id} class=${"tree-group mode-" + b.mode}
                   style=${`left:${box.x}px;top:${box.y}px;width:${box.w}px;height:${box.h}px`}></div>`)}
                 <svg class="tree-lines" aria-hidden="true">
@@ -1006,14 +1059,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
           onUnlink=${unlink} onChanceBelow=${(id, chance) => setChance(chance, id)}
           onSave=${save} onDelete=${remove} onAddChild=${create} order=${orderOf.get(selectedBlock.id)}
           onMove=${moveUp} onOrder=${setOrder} onClose=${() => setSelected(null)} onError=${onError} onNotice=${onNotice} />`}
-        ${selected === "root" && html`<aside class="tree-panel" data-slot="tree-panel">
-          <div class="row"><strong>${character.name}</strong><span class="spacer"></span>
-            <${IconButton} icon="x" label="Закрыть" onClick=${() => setSelected(null)} /></div>
-          <p class="muted">${character.book
-            ? "Это сам лорбук. Название и описание меняются наверху окна; модели уходят только его записи."
-            : "Это сама карточка — она уходит модели как обычно. Её текст меняется на вкладке «Карточка»."}</p>
-          <button onClick=${() => create(null)}><${Icon} name="plus" /> Пузырь в корень</button>
-        </aside>`}
+        ${selected === "root" && html`<${RootPanel} character=${character} onClose=${() => setSelected(null)} onCreate=${create} />`}
       </div>
     </div>`;
 }

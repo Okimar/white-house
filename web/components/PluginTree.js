@@ -4,6 +4,7 @@
 import { html } from "../vendor/preact-htm.mjs";
 import { togglePanel } from "../core/plugins.js";
 import { Icon, IconButton } from "./Icon.js";
+import { panelFolded, setPanelFolded, useLayout } from "../core/layout.js";
 
 const MARK = { wait: "loader-circle", done: "check", error: "triangle-alert" };
 
@@ -33,13 +34,23 @@ export function PanelButtons({ panels }) {
     onClick=${() => togglePanel(p.key, !p.shown)}>${p.icon}</button>`);
 }
 
+// One side panel. It folds to a thin strip (a bar on a phone) and unfolds again; the choice is kept per panel.
+function Panel({ panel: p }) {
+  useLayout(); // re-render when the fold choice changes
+  const folded = panelFolded(p.key);
+  const tree = p.render();
+  const title = (tree && tree.title) || p.title;
+  return html`<aside class=${"plugin-panel" + (folded ? " folded" : "")} data-slot="plugin-panel" data-plugin=${p.owner}
+    data-folded=${folded ? "true" : "false"}>
+    <header><${IconButton} icon=${folded ? "chevron-left" : "chevron-right"} class="fold-panel" data-slot="fold-panel"
+        label=${folded ? "Развернуть панель" : "Свернуть панель"} aria-expanded=${!folded}
+        onClick=${() => setPanelFolded(p.key, !folded)} />
+      <strong>${p.icon} ${title}</strong><span class="spacer"></span>
+      <${IconButton} icon="x" label="Закрыть" class="close-panel" onClick=${() => togglePanel(p.key, false)} /></header>
+    ${!folded && (tree ? html`<${Tree} tree=${tree} />` : html`<p class="muted">Пока пусто.</p>`)}
+  </aside>`;
+}
+
 export function Panels({ panels }) {
-  return panels.filter((p) => p.shown).map((p) => {
-    const tree = p.render();
-    return html`<aside key=${p.key} class="plugin-panel" data-slot="plugin-panel" data-plugin=${p.owner}>
-      <header><strong>${p.icon} ${(tree && tree.title) || p.title}</strong><span class="spacer"></span>
-        <${IconButton} icon="x" label="Закрыть" onClick=${() => togglePanel(p.key, false)} /></header>
-      ${tree ? html`<${Tree} tree=${tree} />` : html`<p class="muted">Пока пусто.</p>`}
-    </aside>`;
-  });
+  return panels.filter((p) => p.shown).map((p) => html`<${Panel} key=${p.key} panel=${p} />`);
 }

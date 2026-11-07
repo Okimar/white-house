@@ -6,6 +6,7 @@
 import { html, useState, useEffect, useMemo, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
+import { getChoice, setChoice } from "../core/choice.js";
 import { Profiles, FallbackSteps, Parallel } from "./Profiles.js";
 import { Icon, IconButton } from "./Icon.js";
 import { ask } from "./Dialogs.js";
@@ -26,13 +27,16 @@ export function Connections({ onChanged, onError }) {
   const catalog = cat.data;
   const [connections, setConnections] = useState([]);
   const [active, setActive] = useState(null);
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenIdRaw] = useState(() => getChoice("connection"));
+  const setOpenId = (id) => { setOpenIdRaw(id); setChoice("connection", id); };
   const [adding, setAdding] = useState(false);
   const [revealId, setRevealId] = useState(null); // just created: scroll to its editor
 
   const reload = () => api.get("/connections").then((d) => {
     setConnections(d.connections);
     setActive(d.active);
+    // the remembered connection may be gone by now
+    setOpenIdRaw((id) => (id && !d.connections.some((c) => c.id === id) ? null : id));
     return d.connections;
   }).catch((e) => { onError(e.message); return []; });
 

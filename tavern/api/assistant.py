@@ -4,12 +4,15 @@
 
 from __future__ import annotations
 
+import json
+from urllib.parse import quote
+
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, ctx_of, field, json_body
-from tavern.services import assistant, profiles, spending
+from tavern.api.util import BadRequest, ctx_of, field, json_body, read_body
+from tavern.services import assistant, assistant_files, profiles, spending
 
 
 async def overview(request: Request) -> JSONResponse:
@@ -53,10 +56,36 @@ async def delete_chat(request: Request) -> JSONResponse:
 
 
 async def send(request: Request) -> JSONResponse:
-    """Body: {text, chat_id?: the chat open on the page}."""
+    """Body: {text, chat_id?: the chat open on the page, attachments?: from POST /assistant/files or library pictures}."""
     body = await json_body(request)
-    run = assistant.start(ctx_of(request), request.path_params["id"], body.get("text"), body.get("chat_id"))
+    run = assistant.start(ctx_of(request), request.path_params["id"], body.get("text"), body.get("chat_id"),
+                          attachments=body.get("attachments"))
     return JSONResponse({"run_id": run.id}, status_code=202)
+
+
+async def upload_file(request: Request) -> JSONResponse:
+    """Body: the file's bytes, `?name=` its name. Returns the attachment to send with the next message
+    (a picture goes into the image library, a text file is read in, anything else is only described)."""
+    blob = await read_body(request, assistant_files.MAX_UPLOAD_BYTES)
+    return JSONResponse(assistant_files.ingest(ctx_of(request), request.query_params.get("name", ""), blob),
+                        status_code=201)
+
+
+async def export_chat(request: Request) -> Response:
+    document = assistant.export_chat(ctx_of(request), request.path_params["id"])
+    name = quote((document["title"] or "beseda")[:60].replace("/", "-") + ".tavern-assistant.json")
+    return Response(json.dumps(document, ensure_ascii=False, indent=1), media_type="application/json",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{name}"})
+
+
+async def import_chat(request: Request) -> JSONResponse:
+    """Body: a file made by the export. Makes a new conversation; the old one is not touched."""
+    blob = await read_body(request, assistant.MAX_IMPORT_BYTES)
+    try:
+        payload = json.loads(blob.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        raise BadRequest("Это не беседа с помощником: файл не читается как JSON", code="bad_import") from None
+    return JSONResponse(assistant.import_chat(ctx_of(request), payload), status_code=201)
 
 
 async def answers(request: Request) -> JSONResponse:
@@ -133,6 +162,9 @@ routes = [
     Route("/assistant/chats/{id}", get_chat, methods=["GET"]),
     Route("/assistant/chats/{id}", rename_chat, methods=["PUT"]),
     Route("/assistant/chats/{id}", delete_chat, methods=["DELETE"]),
+    Route("/assistant/files", upload_file, methods=["POST"]),
+    Route("/assistant/import", import_chat, methods=["POST"]),
+    Route("/assistant/chats/{id}/export", export_chat, methods=["GET"]),
     Route("/assistant/chats/{id}/send", send, methods=["POST"]),
     Route("/assistant/chats/{id}/answers", answers, methods=["POST"]),
     Route("/assistant/chats/{id}/go", go, methods=["POST"]),

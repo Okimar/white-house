@@ -5,17 +5,20 @@
 // "Отменить" (or Ctrl+Z outside text fields) takes back the newest saved change of the card or its
 // bubbles, as far back as you like; "История" lists versions to restore. Closing the editor
 // ends the current version. Closing or undoing with unsaved card text asks first.
-import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
+import { html, useState, useEffect, useMemo } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { CharacterTree } from "./CharacterTree.js";
 import { BookPicker } from "./Lorebooks.js";
 import { IconButton } from "./Icon.js";
+import { RegexOwner } from "./Regex.js";
 import { ask } from "./Dialogs.js";
-import { Pending, useLoad } from "./State.js";
+import { EmptyNote, Pending, useLoad } from "./State.js";
 import { notify } from "../core/notify.js";
 import { backdrop, useEscape } from "../core/keys.js";
 
 // Versions of a character or a lorebook; `base` is its API path ("/characters/ID", "/lorebooks/ID").
+// It floats over the window (CSS .history-pop) instead of pushing it: the window is centred, so a panel
+// in the flow made everything jump when it opened, loaded or turned out empty.
 export function HistoryPanel({ base, revision, onRestored, onError }) {
   const { data, error, reload } = useLoad(() => api.get(`${base}/history`), [base, revision]);
   const restore = async (version) => {
@@ -26,11 +29,14 @@ export function HistoryPanel({ base, revision, onRestored, onError }) {
       onRestored(`Возвращено к версии, отменено шагов: ${undone}`);
     } catch (e) { onError(e.message); }
   };
-  if (!data) return html`<${Pending} error=${error} onRetry=${reload} />`;
+  const frame = (body) => html`<div class="history history-pop" data-slot="character-history" role="region"
+    aria-label="История версий">${body}</div>`;
+  if (!data) return frame(html`<${Pending} error=${error} onRetry=${reload} />`);
   const when = (at) => new Date(at).toLocaleString("ru-RU");
-  return html`<div class="history" data-slot="character-history">
-    ${!data.enabled && html`<p class="muted">История выключена в настройках</p>`}
-    ${data.versions.length === 0 && html`<p class="muted">Изменений пока нет</p>`}
+  if (data.versions.length === 0) return frame(html`<${EmptyNote}
+    title=${data.enabled ? "Изменений пока нет" : "История выключена"}
+    hint=${data.enabled ? "Здесь появятся правки: что изменено и как вернуть." : "Включить её можно в настройках."} />`);
+  return frame(html`
     ${data.versions.map((v, i) => html`<details key=${v.id} open=${i === 0} class="history-version">
       <summary><strong>${i === 0 && !v.closed_at ? "Сейчас" : when(v.closed_at || v.started_at)}</strong>
         <span class="muted"> · шагов: ${v.steps.length}</span>
@@ -41,18 +47,23 @@ export function HistoryPanel({ base, revision, onRestored, onError }) {
       </ol>
     </details>`)}
     <p class="muted">Объём истории: ${(data.bytes / 1024).toFixed(1)} КБ</p>
-  </div>`;
+  `);
 }
 
 const FIELDS = [
   ["description", "Описание", 8],
+  ["first_mes", "Первое сообщение", 4],
+];
+// Fields of imported cards (SillyTavern habit). The card does not ask for them, but they stay saved, still
+// go to the model and export; they are shown, folded, only for a card that has any of them filled.
+const IMPORTED_FIELDS = [
   ["personality", "Характер", 3],
   ["scenario", "Сценарий", 3],
-  ["first_mes", "Первое сообщение", 4],
   ["mes_example", "Примеры диалога", 4],
   ["system_prompt", "Свой главный промпт", 3, "Заменяет главный промпт пресета; {{original}} вставляет его на это место"],
   ["post_history_instructions", "Инструкция после истории", 3],
 ];
+const hasImported = (card) => Boolean(card) && IMPORTED_FIELDS.some(([key]) => String(card[key] || "").trim() !== "");
 
 export function CharacterEditor({ characterId, settings, initialTab, onClose, onSaved, onError }) {
   const [card, setCard] = useState(characterId ? null : { name: "" });
@@ -64,6 +75,7 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
   const [revision, setRevision] = useState(0); // bumps after undo / restore: everything reloads
   const [showHistory, setShowHistory] = useState(false);
   const wasDefaultMe = Boolean(characterId) && settings.default_me === characterId;
+  const savedCard = useMemo(() => { try { return JSON.parse(baseline); } catch (e) { return null; } }, [baseline]);
   const dirty = card !== null && (JSON.stringify(card) !== baseline || isDefaultMe !== wasDefaultMe);
 
   useEffect(() => {
@@ -92,7 +104,7 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
     if (dirty && !await ask("Закрыть без сохранения?", { ok: "Закрыть", danger: true })) return;
     close();
   };
-  useEscape(requestClose);
+  useEscape(() => (showHistory ? setShowHistory(false) : requestClose())); // Esc closes the history first
   useEffect(() => {
     if (!characterId) return undefined;
     const key = (e) => {
@@ -146,17 +158,28 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
         ${characterId && html`<div class="tabs" role="tablist">
           <button role="tab" aria-selected=${tab === "card"} onClick=${() => setTab("card")}>Карточка</button>
           <button role="tab" aria-selected=${tab === "tree"} onClick=${() => setTab("tree")}>Дерево</button>
+          <button role="tab" aria-selected=${tab === "regex"} onClick=${() => setTab("regex")}>Регекс</button>
         </div>`}
         ${card === null && html`<${Pending} />`}
         ${card !== null && tab === "tree" && html`<${CharacterTree}
           character=${{ id: characterId, name: card.name, avatar: hasAvatar }} settings=${settings}
           revision=${revision} onError=${onError} />`}
+        ${card !== null && tab === "regex" && html`<div class="stack">
+          <p class="hint">Правила этого персонажа работают в чатах, где он участвует. Общие правила — в Настройках, вкладка «Регекс».</p>
+          <${RegexOwner} scope="character" owner=${characterId} onError=${onError} /></div>`}
         ${card !== null && tab === "card" && html`<form class="stack" onSubmit=${save}>
           <label class="stack">Имя
             <input required value=${card.name} onInput=${set("name")} /></label>
           ${FIELDS.map(([key, label, rows, hint]) => html`<label key=${key} class="stack">${label}
             ${hint && html`<span class="hint">${hint}</span>`}
             <textarea rows=${rows} value=${card[key] || ""} onInput=${set(key)}></textarea></label>`)}
+          ${(hasImported(card) || hasImported(savedCard)) && html`<details class="imported-fields" data-slot="imported-fields">
+            <summary>Поля из импортированной карточки</summary>
+            <span class="hint">Эти поля пришли вместе с карточкой. Они по-прежнему уходят модели и сохраняются при экспорте.</span>
+            ${IMPORTED_FIELDS.map(([key, label, rows, hint]) => html`<label key=${key} class="stack">${label}
+              ${hint && html`<span class="hint">${hint}</span>`}
+              <textarea rows=${rows} value=${card[key] || ""} onInput=${set(key)}></textarea></label>`)}
+          </details>`}
           <label><input type="checkbox" checked=${isDefaultMe} onChange=${(e) => setDefaultMe(e.target.checked)} />
             Мой персонаж по умолчанию</label>
           <span class="hint">Входит в каждый новый чат как «это я»</span>

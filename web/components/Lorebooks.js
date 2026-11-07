@@ -11,7 +11,8 @@ import { api } from "../core/api.js";
 import { CharacterTree } from "./CharacterTree.js";
 import { HistoryPanel } from "./CharacterEditor.js";
 import { Icon, IconButton } from "./Icon.js";
-import { MenuButton } from "./Menu.js";
+import { MenuButton, openMenu } from "./Menu.js";
+import { GroupedItems } from "./Groups.js";
 import { EmptyNote, Pending, useLoad } from "./State.js";
 import { ask, askText } from "./Dialogs.js";
 import { notify } from "../core/notify.js";
@@ -39,9 +40,9 @@ export function BookPicker({ scope, target = null, title, hint, onError }) {
     <legend>${title}</legend>
     ${books === null && html`<${Pending} error=${error} onRetry=${reload} />`}
     ${books && books.length === 0 && html`<span class="muted">Лорбуков пока нет: создайте их в разделе «Лорбуки» слева</span>`}
-    ${books && books.map((b) => html`<label key=${b.id}>
+    ${books && books.map((b) => html`<label key=${b.id} title=${b.name}>
       <input type="checkbox" checked=${on.includes(b.id)} onChange=${(e) => toggle(b.id, e.target.checked)} />
-      ${b.name} <span class="muted">(${b.blocks})</span></label>`)}
+      <span class="pick-name">${b.name} <span class="muted">(${b.blocks})</span></span></label>`)}
     ${hint && html`<span class="hint">${hint}</span>`}
   </fieldset>`;
 }
@@ -95,7 +96,7 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
     <div class="overlay" ...${backdrop(close)}>
       <div class="dialog stack tree-dialog" data-slot="dialog" role="dialog" aria-modal="true"
         aria-label=${book ? book.name : "Лорбук"}>
-        <div class="side-head"><${Icon} name="book-open" /><strong>${book ? book.name : "Лорбук"}</strong>
+        <div class="side-head"><${Icon} name="book-open" /><strong class="dialog-name" title=${book ? book.name : ""}>${book ? book.name : "Лорбук"}</strong>
           <span class="spacer"></span>
           <${IconButton} icon="undo-2" label="Отменить последнее изменение"
             title="Отменить последнее изменение лорбука или его пузырей (Ctrl+Z)" onClick=${undo} />
@@ -155,6 +156,11 @@ export function LorebookShelf({ settings, onError, showHeading = true }) {
     if (!await ask(`Удалить лорбук «${book.name}» со всеми записями?`, { ok: "Удалить", danger: true })) return;
     try { await api.del(`/lorebooks/${book.id}`); await reload(); } catch (e) { onError(e.message); }
   };
+  const bookActions = (b, tools) => [
+    { icon: "download", label: "Скачать", href: `/api/lorebooks/${b.id}/export.json`, download: true },
+    { icon: "library", label: "В группу…", onClick: tools.move },
+    { icon: "trash-2", label: "Удалить", danger: true, onClick: () => remove(b) },
+  ];
   const editingBook = books && books.find((b) => b.id === editing);
 
   return html`<section class="lorebook-shelf" data-slot="lorebooks">
@@ -170,17 +176,15 @@ export function LorebookShelf({ settings, onError, showHeading = true }) {
     ${books === null && html`<${Pending} error=${error} onRetry=${reload} />`}
     ${books && books.length === 0 && html`<${EmptyNote} title="Лорбуков пока нет"
       hint="Лорбук — набор записей о мире: места, предметы, правила. Запись попадает к модели, когда в чате всплывает её тема" />`}
-    ${books && books.length > 0 && html`<ul class="list">
-      ${books.map((b) => html`<li key=${b.id}>
-        <button class="item book-item" onClick=${() => setEditing(b.id)}>
+    ${books && books.length > 0 && html`<${GroupedItems} kind="lorebook" items=${books} idOf=${(b) => b.id}
+      labelOf=${(b) => b.name} onError=${onError}
+      onPress=${(b, el, tools) => openMenu(el, [{ icon: "book-open", label: "Открыть", onClick: () => setEditing(b.id) }, ...bookActions(b, tools)])}
+      renderRow=${(b, tools) => html`<li key=${b.id}>
+        <button class="item book-item" title=${b.name} onClick=${() => setEditing(b.id)}>
           <span class="book-line"><span class="book-name">${b.name}</span><span class="muted count">${b.blocks}</span></span>
           <span class="muted book-where">${whereOf(b)}</span></button>
-        <${MenuButton} label="Действия с лорбуком" items=${[
-          { icon: "download", label: "Скачать", href: `/api/lorebooks/${b.id}/export.json`, download: true },
-          { icon: "trash-2", label: "Удалить", danger: true, onClick: () => remove(b) },
-        ]} />
-      </li>`)}
-    </ul>`}
+        <${MenuButton} label="Действия с лорбуком" items=${() => bookActions(b, tools)} />
+      </li>`} />`}
     ${editing && html`<${LorebookEditor} bookId=${editing} settings=${settings} onChanged=${reload}
       connected=${editingBook ? whereOf(editingBook) : ""}
       onClose=${() => { setEditing(null); reload(); }} onError=${onError} />`}

@@ -9,6 +9,7 @@
 // open the drop-down with every note of the message.
 // With spending shown under messages (`spend` = the spending settings), a small line says what this
 // version cost ("≈" = the service gave no counts, or the reply was stopped).
+// Regex rules (stage 11): `shown` is how the rules make the text look on screen (core/regex.js); the saved text is untouched.
 // Plugins add buttons to the header and plain-text lines under the text (core/plugins.js).
 import { html, useState } from "../vendor/preact-htm.mjs";
 import { ROLES, roleOf } from "./roles.js";
@@ -19,6 +20,7 @@ import { MessageTree } from "./PluginTree.js";
 import { Icon, IconButton } from "./Icon.js";
 import { MenuButton, openMenu } from "./Menu.js";
 import { ask } from "./Dialogs.js";
+import { RegexNodes } from "./Regex.js";
 
 function usageTitle(u) {
   return `Запрос: ${u.prompt_tokens} токенов, ответ: ${u.completion_tokens}` +
@@ -53,7 +55,7 @@ function NoteCard({ note, onHide }) {
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
   streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
   onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
-  actionsMode = "menu", pinned = DEFAULT_PINNED }) {
+  actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, onRegexUndo }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
@@ -182,7 +184,10 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           ${meta.via && !streaming && html`<div class="msg-via muted" data-slot="message-via"
             title="Основное подключение не ответило, ответил запасной путь"><${Icon} name="corner-down-right" /> через ${String(meta.via).replaceAll("↪", "→")}</div>`}
           ${excluded && html`<div class="msg-excluded-note muted" data-slot="message-excluded"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
-          <div class="body" data-slot="message-body">${text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
+          <div class=${"body" + (shown && shown.pending ? " regex-pending" : "")} data-slot="message-body">${shown && shown.nodes
+            ? html`<${RegexNodes} nodes=${shown.nodes} />` : shown && !shown.pending ? shown.text : text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
+          ${typeof meta.regex_before === "string" && !streaming && onRegexUndo && html`<div class="msg-regex-note muted" data-slot="message-regex-note">
+            Текст изменён регекс-правилом. <button type="button" class="link" onClick=${() => onRegexUndo(message.id)}>Вернуть как было</button></div>`}
           ${!streaming && messageExtras(message).map((line, i) => html`<div key=${line.owner + i} class="msg-plugin"
             data-slot="message-plugin" data-plugin=${line.owner}>${line.text}</div>`)}
           ${spend && spend.show.message && meta.usage && !streaming && html`<div class="msg-usage muted"

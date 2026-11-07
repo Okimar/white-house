@@ -199,3 +199,9 @@ replacing; a theme carrying a built-in id installs as `<id>-custom`.
 2. Checked at desktop width and at 390 px; text is never covered; nothing lags.
 3. Checked with "reduce motion" (DevTools → Rendering) and in `/?safe`.
 4. `python -m pytest` still passes (theme-related tests: `tests/unit/test_themes.py`).
+
+## Added in the 2026-11-07 batch
+
+- New `data-slot` places from the menu, groups and search: `menubar`, `menubar-home`, `menubar-<id>`, `menubar-search`, `menubar-assistant`, `menubar-settings`, `fold-menu`, `phone-folded`, `phone-unfold`; group and search places are in web/components/Groups.js and Search.js.
+- An update parks user themes and plugin styles for the first run after it (ADR 0015); safe mode (`/?safe`, `--safe`) skips them too.
+- The assistant writes skills only through its dedicated tools (ADR 0018), not by general edits.

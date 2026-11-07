@@ -57,6 +57,11 @@ class DataPaths:
         """User plugins, one folder each; built-in ones live in BUILTIN_PLUGINS_DIR."""
         return self.root / "plugins"
 
+    @property
+    def cache(self) -> Path:
+        """Things that can be made again and may be deleted any time (e.g. spoken replies of «Голос»)."""
+        return self.root / "cache"
+
     def ensure(self) -> None:
         for directory in (self.root, self.backups, self.logs, self.themes, self.assets, self.plugins):
             directory.mkdir(parents=True, exist_ok=True)

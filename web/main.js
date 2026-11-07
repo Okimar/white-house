@@ -3,10 +3,11 @@
 import { html, render, useState, useEffect, useCallback, useRef } from "./vendor/preact-htm.mjs";
 import { api } from "./core/api.js";
 import { useChat } from "./core/chat.js";
-import { SAFE_MODE, applyCachedLook, applyTheme, emit } from "./core/theme.js";
+import { applyCachedLook, applyTheme, emit } from "./core/theme.js";
 import { scriptAllowed } from "./components/Themes.js";
 import { VirtualList } from "./components/VirtualList.js";
 import { Message } from "./components/Message.js";
+import { useRegexDisplay } from "./core/regex.js";
 import { Composer } from "./components/Composer.js";
 import { ProfileSwitch, PickVariants } from "./components/Profiles.js";
 import { SpendingBar } from "./components/Spending.js";
@@ -22,6 +23,7 @@ import { pluginNotice, setPluginEnv, syncPlugins, usePluginUi } from "./core/plu
 import { PanelButtons, Panels } from "./components/PluginTree.js";
 import { PluginAsks } from "./components/Plugins.js";
 import { Assistant } from "./components/Assistant.js";
+import { Search } from "./components/Search.js";
 import { BackupWarning } from "./components/Backups.js";
 import { Icon, IconButton } from "./components/Icon.js";
 import { MenuButton } from "./components/Menu.js";
@@ -29,10 +31,19 @@ import { DialogHost, ask } from "./components/Dialogs.js";
 import { EmptyNote, Pending } from "./components/State.js";
 import { dismiss, notify, subscribe } from "./core/notify.js";
 import { useEscape } from "./core/keys.js";
+import { useLayout, setMenuFolded } from "./core/layout.js";
+
+// The page must open with the browser's storage blocked (private window, site data off): every access is guarded.
+const store = {
+  get(key) { try { return localStorage.getItem(key); } catch (e) { return null; } },
+  set(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* storage off */ } },
+  del(key) { try { localStorage.removeItem(key); } catch (e) { /* storage off */ } },
+};
 
 const FOUND_MS = 2500; // how long a found message stays marked
 
-// The icons of a phone's top bar: each opens one section of the left panel as a sheet under the bar.
+// The icons of the top bar (a phone's, or the menu bar of the top menu): each opens one section of the
+// menu as a sheet / drop-down under the bar.
 const SECTIONS = [
   ["chats", "message-square", "Чаты"],
   ["characters", "users", "Персонажи"],
@@ -48,7 +59,7 @@ function SheetKeys({ onClose }) {
 function App() {
   const [characters, setCharacters] = useState([]);
   const [chats, setChats] = useState([]);
-  const [chatId, setChatId] = useState(() => localStorage.getItem("tavern.chat") || null);
+  const [chatId, setChatId] = useState(() => store.get("tavern.chat") || null);
   const [settings, setSettings] = useState({});
   const [themes, setThemes] = useState({ themes: [], deleted: [] });
   const [showSettings, setShowSettings] = useState(false); // true, or the tab to open
@@ -58,8 +69,12 @@ function App() {
   const [sheet, setSheet] = useState(null); // phone: the section of the left panel shown under the bar
   const [searching, setSearching] = useState(false); // phone: the search line is open
   const [showAssistant, setShowAssistant] = useState(false);
+  const [showSearch, setShowSearch] = useState(false); // the search across all chats
+  const [pendingFound, setPendingFound] = useState(null); // a result in another chat, shown once that chat is loaded
+  const [assistantMsg, setAssistantMsg] = useState(null); // a conversation message to scroll to
   const [assistantConv, setAssistantConv] = useState(""); // a conversation to open (from the 🪄 mark)
   const [assistantState, setAssistantState] = useState({ running: [], waiting: [] });
+  const { mode: menuMode, folded: menuFolded } = useLayout(); // menu on top / at the side, folded or not
   const pluginUi = usePluginUi(); // side panels of plugins
   const assistantRef = useRef({ changed() {}, show() {} }); // the event stream outlives renders: it calls the newest
   const [toast, setToast] = useState(null); // { text, kind } from core/notify.js
@@ -79,7 +94,7 @@ function App() {
   const [showNotes, setShowNotes] = useState(false);
   const [notesNumbers, setNotesNumbers] = useState(null); // "1-52 68-72" open in the window over the chat
   const [attached, setAttached] = useState([]); // notes kept after messages: hidden and visible
-  const [showHidden, setShowHidden] = useState(() => localStorage.getItem("tavern.showHiddenNotes") === "1");
+  const [showHidden, setShowHidden] = useState(() => store.get("tavern.showHiddenNotes") === "1");
   const [notesOpen, setNotesOpen] = useState({}); // message id -> true/false after 📝 or ✕ there
   const [notesFor, setNotesFor] = useState(null); // {message, shown}: the drop-down with one message's notes
   const [plugins, setPlugins] = useState({ plugins: [], commands: [], generators: [] }); // GET /plugins
@@ -89,6 +104,7 @@ function App() {
   useEffect(() => subscribe(setToast), []);
 
   const chat = useChat(chatId, onError);
+  const regexShown = useRegexDisplay(chatId, chat.messages, chat.streams); // regex rules for the screen (stage 11)
 
   // Plugins: the list (their web parts load from it) and the app-wide event stream for their questions.
   const loadPlugins = () => api.get("/plugins").then((d) => {
@@ -105,7 +121,11 @@ function App() {
     const source = new EventSource("/api/events");
     source.onmessage = (message) => {
       const event = JSON.parse(message.data);
-      if (event.type === "plugins") loadPlugins();
+      if (event.type === "regex") window.dispatchEvent(new Event("tavern:regex"));
+      else if (event.type === "regex_skipped") {
+        onError(`Регекс-правило «${event.rules.map((r) => r.name).join("», «")}» ${event.rules[0].why}, поэтому пропущено. ` +
+          "Исправьте шаблон: Настройки → Регекс.");
+      } else if (event.type === "plugins") loadPlugins();
       else if (event.type === "plugin_ask") setAsks((a) => [...a.filter((x) => x.id !== event.ask.id), event.ask]);
       else if (event.type === "plugin_asked") setAsks((a) => a.filter((x) => x.id !== event.id));
       else if (event.type === "plugin") pluginNotice(event);
@@ -168,6 +188,7 @@ function App() {
   const assistantChanged = () => {
     refresh();
     window.dispatchEvent(new Event("tavern:lorebooks"));
+    window.dispatchEvent(new Event("tavern:groups"));
     if (chatId) { chat.reload(); chat.refreshInfo(); loadMembers(); }
   };
   assistantRef.current = {
@@ -178,13 +199,13 @@ function App() {
     },
   };
   const loadMembers = () => chatId
-    ? api.get(`/chats/${chatId}/members`).then((d) => setMembers(d.members)).catch((e) => onError(e.message))
+    ? api.get(`/chats/${chatId}/members`).then((d) => setMembers(d.members)).catch((e) => { if (e.status !== 404) onError(e.message); })
     : setMembers([]);
   // After each reply too: a plugin or an agent may have brought a character into the scene.
   useEffect(() => { if (!chat.running) loadMembers(); }, [chatId, chat.running]);
   useEffect(() => {
-    if (chatId) localStorage.setItem("tavern.chat", chatId);
-    else localStorage.removeItem("tavern.chat");
+    if (chatId) store.set("tavern.chat", chatId);
+    else store.del("tavern.chat");
   }, [chatId]);
   // A chat that no longer exists (deleted, other data dir): fall back to the empty screen.
   useEffect(() => {
@@ -195,7 +216,7 @@ function App() {
   // Notes on messages: after opening a chat and after each reply (it may have placed notes).
   const loadAttached = () => {
     if (!chatId) { setAttached([]); return; }
-    api.get(`/chats/${chatId}/message-notes`).then((d) => setAttached(d.notes)).catch((e) => onError(e.message));
+    api.get(`/chats/${chatId}/message-notes`).then((d) => setAttached(d.notes)).catch((e) => { if (e.status !== 404) onError(e.message); }); // 404: a remembered chat that is gone
   };
   useEffect(() => { if (!chat.running) loadAttached(); }, [chatId, chat.running]);
   useEffect(() => setNotesOpen({}), [chatId]);
@@ -203,7 +224,7 @@ function App() {
     setShowHidden(on);
     // "Show all" wins over notes hidden one by one; notes opened one by one stay open.
     setNotesOpen((o) => Object.fromEntries(Object.entries(o).filter(([, open]) => open)));
-    localStorage.setItem("tavern.showHiddenNotes", on ? "1" : "0");
+    store.set("tavern.showHiddenNotes", on ? "1" : "0");
   };
   const clearHidden = () => api.del(`/chats/${chatId}/message-notes?kind=hidden`).then(loadAttached)
     .catch((e) => onError(e.message));
@@ -226,11 +247,40 @@ function App() {
   useEffect(() => {
     emit("generation", { running: chat.running });
     const last = chat.messages[chat.messages.length - 1];
-    if (wasRunning.current && !chat.running && last) emit("message", { role: last.role, text: last.content });
+    if (wasRunning.current && !chat.running && last) emit("message", { role: last.role, text: last.content, id: last.id, characterId: last.character_id || null });
     wasRunning.current = chat.running;
   }, [chat.running]);
 
-  const open = (id) => { setChatId(id); setSheet(null); };
+  // Leaving a chat for the home page keeps the chat; the browser's Back does the same, and Forward returns.
+  const open = (id) => {
+    if (id && !chatId) { try { history.pushState({ chat: id }, ""); } catch (e) { /* no history */ } }
+    else if (id) { try { history.replaceState({ chat: id }, ""); } catch (e) { /* no history */ } }
+    setChatId(id);
+    setSheet(null);
+  };
+  // A tap or a press outside the open drop-down (and outside the bar that opened it) closes it.
+  useEffect(() => {
+    if (!sheet) return undefined;
+    const outside = (e) => {
+      const t = e.target;
+      if (t && t.closest && t.closest(".sidebar, .menubar, .phone-nav, .menu, .overlay, .toast, .dialog")) return;
+      setSheet(null);
+    };
+    document.addEventListener("pointerdown", outside, true);
+    return () => document.removeEventListener("pointerdown", outside, true);
+  }, [sheet]);
+  const goHome = () => {
+    setSheet(null);
+    if (history.state && history.state.chat) history.back(); // popstate closes the chat
+    else setChatId(null);
+  };
+  useEffect(() => {
+    // A chat restored from the last visit gets a "home" entry below it, so Back leads home, not away.
+    try { if (chatId) { history.replaceState({ home: true }, ""); history.pushState({ chat: chatId }, ""); } } catch (e) { /* no history */ }
+    const onPop = (e) => { setSheet(null); setChatId(e.state && e.state.chat ? e.state.chat : null); };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const newChat = async (characterId) => {
     try {
@@ -370,6 +420,25 @@ function App() {
     foundTimer.current = setTimeout(() => setJumpTo(null), FOUND_MS);
   };
 
+  // A result of the search across all chats: this chat at that message, or the assistant's conversation.
+  const openFound = (hit) => {
+    setShowSearch(false);
+    if (hit.scope === "assistant") {
+      setAssistantConv(hit.chat_id);
+      setAssistantMsg({ conv: hit.chat_id, id: hit.id, stamp: Date.now() });
+      openAssistant();
+      return;
+    }
+    if (hit.chat_id !== chatId) open(hit.chat_id);
+    setPendingFound(hit);
+  };
+  useEffect(() => {
+    if (!pendingFound || !chat.chat || chat.chat.id !== pendingFound.chat_id) return;
+    const hit = pendingFound;
+    setPendingFound(null);
+    showFound(hit).catch((e) => onError(e.message));
+  }, [pendingFound, chat.chat && chat.chat.id]);
+
   const branchFrom = async (messageId) => {
     setBranchResults(null);
     await chat.branchFrom(messageId);
@@ -407,6 +476,8 @@ function App() {
     avatar=${avatarOf(m)} spend=${spend && spend.settings}
     streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
     streamThinking=${chat.streams[m.id] ? chat.streams[m.id].thinking : null}
+    shown=${regexShown(m, chat.streams[m.id] ? chat.streams[m.id].text : null)}
+    onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
     onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${chat.regenerate}
@@ -416,6 +487,7 @@ function App() {
 
   const shown = chatId && chat.chat;
   const openAssistant = () => { setSheet(null); setShowAssistant(true); };
+  const openSearch = () => { setSheet(null); setShowSearch(true); };
   const openSettings = (tab = true) => { setSheet(null); setShowSettings(tab); };
   const assistantBusy = assistantState.waiting.length > 0 || assistantState.running.length > 0;
   const openAssistantMark = () => {
@@ -431,26 +503,62 @@ function App() {
     { icon: "download", label: "Скачать чат", href: `/api/chats/${chatId}/export.jsonl` },
   ].filter((item) => !item.phone || window.matchMedia("(max-width: 720px)").matches);
   return html`
-    <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"} data-sheet=${sheet ? "open" : "closed"}>
-      ${SAFE_MODE && html`<div class="safe-banner" role="status">Безопасный режим: темы и окна дополнений выключены.
-        <a href="/">Выйти</a></div>`}
+    <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"} data-sheet=${sheet ? "open" : "closed"}
+      data-menu=${menuMode} data-menu-folded=${menuFolded ? "true" : "false"}>
       ${!backupWarningHidden && !showSettings && html`<${BackupWarning} status=${backupStatus}
         onOpen=${() => openSettings("backups")} onClose=${() => setBackupWarningHidden(true)} />`}
       <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} section=${sheet}
-        onOpenChat=${open} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
+        onOpenChat=${open} onHome=${goHome} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
         onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat} onRenameChat=${renameChat}
         onEditCharacter=${(id) => { setEditingCharacter(id); setSheet(null); }}
         onDeleteCharacter=${deleteCharacter} onSettings=${() => openSettings()}
-        onAssistant=${openAssistant} settings=${settings} onError=${onError} />
+        onAssistant=${openAssistant} onSearch=${openSearch} settings=${settings} onError=${onError}
+        mode=${menuMode} onFold=${menuMode === "side" ? () => { setSheet(null); setMenuFolded(true); } : null} />
       ${sheet && html`<${SheetKeys} onClose=${() => setSheet(null)} />`}
       <main class="main" data-slot="chat" data-running=${chat.running ? "true" : "false"}>
         <div class="scene" data-slot="scene" aria-hidden="true"></div>
-        <div class="topbar" data-slot="topbar">
-          <strong class="title" data-slot="title">${shown ? chat.chat.title : "White House"}</strong>
+        ${menuMode === "top" && !menuFolded && html`<nav class="menubar only-wide" data-slot="menubar" aria-label="Меню">
+          <${IconButton} icon="chevron-down" label="Свернуть меню" class="fold-menu" data-slot="fold-menu"
+            onClick=${() => { setSheet(null); setMenuFolded(true); }} />
+          <button class="brand brand-home" data-slot="menubar-home" title="На главную: чат останется в списке"
+            aria-label="На главную" onClick=${goHome}>White House</button>
+          <span class="menubar-sections">
+            ${SECTIONS.map(([id, icon, label]) => html`<${IconButton} key=${id} icon=${icon} label=${label}
+              data-slot=${"menubar-" + id} aria-pressed=${sheet === id} aria-haspopup="true" aria-expanded=${sheet === id}
+              onClick=${() => setSheet(sheet === id ? null : id)} />`)}
+          </span>
+          <span class="spacer"></span>
+          <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="menubar-search" onClick=${openSearch} />
+          <${IconButton} icon="wand" label=${assistantBusy ? "Помощник: есть работа" : "Помощник"}
+            class=${assistantBusy ? "has-mark" : ""} data-slot="menubar-assistant"
+            onClick=${assistantBusy ? openAssistantMark : openAssistant} />
+          <${IconButton} icon="settings" label="Настройки" data-slot="menubar-settings" onClick=${() => openSettings()} />
+        </nav>`}
+        <div class="topbar" data-slot="topbar" data-folded=${menuFolded ? "true" : "false"}>
+          ${menuFolded && html`<span class="phone-folded" data-slot="phone-folded">
+            <${IconButton} icon="menu" label="Развернуть верхнюю панель" data-slot="phone-unfold" onClick=${() => setMenuFolded(false)} />
+            <button class="brand brand-home icon-btn" data-slot="phone-folded-home" title="На главную: чат останется в списке"
+              aria-label="На главную" onClick=${goHome}>⌂</button>
+            <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="phone-folded-search" onClick=${openSearch} />
+            <${IconButton} icon="settings" label="Настройки" data-slot="phone-folded-settings" onClick=${() => openSettings()} />
+          </span>`}
+          ${menuFolded && html`<span class="menu-folded only-wide" data-slot="menu-folded">
+            <${IconButton} icon="menu" label="Развернуть меню" data-slot="unfold-menu" onClick=${() => setMenuFolded(false)} />
+            <button class="brand brand-home icon-btn" data-slot="folded-home" title="На главную: чат останется в списке"
+              aria-label="На главную" onClick=${goHome}>⌂</button>
+            <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="folded-search" onClick=${openSearch} />
+            <${IconButton} icon="settings" label="Настройки" data-slot="folded-settings" onClick=${() => openSettings()} />
+          </span>`}
+          ${shown && html`<${IconButton} icon="chevron-left" label="На главную (чат останется в списке)" class="home-back"
+            data-slot="home-back" onClick=${goHome} />`}
+          <strong class="title" data-slot="title" title=${shown ? chat.chat.title : ""}>${shown ? chat.chat.title : "White House"}</strong>
           <span class="spacer"></span>
           <nav class="phone-nav only-mobile" data-slot="phone-nav" aria-label="Разделы">
+            <${IconButton} icon="chevron-down" label="Свернуть верхнюю панель" class="fold-top" data-slot="phone-fold"
+              onClick=${() => { setSheet(null); setMenuFolded(true); }} />
             ${SECTIONS.map(([id, icon, label]) => html`<${IconButton} key=${id} icon=${icon} label=${label}
               aria-pressed=${sheet === id} onClick=${() => setSheet(sheet === id ? null : id)} />`)}
+            <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="phone-search" onClick=${openSearch} />
             <${IconButton} icon="wand" label=${assistantBusy ? "Помощник: есть работа" : "Помощник"}
               class=${assistantBusy ? "has-mark" : ""}
               onClick=${assistantBusy ? openAssistantMark : openAssistant} />
@@ -548,7 +656,8 @@ function App() {
       ${showSettings && html`<${Settings} settings=${settings} themes=${themes.themes}
         initialTab=${typeof showSettings === "string" ? showSettings : undefined}
         deletedThemes=${themes.deleted} characters=${characters} onClose=${() => { setShowSettings(false); reloadSpending(); loadPlugins(); }}
-        onChanged=${refresh} onError=${onError} />`}
+        onChanged=${refresh} onError=${onError}
+        onOpenAssistant=${(id) => { setAssistantConv(id); setShowSettings(false); openAssistant(); }} />`}
       ${showMembers && shown && html`<${Members} chat=${chat.chat} characters=${characters} settings=${settings} generators=${plugins.generators}
         onClose=${() => setShowMembers(false)} onError=${onError}
         onChanged=${() => { refresh(); chat.refreshInfo(); loadMembers(); }}
@@ -572,7 +681,9 @@ function App() {
           setNotesOpen((o) => ({ ...o, [notesFor.message.id]: on }));
         }} />`}
       ${promptOf && html`<${PromptView} message=${promptOf} onClose=${() => setPromptOf(null)} onError=${onError} />`}
-      ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} openConv=${assistantConv} onError=${onError}
+      ${showSearch && html`<${Search} characters=${characters} onOpen=${openFound} onError=${onError}
+        onClose=${() => setShowSearch(false)} />`}
+      ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} openConv=${assistantConv} openMsg=${assistantMsg} onError=${onError}
         onOpenSkills=${() => setShowSettings("skills")}
         onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
