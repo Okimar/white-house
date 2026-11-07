@@ -75,6 +75,7 @@ class PromptInput:
     # the original (the speaker's name in front, the old thinking around it, macros).
     rewritten: dict[str, str] = field(default_factory=dict)
     lore_rewritten: dict[str, str] = field(default_factory=dict)
+    thoughts_rewritten: dict[str, str] = field(default_factory=dict)  # old reasoning, by message id
 
 
 @dataclass
@@ -339,7 +340,8 @@ def assemble(data: PromptInput) -> Prompt:
                     and ((m.get("swipe_meta") or {}).get("reasoning") or "").strip()]
     thought_rows = thought_rows[-options["thoughts"]:] if options["thoughts"] else []
     past_thoughts = dict(zip((m["id"] for m in thought_rows),
-                             thinking.compact([m["swipe_meta"]["reasoning"] for m in thought_rows])))
+                             thinking.compact([data.thoughts_rewritten.get(m["id"], m["swipe_meta"]["reasoning"])
+                                               for m in thought_rows])))
 
     def message_entry(m: dict[str, Any]) -> Entry:
         text = data.rewritten.get(m["id"], m["content"])

@@ -1,0 +1,1 @@
+{"id":"18c551a8-f1d3-4d47-b7cd-b229ae97ae99","scriptName":"Hide html","findRegex":"/<([a-zA-Z0-9]+)(?:[^>]*)?>[\\s\\S]*?<\\/\\1>|<[a-zA-Z0-9]+(?:[^>]*)?\\s*\\/?>/g","replaceString":"","trimStrings":[],"placement":[2],"disabled":false,"markdownOnly":false,"promptOnly":true,"runOnEdit":true,"substituteRegex":0,"minDepth":5,"maxDepth":null}

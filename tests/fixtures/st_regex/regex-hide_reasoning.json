@@ -1,0 +1,1 @@
+{"id":"19224354-a028-4b1a-ad9a-fa46f11bb8ad","scriptName":"Hide reasoning","findRegex":"/<think>[\\s\\S]*?</think>/g","replaceString":"","trimStrings":[],"placement":[1,2],"disabled":false,"markdownOnly":true,"promptOnly":true,"runOnEdit":true,"substituteRegex":0,"minDepth":5,"maxDepth":null}

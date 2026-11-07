@@ -1,0 +1,1 @@
+{"id":"d9dc8cda-309e-4678-a1e3-b5cfe9748b66","scriptName":"jailbreakuser","findRegex":"/ /g","replaceString":"\u2800","trimStrings":[],"placement":[1],"disabled":false,"markdownOnly":false,"promptOnly":true,"runOnEdit":true,"substituteRegex":0,"minDepth":null,"maxDepth":null}

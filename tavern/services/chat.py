@@ -613,12 +613,13 @@ def _writer(
                 ctx, chat, members, history, max_context=max_context,
                 seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found))
             # Rules "for the model" (stage 11): in a thread, because the worker is waited for.
-            rewritten, lore_rewritten, skipped = await asyncio.to_thread(
+            rewritten, lore_rewritten, thoughts_rewritten, skipped = await asyncio.to_thread(
                 regex_service.prompt_texts, ctx, chat, history, lore.found,
                 character["name"] if character else DEFAULT_CHAR_NAME, me)
             regex_service.announce(ctx, skipped)
             prompt_input = PromptInput(
                 preset=preset["data"], preset_id=preset["id"], rewritten=rewritten, lore_rewritten=lore_rewritten,
+                thoughts_rewritten=thoughts_rewritten,
                 members=members,
                 history=note_service.with_attached(ctx, chat_id, history), user_name=me,
                 impersonate=reply["role"] == "user",

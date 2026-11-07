@@ -1,0 +1,1 @@
+{"id":"c519c09f-dac0-4b17-89d0-426eb86cfeb4","scriptName":"JailbreakAI","findRegex":"/\u2800/g","replaceString":" ","trimStrings":[],"placement":[2,6],"disabled":false,"markdownOnly":true,"promptOnly":false,"runOnEdit":true,"substituteRegex":0,"minDepth":null,"maxDepth":null}

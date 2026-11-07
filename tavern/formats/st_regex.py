@@ -24,7 +24,7 @@ from typing import Any
 
 from tavern.core.regex import MACROS, RegexError
 
-PLACEMENT = {1: "user", 2: "assistant", 5: "lore"}
+PLACEMENT = {1: "user", 2: "assistant", 5: "lore", 6: "reasoning"}
 PLACEMENT_NUMBER = {name: number for number, name in PLACEMENT.items()}
 USED = {"scriptName", "findRegex", "replaceString", "trimStrings", "placement", "disabled", "markdownOnly",
         "promptOnly", "runOnEdit", "substituteRegex", "minDepth", "maxDepth", "tavern"}

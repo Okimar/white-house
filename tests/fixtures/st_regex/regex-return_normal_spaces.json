@@ -1,0 +1,1 @@
+{"id":"f99861ed-fdb8-4de6-bfe6-351f7841e500","scriptName":"Return Normal Spaces","findRegex":"/ /g","replaceString":" ","trimStrings":[],"placement":[1,2],"disabled":false,"markdownOnly":true,"promptOnly":true,"runOnEdit":true,"substituteRegex":2,"minDepth":null,"maxDepth":null}

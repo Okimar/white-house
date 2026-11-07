@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 MAX_RULES = 300
 MAX_TEXT = 400_000
 CACHE_ENTRIES = 3000
-PLACE_OF_ROLE = {"user": "user", "assistant": "assistant"}
+PLACE_OF_ROLE = {"user": "user", "assistant": "assistant", "reasoning": "reasoning"}
 DEFAULT_CHAR = "Assistant"
 
 _cache: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
@@ -333,13 +333,15 @@ def display(ctx: AppContext, chat_id: str, items: list[dict[str, Any]]) -> dict[
 
 
 def prompt_texts(ctx: AppContext, chat: dict[str, Any], history: list[dict[str, Any]], lore: list[Any],
-                 char: str, user: str) -> tuple[dict[str, str], dict[str, str], list[dict[str, Any]]]:
+                 char: str, user: str
+                 ) -> tuple[dict[str, str], dict[str, str], dict[str, str], list[dict[str, Any]]]:
     """The model's view of the chat: {message id: text} for messages a rule changed, {lore block id: text}
-    for lorebook entries, and the rules skipped for the first time (give them to `announce`). Blocks while
-    the worker runs: call it from a thread."""
+    for lorebook entries, {message id: reasoning} for old reasoning a rule changed (ST placement 6), and the
+    rules skipped for the first time (give them to `announce`). Blocks while the worker runs: call it from a
+    thread."""
     rules = _Set(chat_rules(ctx, chat), char, user)
     if not any(r["when"] in ("prompt", "both") for r in rules.rules):
-        return {}, {}, []
+        return {}, {}, {}, []
     items: list[dict[str, Any]] = []
     owners: list[tuple[str, str]] = []
     last = len(history) - 1
@@ -348,6 +350,11 @@ def prompt_texts(ctx: AppContext, chat: dict[str, Any], history: list[dict[str, 
         if picked and message["content"]:
             items.append({"text": message["content"], "rules": picked})
             owners.append(("m", message["id"]))
+        thought = ((message.get("swipe_meta") or {}).get("reasoning") or "") if message["role"] == "assistant" else ""
+        picked = rules.pick("reasoning", last - index, "prompt") if isinstance(thought, str) and thought else []
+        if picked:
+            items.append({"text": thought, "rules": picked})
+            owners.append(("t", message["id"]))
     for found in lore:
         block = found.block
         picked = rules.pick("lore", 0, "prompt")
@@ -355,15 +362,17 @@ def prompt_texts(ctx: AppContext, chat: dict[str, Any], history: list[dict[str, 
             items.append({"text": block["content"], "rules": picked})
             owners.append(("l", block["id"]))
     if not items:
-        return {}, {}, []
+        return {}, {}, {}, []
     outcome = RUNNER.run(rules.specs, items)
     skipped = _report(rules, outcome)
     messages: dict[str, str] = {}
     lore_text: dict[str, str] = {}
+    thoughts: dict[str, str] = {}
+    target = {"m": messages, "l": lore_text, "t": thoughts}
     for (kind, owner_id), item, out in zip(owners, items, outcome.outs):
         if out != item["text"]:
-            (messages if kind == "m" else lore_text)[owner_id] = out
-    return messages, lore_text, skipped
+            target[kind][owner_id] = out
+    return messages, lore_text, thoughts, skipped
 
 
 # --- stored ----------------------------------------------------------------------------------

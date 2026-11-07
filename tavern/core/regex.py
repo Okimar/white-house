@@ -24,7 +24,7 @@ MAX_REPLACE = 20_000
 MAX_NAME = 120
 MAX_TRIM = 30
 
-PLACES = ("user", "assistant", "lore")
+PLACES = ("user", "assistant", "reasoning", "lore")
 WHEN = ("display", "prompt", "both", "stored")
 MACROS = ("none", "raw", "escaped")
 FLAGS_KNOWN = "gimsuyd"

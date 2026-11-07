@@ -17,11 +17,11 @@ ST file was available: the test fixtures are built by hand from the documented f
 
 **A rule** (table `regex_scripts`, migration 0022): name, on/off, `find` (`/pattern/flags` or a plain pattern),
 `replace` (`$1`, `$<name>`, `$&`, `$0`, `` $` ``, `$'`, `$$`, `{{match}}`; `{{char}}` and `{{user}}` in the plain text), `trim`
-(strings cut out of what is inserted), `places` (user messages, model replies, lorebook entries), `when`
+(strings cut out of what is inserted), `places` (user messages, model replies, the model's reasoning, lorebook entries), `when`
 (`display` = only the screen, `prompt` = only what the model gets, `both`, `stored` = the saved text, once), min /
 max depth (0 = newest message; not for lorebook entries), `run_on_edit`, `macros` in the pattern (none / raw / escaped),
 `render_html`, order. Fields of an ST script we do not use are kept in `extra` and written back on export.
-Slash commands (ST placement 3) and reasoning (6) have no equivalent in this app and are not applied; they survive
+Depth counts the whole active path (messages hidden from the prompt and ones cut by the budget count; 0 = the newest message handed to the prompt builder). `/pattern/flags` splits at the LAST slash, so an unescaped `/` inside is fine. Slash commands (ST placement 3) have no equivalent in this app and are not applied; they survive
 an import / export round trip. Messages with the role «Система» are never touched.
 
 **Order.** Global rules, then the rules of the chat's preset, then the rules of every character in the chat (members, in
@@ -101,5 +101,5 @@ characters/lorebooks/chats are unrelated to rules; deleting a character removes 
 - The display needs one request per view; the stored text stays the source of truth, so turning a rule off brings
   the original back at once (except `stored` rules, whose original is in `regex_before`).
 - Two copies of the tag whitelist (server, page) must stay in step; the server's is the authority.
-- Not covered: slash commands, reasoning text, the narrator, per-message rules on greetings, SillyTavern's
+- Reasoning (ST placement 6) is applied to old reasoning sent to the model and by `POST /api/regex/display` with role `reasoning`; the page's 💭 does not ask yet. Not covered: slash commands, the narrator, per-message rules on greetings, SillyTavern's
   `\p{…}` and variable lookbehind patterns.
