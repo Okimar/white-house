@@ -5,6 +5,8 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 
 # Modifying the UI
 
+**Read `.claude/skills/mobile-ui/SKILL.md` first**: the app is used by touch on a phone and a tablet; its rules (touch drags, 44px, no jank, no blinking maps, settings order, test by numbers) apply to every change here.
+
 ## Rules
 
 - No build step, no CDN, no npm at runtime. Plain ES modules served from `web/`.

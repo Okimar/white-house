@@ -248,7 +248,11 @@ data/                   user data, git-ignored. Never commit, never delete
 | [write-tests](.claude/skills/write-tests/SKILL.md) | adding or fixing any test |
 | [debugging](.claude/skills/debugging/SKILL.md) | something fails at runtime or in tests |
 | [core-changes](.claude/skills/core-changes/SKILL.md) | schema, config, security, storage, startup changes |
-| [modify-ui](.claude/skills/modify-ui/SKILL.md) | changing anything under `web/` |
+| [mobile-ui](.claude/skills/mobile-ui/SKILL.md) | **before any change under `web/`**: touch first, 44px, no jank, no blinking maps, settings order, test by numbers on 375x667 and 768x1280 |
+| [modify-ui](.claude/skills/modify-ui/SKILL.md) | changing anything under `web/` (read mobile-ui first) |
+| [interface-details](.claude/skills/interface-details/SKILL.md) | polish details: radius, shadows, motion, hit areas (adapted public skill, MIT) |
+| [unslop-ui](.claude/skills/unslop-ui/SKILL.md) | a screen looks AI-made or uneven: redline pass (adapted public skill, CC BY 4.0) |
+| [ui-a11y](.claude/skills/ui-a11y/SKILL.md) | labels, ARIA, focus, keys, contrast, reduced motion (adapted public skill, MIT) |
 | [add-provider](.claude/skills/add-provider/SKILL.md) | adding an LLM provider kind (core or plugin) |
 | [make-theme](.claude/skills/make-theme/SKILL.md) | restyling the interface: themes, pictures, animations, effects scripts |
 | [style-bubble-map](.claude/skills/style-bubble-map/SKILL.md) | restyling the character bubble map: classes, states, lines, tokens, speed rules |
