@@ -250,3 +250,22 @@ def test_the_custom_look_is_parked_by_the_first_start_after_an_update(ctx):
     assert look.check_upgrade(ctx) is None
     done = look.check_upgrade(ctx, "stamp-of-the-new-web-folder")
     assert done and ctx.settings.get("theme") is None and look.parked(ctx)["theme"] == mine
+
+
+async def test_a_mode_only_difference_does_not_block_but_a_content_edit_does(client, repos):
+    # Old installs: install.sh ran chmod +x on a file stored as 100644. (On Windows chmod shows nothing, but the
+    # check below still holds: the setting is switched off and the update goes through.)
+    origin, install, _ = repos
+    commit(origin, "start.sh", "echo 1\n", "script")
+    git(install, "pull", "-q")
+    git(install, "config", "core.fileMode", "true")
+    (install / "start.sh").chmod(0o755)
+    commit(origin, "start.sh", "echo 2\n", "script changed")
+    found = (await post(client, "check")).json()
+    assert found["can_update"], found
+    assert git(install, "config", "core.fileMode") == "false"
+    assert (await post(client, "apply")).json()["updated"] is True
+    assert (install / "start.sh").read_text() == "echo 2\n"
+    commit(origin, "a.txt", "1", "more")
+    (install / "start.sh").write_text("echo mine\n", encoding="utf-8")
+    assert (await post(client, "check")).json()["code"] == "dirty"

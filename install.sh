@@ -47,4 +47,6 @@ say "Checking installation"
 .venv/bin/python -m tavern check
 
 chmod +x start.sh
+# Mode bits are not content: without this git reports start.sh as changed and refuses to update.
+git config core.fileMode false >/dev/null 2>&1 || true
 say "Done. Start with: ./start.sh"

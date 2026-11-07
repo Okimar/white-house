@@ -196,6 +196,7 @@ def check(ctx: AppContext, root: Path | None = None) -> dict[str, Any]:
 
 
 def _blocker(ctx: AppContext, git: _Git) -> tuple[str, str] | None:
+    git.run("config", "core.fileMode", "false")  # a mode-only difference (chmod +x) is not an edit
     if git.out("status", "--porcelain", "--untracked-files=no"):
         return ("dirty", "В файлах программы есть ваши правки (изменённые файлы). Обновление затёрло бы их, "
                 "поэтому оно не выполняется. Верните файлы к исходному виду или отложите правки, и повторите.")
@@ -262,6 +263,11 @@ def apply(ctx: AppContext, root: Path | None = None) -> dict[str, Any]:
             log.warning("Update: fast-forward refused: %s", scrub(merged.stderr).strip()[-500:])
             raise Conflict("Git не смог обновить файлы, ничего не изменено.", code="merge_failed")
         new = git.out("rev-parse", "HEAD")
+        for name in ("start.sh", "install.sh"):
+            try:
+                (root / name).chmod(0o755)
+            except OSError:
+                pass
         try:
             changed = git.out("diff", "--name-only", old, new, "--", "requirements.txt")
             if changed:

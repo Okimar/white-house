@@ -39,7 +39,9 @@ class DirLock:
             fh.close()
             raise DataDirLocked(
                 f"Data directory {self.path.parent} is in use by another Tavern process. "
-                "Stop it first."
+                "Stop it first (Ctrl+C in its window, or: pkill -f \"m tavern\"). "
+                "Данные уже использует другая запущенная копия White House: остановите её "
+                "(Ctrl+C в её окне или pkill -f \"m tavern\") и запустите снова."
             ) from exc
         fh.seek(0)
         fh.truncate()
