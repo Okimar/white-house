@@ -967,6 +967,25 @@ a.button.icon-btn:hover { color: var(--fg); }
 .group-picker .list { max-height: 50vh; overflow-y: auto; }
 .group-big .group-map { flex: 1; }
 
+/* Dragging into groups (Groups.js): the picked bubble/row is lifted, the group under the finger lights up. */
+.group-item { cursor: grab; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.group-item.dragging { opacity: .9; z-index: 5; transition: none; box-shadow: 0 6px 18px rgba(0, 0, 0, .35), 0 0 0 3px var(--accent); }
+.tree-map.dragging-item { cursor: grabbing; }
+.group-frame { transition: background-color .12s, border-color .12s; }
+.group-frame.drop-target { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.group.drop-target { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.group-rows > li { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.group-rows > li.lifted { opacity: .4; }
+.group-ghost { position: fixed; left: 0; top: 0; z-index: 9999; pointer-events: none; max-width: 70vw; min-height: 44px; display: flex; align-items: center;
+  padding: 0 16px; border-radius: 22px; background: var(--dialog-bg); color: var(--fg); border: 2px solid var(--accent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md, 1rem); }
+.tree-map.far .group-frame { transition: none; }
+
+/* A bubble that enters the page while the map moves fades in (opacity only); it never pops. */
+@keyframes bubble-in { from { opacity: 0; } }
+.tree-map .bubble.fresh { animation: bubble-in .16s ease-out; }
+@media (prefers-reduced-motion: reduce) { .tree-map .bubble.fresh { animation: none; } }
+
 /* Phone: the top bar folds to a thin strip (unfold, home, settings, the chat's title). It stays in the flow,
    so it never covers the first lines of the chat or the composer. Wide screens fold the menu bar instead. */
 .phone-folded { display: none; }

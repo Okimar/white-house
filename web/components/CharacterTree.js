@@ -898,6 +898,10 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     const right = left + size.w / view_.s + 2 * margin;
     const bottom = top + size.h / view_.s + 2 * margin;
     const inView = (p, w = W, h = H) => p.x + w >= left && p.x <= right && p.y + h >= top && p.y <= bottom;
+    // A line is drawn while any part of it can be on screen, not only while an end is: a long line from a
+    // bubble far away used to vanish and come back as the end crossed the margin.
+    const crosses = (p, q) => Math.max(p.x, q.x) + W >= left && Math.min(p.x, q.x) <= right
+      && Math.max(p.y, q.y) + H >= top && Math.min(p.y, q.y) <= bottom;
     const nodes = [];
     const groups = [];
     const lines = { c100: "", c75: "", c50: "", c25: "", c0: "", off: "" };
@@ -907,7 +911,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     const inside = new Set(scope ? descendants(kids, scope) : pos.keys());
     for (const b of kids.get(scope) || []) {
       const q = at(b.id);
-      if (!b.detached && (inView(root) || inView(q))) line(root, q, b);
+      if (!b.detached && crosses(root, q)) line(root, q, b);
     }
     const visit = (parent) => {
       for (const b of kids.get(parent) || []) {
@@ -924,7 +928,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         } else {
           for (const c of children) {
             const q = at(c.id);
-            if (inView(p) || inView(q)) line(p, q, c);
+            if (crosses(p, q)) line(p, q, c);
           }
         }
         if (children.length) visit(b.id);
@@ -935,11 +939,17 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     for (const [a, b] of links) {
       if (!inside.has(a) || !inside.has(b) || !pos.has(a) || !pos.has(b)) continue;
       const p = at(a); const q = at(b);
-      if (inView(p) || inView(q)) refs += arc(p, q);
+      if (crosses(p, q)) refs += arc(p, q);
     }
     return { nodes, groups, lines, refs, root, rootId };
   };
   const scope = spaces.length ? spaces[spaces.length - 1].id : null;
+  // The plain look below FAR_ZOOM has a dead band (it comes on a little below, goes off a little above), so
+  // a pinch that hovers around the limit does not flip every bubble back and forth.
+  const farNow = useRef(camera.s < FAR_ZOOM);
+  if (farNow.current ? camera.s > FAR_ZOOM * 1.15 : camera.s < FAR_ZOOM * 0.87) farNow.current = !farNow.current;
+  // Bubbles that came into the page after the first draw fade in (opacity only) instead of popping.
+  const seenIds = useRef(null);
   const shown = useMemo(() => (view === "map" ? scene(scope, camera, drag)
     : { nodes: [], groups: [], lines: {}, refs: "", root: null }),
   [view, pos, kids, camera, size, drag, links, inactive, scope]);
@@ -947,6 +957,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const behind = useMemo(() => (view === "map" && spaces.length
     ? scene(spaces.length > 1 ? spaces[spaces.length - 2].id : null, spaces[spaces.length - 1].cam, null) : null),
   [view, pos, kids, size, links, inactive, spaces]);
+
+  useEffect(() => { if (view === "map") seenIds.current = new Set(shown.nodes.map((n) => n.b.id)); });
 
   const selectedBlock = selected && selected !== "root" ? byId.get(selected) : null;
   const pathOf = (block) => {
@@ -1000,7 +1012,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       </div>`}
       <div key="body" class="tree-body">
         ${view === "map"
-          ? html`<div class=${"tree-map" + (spaces.length ? " in-space" : "") + (camera.s < FAR_ZOOM ? " far" : "")} ref=${viewport}
+          ? html`<div class=${"tree-map" + (spaces.length ? " in-space" : "") + (farNow.current ? " far" : "")} ref=${viewport}
               onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
               onPointerUp=${onPointerUp} onPointerCancel=${onPointerUp}
               onDblClick=${(e) => openSpace(e.target.closest("[data-bid]")?.dataset.bid)}>
@@ -1037,7 +1049,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                   <${Ring} mode=${byId.get(scope)?.mode} /><span class="bubble-title">${byId.get(scope)?.title}</span>
                   <span class="bubble-port out" data-port="out" title=${PORT_TITLE}></span></div>`}
                 ${shown.nodes.map(({ b, p }) => html`<div key=${b.id} data-bid=${b.id}
-                  class=${"bubble mode-" + b.mode + (selected === b.id ? " selected" : "")
+                  class=${"bubble mode-" + b.mode + (selected === b.id ? " selected" : "") + (seenIds.current && !seenIds.current.has(b.id) ? " fresh" : "")
                     + (drag && drag.ids.has(b.id) ? " dragging" : "")
                     + ((drag && drag.target === b.id) || (wire && wire.target === b.id) ? " target" : "")
                     + (inactive.has(b.id) ? " inactive" : "") + (linking === b.id ? " linking" : "")

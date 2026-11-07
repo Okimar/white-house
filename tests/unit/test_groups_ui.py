@@ -55,3 +55,29 @@ def test_styles_cover_the_new_places():
 def test_main_tells_the_lists_when_the_assistant_changed_things():
     assert 'new Event("tavern:groups")' in text("main.js")
     assert '"tavern:groups"' in text("components", "Groups.js")
+
+
+def test_groups_can_be_dragged_by_finger_and_bubbles_size_to_their_text():
+    groups = text("components", "Groups.js")
+    # a long press picks an item up (a swipe still scrolls), on the map and in the list; edge auto-scroll
+    assert "LONG_PRESS" in groups and "navigator.vibrate" in groups and "edgeScroll" in groups
+    assert "useListDrag" in groups and "touchmove" in groups and "drop-target" in groups
+    # the «В группу…» menu stays as the fallback
+    assert "GroupPicker" in groups and "tools.move" in groups or "move: () => setMoving" in groups
+    # bubble width follows the text between a minimum and a maximum
+    assert "bubbleWidth" in groups and "BUB_MIN" in groups and "BUB_MAX" in groups
+    css = text("styles.css")
+    for cls in (".group-frame.drop-target", ".group-ghost", ".group.drop-target"):
+        assert cls in css
+
+
+def test_opening_a_window_does_not_remount_the_top_bar_picker():
+    main = text("main.js")
+    assert "<${ProfileSwitch} key=" not in main and "refreshKey=" in main
+    assert "refreshKey" in text("components", "Profiles.js")
+
+
+def test_tree_map_does_not_flip_looks_or_pop_lines_while_zooming():
+    tree, css = text("components", "CharacterTree.js"), text("styles.css")
+    assert "farNow" in tree and "FAR_ZOOM * 1.15" in tree  # dead band around the plain-look limit
+    assert "const crosses = " in tree and "bubble-in" in css

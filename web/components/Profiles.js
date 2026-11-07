@@ -21,10 +21,15 @@ const REASONS = [
   ["auth", "ключ не принят"], ["network", "нет связи"], ["server", "сервис сломался"], ["request", "запрос отвергнут"],
 ];
 
-export function useProfiles(onError) {
-  const [state, setState] = useState({ profiles: [], active: null, loaded: false });
+// The last answer is kept, so a picker that appears again (top bar) shows the old list at once and
+// refreshes it quietly: no flash and no jump of the bar.
+let lastState = { profiles: [], active: null, loaded: false };
+
+export function useProfiles(onError, refreshKey = "") {
+  const [state, setStateRaw] = useState(lastState);
+  const setState = (next) => { lastState = next; setStateRaw(next); };
   const reload = () => api.get("/profiles").then((d) => setState({ ...d, loaded: true })).catch((e) => onError(e.message));
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); }, [refreshKey]);
   const apply = async (id) => {
     try {
       const d = await api.post(`/profiles/${id}/apply`, {});
@@ -35,8 +40,8 @@ export function useProfiles(onError) {
   return { ...state, reload, apply };
 }
 
-export function ProfileSwitch({ onChanged, onError }) {
-  const { profiles, active, apply } = useProfiles(onError);
+export function ProfileSwitch({ onChanged, onError, refreshKey = "" }) {
+  const { profiles, active, apply } = useProfiles(onError, refreshKey);
   if (!profiles.length) return null;
   return html`<${Select} class="profile-switch" data-slot="profile-switch" value=${active || ""}
     aria-label="Профиль подключения" title="Профиль подключения: переключает всё сразу"

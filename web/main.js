@@ -573,7 +573,7 @@ function App() {
             data-slot="assistant-mark" title="Открыть помощника" onClick=${openAssistantMark}>
             <${Icon} name="wand" /> ${assistantState.waiting.length ? "Ждёт вас" : "Работает"}</button>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
-          ${shown && html`<${ProfileSwitch} key=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
+          ${shown && html`<${ProfileSwitch} refreshKey=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
           ${shown && html`<${PanelButtons} panels=${pluginUi.panels} />`}
           ${shown && html`<${IconButton} icon="users" label="Участники чата и пресет" class="only-wide"
             data-slot="members-button" onClick=${() => setShowMembers(true)} />`}
