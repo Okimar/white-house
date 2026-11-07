@@ -862,7 +862,7 @@ a.button.icon-btn:hover { color: var(--fg); }
     border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--menu-shadow); }
   .app[data-menu="top"] .sidebar[data-section="chats"], .app[data-menu="top"] .sidebar[data-section="characters"],
   .app[data-menu="top"] .sidebar[data-section="lorebooks"] { display: block; }
-  .app[data-menu="top"] .sidebar .side-head { display: none; }
+  .app[data-menu="top"] .sidebar > .side-head { display: none; } /* only the sidebar's own head: windows opened from it have theirs */
   .app[data-menu="top"] .side-section { display: none; }
   .app[data-menu="top"] .sidebar[data-section="chats"] [data-name="chats"],
   .app[data-menu="top"] .sidebar[data-section="characters"] [data-name="characters"],
