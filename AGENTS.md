@@ -230,11 +230,15 @@ data/                   user data, git-ignored. Never commit, never delete
    swallow exceptions silently.
 8. **Style:** type hints, `from __future__ import annotations`, module docstring stating the
    module's role, comments only where the *why* is not obvious. Python 3.11 compatible.
-9. **Agents do not drive a browser and do not call a live model.** Owner's decision (2026-11-06):
-   checks are `python -m pytest` plus the command line (CLI, HTTP requests to a `--sandbox` or
-   temp `--data-dir` run, the fake LLM). The owner checks the look and the live model personally.
-   Never open chrome-devtools or any browser tool unless the owner asks for it in that task.
-   Anything not seen on screen is reported as unverified, with short steps for the owner.
+9. **Agents check in the browser on the FAKE model.** Owner's decision (2026-11-07: «Возвращаем тесты
+   в браузере, без них тяжко»), replacing the one of 2026-11-06. Use chrome-devtools against a run on an
+   empty temp `--data-dir` with a connection to the fake LLM (`python -m tavern.devtools.fake_llm`), plus
+   `python -m pytest`. One agent at a time uses the browser, because the selected page is shared. Never the
+   live model unless the owner asks for it in that task. Follow a written checklist item by item, no
+   improvising and no side quests; anything not seen on screen is reported as unverified. Phone checks use
+   375x667, DPR 2, mobile, touch (an iPhone 8; also 375x553 with browser bars and 375x410 with the keyboard
+   open), and judge by numbers: buttons at least 44x44 CSS px, close buttons reachable without scrolling,
+   text at least 14 px, nothing wider than the viewport. Check `innerWidth` is 375 after every reload.
 
 ## Skills
 

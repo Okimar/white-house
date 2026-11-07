@@ -28,7 +28,7 @@
   --ease: cubic-bezier(.22, 1, .36, 1);
   --tap: 32px; /* minimum height of anything you can press */
 }
-@media (pointer: coarse) { :where(:root) { --tap: 40px; } }
+@media (pointer: coarse) { :where(:root) { --tap: 44px; } }
 /* Dark colours: from the system setting unless a theme forces a base (data-base on <html>). */
 @media (prefers-color-scheme: dark) {
   :where(:root):not([data-base="light"]) {
@@ -380,6 +380,12 @@ input.num { width: 4.5em; }
 /* Character history */
 .history { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; max-height: 40vh; overflow: auto; }
 .dialog { position: relative; }
+/* The header with the close button stays on screen while a long window scrolls (a phone has no overlay to tap). */
+.dialog > .side-head:first-child { position: sticky; top: -16px; z-index: 8; background: var(--dialog-bg);
+  margin: -16px -16px 0; padding: 16px 16px 8px; flex: none; }
+@media (max-width: 720px) {
+  .dialog > .side-head:first-child { top: -12px; margin: -12px -12px 0; padding: 12px 12px 8px; }
+}
 .history-pop { position: absolute; z-index: 6; top: 60px; right: 16px; width: min(440px, calc(100% - 32px)); height: min(300px, 50vh);
   box-sizing: border-box; max-height: none; background: var(--dialog-bg); box-shadow: var(--shadow); }
 .imported-fields { border: 1px dashed var(--line); border-radius: var(--radius-sm); padding: 8px; }
@@ -546,7 +552,7 @@ input.num { width: 4.5em; }
 .assistant-card fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .assistant-card legend { font-weight: 600; padding: 0; margin-bottom: 2px; }
 .assistant-options { display: flex; flex-wrap: wrap; gap: 4px; }
-.assistant-options button { min-height: 32px; text-align: left; }
+.assistant-options button { min-height: var(--tap); text-align: left; }
 .assistant-options button.chosen { background: color-mix(in srgb, var(--accent) 25%, transparent); border-color: var(--accent); }
 .assistant-items { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .assistant-items li.sub { padding-left: 1.4em; }
@@ -673,7 +679,7 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
   .topbar .title { flex: 1 1 0; }
   .topbar > .spacer { display: none; }
   .phone-nav { flex: none; align-items: center; }
-  .phone-nav .icon-btn, .topbar .export-chat { width: 36px; }
+  .phone-nav .icon-btn, .topbar .export-chat { width: 36px; } /* 7 icons + back + menu fit 375px only at 36 wide; height is 44 */
   .has-mark { position: relative; color: var(--accent); }
   .has-mark::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .search { display: none; order: 10; flex-basis: 100%; padding: 4px 8px 4px 0; }
@@ -810,6 +816,9 @@ a.button.icon-btn:hover { color: var(--fg); }
 .speakers button { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .speakers button { display: inline-flex; align-items: center; }
 .sidebar .section-head h2, .sidebar .brand { min-width: 0; }
+/* Side menu: the name is cut from the right (with dots), never from the left behind the fold button */
+.sidebar .side-head .brand-home { justify-content: flex-start; text-align: left; padding: 0 4px; display: block; flex: 0 1 auto; font-size: var(--text-sm); }
+.sidebar .side-head { gap: 4px; }
 @media (max-width: 720px) {
   /* Touch has no hover title: lists wrap so the whole name can be read */
   .sidebar .list .item, .lorebook-shelf .book-name { white-space: normal; overflow-wrap: anywhere; }
@@ -1013,3 +1022,16 @@ a.button.icon-btn:hover { color: var(--fg); }
 @media (max-width: 720px) {
   .regex-buttons { width: 100%; justify-content: flex-end; }
 }
+
+/* Short screen (a phone with its keyboard open): the reply buttons share one row you can swipe, so the
+   messages keep some room above the message box. */
+@media (max-height: 480px) {
+  .chat-actions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .chat-actions::-webkit-scrollbar { display: none; }
+  .chat-actions > button { flex: none; }
+  .chat-actions .speakers { flex-wrap: nowrap; flex: none; max-width: none; }
+  .chat-actions .speakers > * { flex: none; }
+  .chat-actions .speakers button { white-space: nowrap; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+}
+
+small, .muted small { font-size: var(--text-sm); }

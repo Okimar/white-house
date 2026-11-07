@@ -194,6 +194,7 @@ function RuleEditor({ rule, scope, owner, chatId, onClose, onSaved }) {
         <strong>Проба</strong>
         <span class="hint">Вставьте кусок текста: найденное подсветится, ниже будет результат. Ничего не сохраняется.</span>
         <textarea rows="3" value=${sample} aria-label="Текст для пробы" onInput=${(e) => setSample(e.target.value)}></textarea>
+        ${probe && !probe.ok && html`<p class="error" role="alert" data-slot="regex-try-error">${probe.error}</p>`}
         ${probe && probe.ok && html`
           <${Highlighted} text=${sample} matches=${probe.matches} />
           <small class="muted">${probe.matches.length ? `Найдено: ${probe.matches.length}` : "Ничего не найдено"}</small>

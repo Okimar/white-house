@@ -10,15 +10,33 @@ window.addEventListener("keydown", (e) => {
   stack[stack.length - 1].current();
 });
 
-// Esc calls `close` while this window is the newest one.
+// Esc and the browser's Back button call `close` while this window is the newest one. Each open window
+// owns one history entry (`wdepth`): Back drops the entry and closes the newest window, a window closed
+// by its own button takes its entry away again.
 export function useEscape(close) {
   const ref = useRef(close);
   ref.current = close;
   useEffect(() => {
     stack.push(ref);
-    return () => { stack.splice(stack.indexOf(ref), 1); };
+    const depth = stack.length;
+    ref.depth = depth;
+    try { history.pushState({ ...(history.state || {}), wdepth: depth }, ""); } catch (e) { /* no history */ }
+    return () => {
+      const at = stack.indexOf(ref);
+      if (at < 0) return; // already removed by Back
+      stack.splice(at, 1);
+      try { if (history.state && history.state.wdepth === depth) history.back(); } catch (e) { /* no history */ }
+    };
   }, []);
 }
+
+window.addEventListener("popstate", (e) => {
+  const now = (e.state && e.state.wdepth) || 0;
+  while (stack.length && stack[stack.length - 1].depth > now) {
+    const top = stack.pop();
+    top.current();
+  }
+});
 
 // Props for the dimmed area: <div class="overlay" ...${backdrop(close)}>
 export function backdrop(close) {

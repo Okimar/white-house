@@ -91,12 +91,18 @@ page for them. The server answers `busy` to edits, swipes, deletes and branch sw
 - A height-changing child must be inside `.vitem` so the ResizeObserver sees it.
 - The scroll container needs a bounded height: `.main` has `min-height: 0` for that.
 
-## Verify: agents by command line, the owner by eye
+## Verify: in the browser on the fake model
 
-Agents do not drive a browser (AGENTS.md rule 9): run `python -m pytest` (test_web_syntax parses every
-module), add source-level tests where sensible, and call the page's own routes over HTTP on a sandbox.
-The test suite cannot see the UI, so report what you changed on screen as unverified and give the owner
-short steps. The list below is what the owner can check by hand:
+Agents check in the browser with chrome-devtools on the FAKE model only (AGENTS.md rule 9): one agent at a
+time (the selected page is shared), `--data-dir` on an empty temp folder, a connection to
+`python -m tavern.devtools.fake_llm`, never the live model unless the owner asks. Follow a written checklist,
+no improvising. Phone size is 375x667, DPR 2, mobile, touch (`emulate viewport 375x667x2,mobile,touch`); also
+375x553 (browser bars) and 375x410 (keyboard open: the message box must stay visible). Read
+`[innerWidth, innerHeight, devicePixelRatio, matchMedia('(pointer: coarse)').matches]` after every reload: it
+must be 375, 667, 2, true. Judge by numbers, not by how it looks on a big monitor: buttons at least 44x44,
+close buttons reachable without scrolling, text at least 14 px, no element wider than the viewport. Also run
+`python -m pytest` (test_web_syntax parses every module) and add source-level tests where sensible. Anything
+not seen on screen is reported as unverified. The list below is what to check:
 
 ```bash
 python -m tavern.devtools.fake_llm --port 5001 &

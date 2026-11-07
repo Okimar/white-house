@@ -6,8 +6,9 @@ description: How to restyle the character bubble map (the "Дерево" tab of 
 # Styling the bubble map
 
 The bubble map is a custom menu, and it must look good: calm, readable, with clear depth. The owner
-judges it by eye: agents do not open a browser (AGENTS.md rule 9), so give the owner steps to check each
-change in the light and dark themes, at phone width, and with a big tree (1500 bubbles must stay at ~60 fps).
+judges it by eye; agents check in the browser on the fake model (AGENTS.md rule 9), in the light and dark
+themes, at phone size 375x667, and with a big tree (1500 bubbles must stay at ~60 fps: measure frame times
+with the CPU throttled 4x), and the owner has the final look.
 
 Code: `web/components/CharacterTree.js` (logic, do not restyle from there), `web/styles.css`
 (base look). A theme restyles it from its own `theme.css` (see `make-theme`): override the
