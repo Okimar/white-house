@@ -151,3 +151,37 @@ def test_translation_keeps_flags_and_group_facts() -> None:
     result = translate(r"/(?<a>x)(y)/gi")
     assert result.glob and not result.sticky and result.groups == 2 and result.names == ("a",)
     assert result.flags & re.IGNORECASE
+
+
+def test_worker_literal_precheck_changes_nothing_and_rules_keep_their_order():
+    from tavern.core import regex_worker
+    from tavern.core.regex import build_spec
+
+    def spec(find, replace=""):
+        return build_spec({"find": find, "replace": replace})[0]
+
+    specs = [spec("/cat/g", "dog"), spec("/CAT/gi", "bird"), spec("/dog/", "wolf"), spec(r"/c.t/g", "x"),
+             spec("/zzz/g", "never")]
+    job = {"specs": specs, "items": [{"text": "cat CAT", "rules": [4, 2, 0, 1]}, {"text": "nothing", "rules": [0, 3]},
+                                     {"text": "a cat", "rules": [3, 0, 2]}], "find": False}
+    out = regex_worker.run_job(job)
+    assert out["outs"] == ["wolf bird", "nothing", "a wolf"] and out["hits"] == [[0, 1, 2], [], [0, 2]]
+    # a literal that is regex syntax is not taken for plain text
+    assert regex_worker._literal(spec("/a.b/")) is None and regex_worker._literal(spec("/ab/i")) is None
+    assert regex_worker._literal(spec("/ab/")) == "ab"
+
+
+def test_runner_sends_only_the_used_rules_and_names_the_right_ones():
+    from tavern.core.regex import build_spec
+    from tavern.core.regex_runner import Runner
+
+    specs = [build_spec({"find": f"/w{i}/g", "replace": f"R{i}"})[0] for i in range(50)]
+    specs.append(build_spec({"find": "/(a+)+$/"})[0])
+    runner = Runner()
+    try:
+        out = runner.run(specs, [{"text": "w3 w40", "rules": [40, 3]}, {"text": "w49", "rules": [49]}])
+        assert out.outs == ["R3 R40", "R49"] and out.hits == [[3, 40], [49]] and out.skipped == {}
+        slow = runner.run(specs, [{"text": "a" * 40 + "b", "rules": [50]}], rule_seconds=0.5, job_seconds=3)
+        assert slow.skipped == {50: "slow"}
+    finally:
+        runner.close()

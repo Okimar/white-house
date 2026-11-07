@@ -102,6 +102,30 @@ def find_all(rx: re.Pattern[str], spec: dict[str, Any], text: str) -> list[dict[
     return found
 
 
+_COMPILED: dict[tuple[str, int], re.Pattern[str]] = {}  # kept between jobs: `re` itself remembers only 512
+_LITERAL = re.compile(r"[^\\.^$*+?{}\[\]|()]+")
+_NOT_PLAIN = int(re.IGNORECASE | re.VERBOSE)
+
+
+def _compile(spec: dict[str, Any]) -> re.Pattern[str]:
+    key = (spec["p"], spec["f"])
+    rx = _COMPILED.get(key)
+    if rx is None:
+        rx = re.compile(spec["p"], spec["f"])
+        if len(_COMPILED) >= 4096:
+            _COMPILED.clear()
+        _COMPILED[key] = rx
+    return rx
+
+
+def _literal(spec: dict[str, Any]) -> str | None:
+    """The pattern's text when it is a plain string (found exactly when `in` finds it); a quick pre-check."""
+    p = spec["p"]
+    if p and not spec["f"] & _NOT_PLAIN and _LITERAL.fullmatch(p):
+        return p
+    return None
+
+
 def run_job(job: dict[str, Any], progress=None) -> dict[str, Any]:
     specs: list[dict[str, Any]] = job["specs"]
     items: list[dict[str, Any]] = job["items"]
@@ -109,21 +133,26 @@ def run_job(job: dict[str, Any], progress=None) -> dict[str, Any]:
     hits: list[list[int]] = [[] for _ in items]
     errors: dict[str, str] = {}
     compiled: dict[int, re.Pattern[str] | None] = {}
-    wanted = sorted({r for item in items for r in item["rules"]})  # rules run in their own order
+    by_rule: dict[int, list[int]] = {}  # rule -> the items it works on
+    for n, item in enumerate(items):
+        for index in set(item["rules"]):
+            by_rule.setdefault(index, []).append(n)
+    wanted = sorted(by_rule)  # rules run in their own order
     for index in wanted:
         if progress:
             progress(index)
         spec = specs[index]
         try:
-            rx = compiled[index] = re.compile(spec["p"], spec["f"])
+            rx = compiled[index] = _compile(spec)
         except (re.error, RecursionError, OverflowError) as exc:
             errors[str(index)] = str(exc)
             continue
+        literal = _literal(spec)
         try:
-            for n, item in enumerate(items):
-                if index not in item["rules"]:
-                    continue
+            for n in by_rule[index]:
                 before = outs[n]
+                if literal is not None and literal not in before:
+                    continue
                 outs[n] = apply_rule(rx, spec, before)
                 if outs[n] != before:
                     hits[n].append(index)

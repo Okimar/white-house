@@ -47,13 +47,19 @@ class _Worker:
         self.proc = subprocess.Popen(
             [sys.executable, "-I", "-S", str(WORKER)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, creationflags=flags)
-        self.lines: queue.Queue[bytes | None] = queue.Queue()
+        self.lines: queue.Queue[bytes | None] = queue.Queue()  # answers only
+        self.last: int | None = None   # the rule the worker said it started on (progress lines never queue up:
+        self.last_at = time.monotonic()  # a thousand rules would be a thousand thread hand-offs)
         threading.Thread(target=self._read, daemon=True, name="regex-worker-reader").start()
 
     def _read(self) -> None:
         assert self.proc.stdout is not None
         for line in iter(self.proc.stdout.readline, b""):
-            self.lines.put(line)
+            if line.startswith(b"R "):
+                self.last = int(line[2:])
+                self.last_at = time.monotonic()
+            else:
+                self.lines.put(line)
         self.lines.put(None)
 
     def alive(self) -> bool:
@@ -92,10 +98,16 @@ class Runner:
     def _once(self, specs: list[dict[str, Any]], items: list[dict[str, Any]], find: bool,
               rule_seconds: float, job_seconds: float) -> tuple[dict[str, Any] | None, int | None]:
         """(answer, None) or (None, rule that hung or None when nothing answered at all)."""
-        payload = json.dumps({"specs": specs, "items": items, "find": find}, ensure_ascii=True,
+        # Only the rules some item uses go over the pipe (a thousand rules, a few of them for this text).
+        used = sorted({r for item in items for r in item["rules"]})
+        new = {old: n for n, old in enumerate(used)}
+        sent = [{"text": i["text"], "rules": [new[r] for r in i["rules"]]} for i in items]
+        payload = json.dumps({"specs": [specs[r] for r in used], "items": sent, "find": find}, ensure_ascii=True,
                              separators=(",", ":")).encode("ascii") + b"\n"
         for attempt in (0, 1):
             worker = self._get()
+            started = worker.last_at = time.monotonic()
+            worker.last = None
             try:
                 assert worker.proc.stdin is not None
                 worker.proc.stdin.write(payload)
@@ -106,26 +118,28 @@ class Runner:
                 self._worker = None
                 if attempt:
                     return None, None
-        started = time.monotonic()
-        rule_deadline = started + rule_seconds
-        last: int | None = None
         while True:
-            wait = min(rule_deadline, started + job_seconds) - time.monotonic()
+            deadline = min(worker.last_at + rule_seconds, started + job_seconds)
             try:
-                line = worker.lines.get(timeout=max(wait, 0.001))
+                line = worker.lines.get(timeout=max(deadline - time.monotonic(), 0.001))
             except queue.Empty:
+                if time.monotonic() < min(worker.last_at + rule_seconds, started + job_seconds):
+                    continue  # the worker moved on to another rule meanwhile
+                last = worker.last
                 worker.kill()
                 self._worker = None
-                return None, last
+                return None, None if last is None else used[last]
             if line is None:  # the process died
+                last = worker.last
                 worker.kill()
                 self._worker = None
-                return None, last
-            if line.startswith(b"R "):
-                last = int(line[2:])
-                rule_deadline = time.monotonic() + rule_seconds
-                continue
-            return json.loads(line), None
+                return None, None if last is None else used[last]
+            answer = json.loads(line)
+            if "errors" in answer:
+                answer["errors"] = {str(used[int(k)]): v for k, v in answer["errors"].items()}
+            if "hits" in answer:
+                answer["hits"] = [[used[h] for h in hits] for hits in answer["hits"]]
+            return answer, None
 
     def run(self, specs: list[dict[str, Any]], items: list[dict[str, Any]], *, find: bool = False,
             rule_seconds: float | None = None, job_seconds: float | None = None) -> Outcome:

@@ -26,6 +26,7 @@ import hashlib
 import json
 import logging
 import threading
+import weakref
 from collections import OrderedDict
 from typing import Any
 
@@ -40,7 +41,7 @@ from tavern.storage.repos.regex import SCOPES, RegexRepo
 
 log = logging.getLogger(__name__)
 
-MAX_RULES = 300
+MAX_RULES = 2000
 MAX_TEXT = 400_000
 CACHE_ENTRIES = 3000
 PLACE_OF_ROLE = {"user": "user", "assistant": "assistant", "reasoning": "reasoning"}
@@ -62,15 +63,22 @@ def repo(ctx: AppContext) -> RegexRepo:
 # --- rules: lists, edits ---------------------------------------------------------------------
 
 
-@functools.lru_cache(maxsize=2048)
 def _compiled(find: str, replace: str, macros: str, trim: tuple[str, ...], char: str, user: str):
-    """(spec, None) or (None, the Russian error). Cached: the same rule is used again and again."""
+    """(spec, groups, fingerprint) and None, or None and the Russian error. Cached: the same rule is used again
+    and again; the names matter only to a rule that has a `{{macro}}` in it."""
+    if "{{" not in find and "{{" not in replace:
+        char = user = ""
+    return _compiled_cached(find, replace, macros, trim, char, user)
+
+
+@functools.lru_cache(maxsize=8192)
+def _compiled_cached(find: str, replace: str, macros: str, trim: tuple[str, ...], char: str, user: str):
     try:
         spec, pattern = build_spec({"find": find, "replace": replace, "macros": macros, "trim": list(trim)},
                                    char, user)
     except RegexError as exc:
         return None, exc.message
-    return (spec, pattern.groups), None
+    return (spec, pattern.groups, _fingerprint(spec)), None
 
 
 def _fingerprint(spec: dict[str, Any]) -> str:
@@ -99,17 +107,19 @@ def describe(rule: dict[str, Any]) -> dict[str, Any]:
     slow = _slow.get(rule["id"])
     out = dict(rule)
     out["error"] = error or ""
-    out["slow"] = bool(done and slow and slow == _fingerprint(done[0]))
+    out["slow"] = bool(done and slow and slow == done[2])
     return out
 
 
 def list_rules(ctx: AppContext, scope: str, owner_id: str = "") -> list[dict[str, Any]]:
-    return [describe(r) for r in repo(ctx).list(scope, _owner_check(ctx, scope, owner_id))]
+    owner_id = _owner_check(ctx, scope, owner_id)
+    return [describe(r) for r in _rules_of(ctx, _memo(ctx), scope, owner_id)]
 
 
 def overview(ctx: AppContext) -> dict[str, Any]:
     """Everything the «Регекс» tab shows: the global list, and every character / preset that has rules."""
     store = repo(ctx)
+    memo = _memo(ctx)
     names = {c["id"]: c["name"] for c in ctx.characters.list()}
     preset_names = {p["id"]: p["name"] for p in ctx.presets.list()}
 
@@ -117,12 +127,12 @@ def overview(ctx: AppContext) -> dict[str, Any]:
         out = []
         for owner_id in store.owners(scope):
             if owner_id in known:
-                rules = [describe(r) for r in store.list(scope, owner_id)]
+                rules = [describe(r) for r in _rules_of(ctx, memo, scope, owner_id)]
                 out.append({"id": owner_id, "name": known[owner_id], "rules": rules,
                             "pending": sum(not r["approved"] for r in rules)})
         return sorted(out, key=lambda o: o["name"].lower())
 
-    return {"global": [describe(r) for r in store.list("global")],
+    return {"global": [describe(r) for r in _rules_of(ctx, memo, "global", "")],
             "characters": owners("character", names), "presets": owners("preset", preset_names)}
 
 
@@ -132,7 +142,7 @@ def get_rule(ctx: AppContext, rule_id: str) -> dict[str, Any]:
 
 def create_rule(ctx: AppContext, scope: str, owner_id: str, raw: Any) -> dict[str, Any]:
     owner_id = _owner_check(ctx, scope, owner_id)
-    if sum(len(repo(ctx).list(s, o)) for s, o in (("global", ""), (scope, owner_id))) >= MAX_RULES:
+    if sum(repo(ctx).count(s, o) for s, o in {("global", ""), (scope, owner_id)}) >= MAX_RULES:
         raise BadRule(f"Правил слишком много (не больше {MAX_RULES})")
     rule = normalize_rule(raw if isinstance(raw, dict) else {})
     return describe(repo(ctx).create(scope, owner_id, rule, approved=True))
@@ -181,21 +191,81 @@ def approve(ctx: AppContext, scope: str, owner_id: str) -> int:
 # --- which rules work in a chat --------------------------------------------------------------
 
 
-def chat_rules(ctx: AppContext, chat: dict[str, Any]) -> list[dict[str, Any]]:
+def _owners(ctx: AppContext, chat: dict[str, Any]) -> list[tuple[str, str]]:
+    """The lists whose rules work in a chat, in the order they run."""
     from tavern.services import presets  # noqa: PLC0415
 
-    store = repo(ctx)
-    rules = store.list("global")
+    lists = [("global", "")]
     preset_id = presets.resolve(ctx, chat)["id"]
     if preset_id != presets.BUILTIN_ID:
-        rules += store.list("preset", preset_id)
+        lists.append(("preset", preset_id))
     seen: set[str] = set()
     members = [m["character_id"] for m in ctx.members.list(chat["id"])]
     for character_id in [*members, chat.get("character_id")]:
         if character_id and character_id not in seen:
             seen.add(character_id)
-            rules += store.list("character", character_id)
+            lists.append(("character", character_id))
+    return lists
+
+
+class _Memo:
+    """Rules read from the database and rule sets built from them, kept while the table does not change
+    (RegexRepo.stamp()). A chat of hundreds of messages asks for them on every view and every send."""
+
+    def __init__(self, stamp: tuple) -> None:
+        self.stamp = stamp
+        self.lists: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self.sets: dict[tuple, _Set] = {}
+
+
+_memos: "weakref.WeakKeyDictionary[Any, _Memo]" = weakref.WeakKeyDictionary()
+_memo_lock = threading.Lock()
+
+
+def _memo(ctx: AppContext) -> _Memo:
+    stamp = repo(ctx).stamp()
+    with _memo_lock:
+        memo = _memos.get(ctx.db)
+        if memo is None or memo.stamp != stamp:
+            memo = _memos[ctx.db] = _Memo(stamp)
+        return memo
+
+
+def _rules_of(ctx: AppContext, memo: _Memo, scope: str, owner_id: str) -> list[dict[str, Any]]:
+    got = memo.lists.get((scope, owner_id))
+    if got is None:
+        got = memo.lists[(scope, owner_id)] = repo(ctx).list(scope, owner_id)
+    return got
+
+
+def chat_rules(ctx: AppContext, chat: dict[str, Any]) -> list[dict[str, Any]]:
+    memo = _memo(ctx)
+    rules: list[dict[str, Any]] = []
+    for scope, owner_id in _owners(ctx, chat):
+        rules += _rules_of(ctx, memo, scope, owner_id)
     return rules
+
+
+def rule_set(ctx: AppContext, chat: dict[str, Any], char: str, user: str, *, stored_only: bool = False) -> "_Set":
+    """The built rules of a chat (see `_Set`); the same object while nothing they depend on has changed."""
+    memo = _memo(ctx)
+    owners = _owners(ctx, chat)
+    key = (tuple(owners), char, user, stored_only, frozenset(_slow.items()))
+    with _memo_lock:
+        found = memo.sets.get(key)
+    if found is not None:
+        return found
+    rules: list[dict[str, Any]] = []
+    for scope, owner_id in owners:
+        rules += _rules_of(ctx, memo, scope, owner_id)
+    if stored_only:
+        rules = [r for r in rules if r["when"] == "stored"]
+    built = _Set(rules, char, user)
+    with _memo_lock:
+        if len(memo.sets) >= 32:
+            memo.sets.clear()
+        memo.sets[key] = built
+    return built
 
 
 def chat_names(ctx: AppContext, chat: dict[str, Any]) -> tuple[str, str]:
@@ -217,6 +287,8 @@ class _Set:
         self.finger: list[str] = []   # what the display cache goes by: the spec and how its result is shown
         self.prints: list[str] = []   # the spec alone (a rule that ran too long is remembered by it)
         self.broken: list[dict[str, Any]] = []
+        self._bases: dict[tuple, list[tuple[int, int | None, int | None]]] = {}
+        self._picked: dict[tuple, list[int]] = {}
         for rule in rules:
             if not rule["enabled"] or not rule["approved"]:
                 continue
@@ -224,7 +296,7 @@ class _Set:
             if error or done is None:
                 self.broken.append({"id": rule["id"], "name": rule["name"], "why": error or ""})
                 continue
-            fingerprint = _fingerprint(done[0])
+            fingerprint = done[2]
             if _slow.get(rule["id"]) == fingerprint:
                 continue  # it ran too long before; skipped until it is edited
             self.rules.append(rule)
@@ -233,10 +305,25 @@ class _Set:
             self.finger.append(fingerprint + ("h" if rule["render_html"] else ""))
 
     def pick(self, place: str | None, depth: int, kind: str, *, editing: bool = False) -> list[int]:
+        """Indexes of the rules that work on a text of this place at this depth. The list is shared: do not change it."""
         if place is None:
             return []
-        return [i for i, rule in enumerate(self.rules)
-                if applies(rule, place, depth, kind) and (not editing or rule["run_on_edit"])]
+        base = self._bases.get((place, kind, editing))
+        if base is None:  # the rules for this place and purpose, whatever the depth: (index, min, max)
+            base = self._bases[(place, kind, editing)] = [
+                (i, rule["min_depth"], rule["max_depth"]) for i, rule in enumerate(self.rules)
+                if applies({**rule, "min_depth": None, "max_depth": None}, place, 0, kind)
+                and (not editing or rule["run_on_edit"])]
+        if place == "lore" or all(low is None and high is None for _, low, high in base):
+            key = (place, kind, editing, None)
+        else:
+            key = (place, kind, editing, depth)
+        got = self._picked.get(key)
+        if got is None:
+            got = self._picked[key] = [i for i, low, high in base
+                                       if (low is None or depth >= low) and (high is None or depth <= high)
+                                       or place == "lore"]
+        return got
 
 
 def _report(rules: _Set, outcome: Outcome) -> list[dict[str, Any]]:
@@ -286,7 +373,7 @@ def _recall(key: tuple) -> dict[str, Any] | None:
 def display_summary(ctx: AppContext, chat_id: str) -> dict[str, Any]:
     chat = ctx.chats.get_chat(chat_id)
     char, user = chat_names(ctx, chat)
-    rules = _Set(chat_rules(ctx, chat), char, user)
+    rules = rule_set(ctx, chat, char, user)
     shown = [i for i, r in enumerate(rules.rules) if r["when"] in ("display", "both")]
     parts = [f"{rules.finger[i]}{rules.rules[i]['places']}{rules.rules[i]['min_depth']}{rules.rules[i]['max_depth']}"
              for i in shown]
@@ -300,7 +387,7 @@ def display(ctx: AppContext, chat_id: str, items: list[dict[str, Any]]) -> dict[
     Blocks while the worker runs (a few milliseconds): call it from a thread."""
     chat = ctx.chats.get_chat(chat_id)
     char, user = chat_names(ctx, chat)
-    rules = _Set(chat_rules(ctx, chat), char, user)
+    rules = rule_set(ctx, chat, char, user)
     results: dict[str, dict[str, Any]] = {}
     jobs: list[tuple[str, dict[str, Any], list[int], tuple]] = []
     for item in items[:600]:
@@ -339,7 +426,7 @@ def prompt_texts(ctx: AppContext, chat: dict[str, Any], history: list[dict[str, 
     for lorebook entries, {message id: reasoning} for old reasoning a rule changed (ST placement 6), and the
     rules skipped for the first time (give them to `announce`). Blocks while the worker runs: call it from a
     thread."""
-    rules = _Set(chat_rules(ctx, chat), char, user)
+    rules = rule_set(ctx, chat, char, user)
     if not any(r["when"] in ("prompt", "both") for r in rules.rules):
         return {}, {}, {}, []
     items: list[dict[str, Any]] = []
@@ -385,7 +472,7 @@ def stored(ctx: AppContext, chat_id: str, text: str, role: str, *, editing: bool
         return text, None
     chat = ctx.chats.get_chat(chat_id)
     char, user = chat_names(ctx, chat)
-    rules = _Set([r for r in chat_rules(ctx, chat) if r["when"] == "stored"], char, user)
+    rules = rule_set(ctx, chat, char, user, stored_only=True)
     picked = rules.pick(place, 0, "stored", editing=editing)
     if not picked:
         return text, None
@@ -452,7 +539,7 @@ def import_rules(ctx: AppContext, obj: Any, scope: str, owner_id: str = "", *, a
     owner_id = _owner_check(ctx, scope, owner_id)
     allowed = (scope == "global") if approved is None else approved
     scripts = st_regex.scripts_from_file(obj)
-    made, problems = [], []
+    fresh, problems = [], []
     for fields in scripts[:MAX_RULES]:
         try:
             rule = normalize_rule(fields)
@@ -460,7 +547,10 @@ def import_rules(ctx: AppContext, obj: Any, scope: str, owner_id: str = "", *, a
             rule = normalize_rule({**fields, "find": "x", "enabled": False})
             rule["find"], rule["enabled"] = str(fields.get("find", ""))[:4000], False
             problems.append({"name": fields.get("name", ""), "why": exc.message})
-        made.append(describe(repo(ctx).create(scope, owner_id, rule, approved=allowed)))
+        fresh.append(rule)
+    if len(scripts) > MAX_RULES:
+        problems.append({"name": "", "why": f"В файле {len(scripts)} правил, взято первые {MAX_RULES}"})
+    made = [describe(r) for r in repo(ctx).create_many(scope, owner_id, fresh, approved=allowed)]
     return {"imported": made, "problems": problems}
 
 

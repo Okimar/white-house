@@ -33,8 +33,24 @@ def _rule(row: Any) -> dict[str, Any]:
 
 
 class RegexRepo:
+    changes = 0  # bumped by every change made through here; part of stamp()
+
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    def stamp(self) -> tuple:
+        """Changes whenever the rules do (also edits made behind this class's back: triggers, a restored copy),
+        so a service may keep what it built from them. One cheap query; a swap of two rules changes it too."""
+        row = self.db.fetchone(
+            "SELECT COUNT(*), SUM(position * rowid), SUM(approved * rowid), SUM(enabled * rowid), "
+            "MAX(updated_at), SUM(length(find) + length(replace_with) + length(name) + length(extra)) "
+            "FROM regex_scripts")
+        return (RegexRepo.changes, *tuple(row))
+
+    def count(self, scope: str, owner_id: str = "") -> int:
+        row = self.db.fetchone("SELECT COUNT(*) AS n FROM regex_scripts WHERE scope = ? AND owner_id = ?",
+                               (scope, owner_id))
+        return row["n"]
 
     def list(self, scope: str, owner_id: str = "") -> list[dict[str, Any]]:
         rows = self.db.fetchall(f"{_SELECT} WHERE scope = ? AND owner_id = ? ORDER BY position, created_at, id",
@@ -57,6 +73,7 @@ class RegexRepo:
         return _rule(row)
 
     def create(self, scope: str, owner_id: str, rule: dict[str, Any], *, approved: bool = True) -> dict[str, Any]:
+        RegexRepo.changes += 1
         rule_id, now = new_id(), now_iso()
         last = self.db.fetchone("SELECT COALESCE(MAX(position), 0) AS p FROM regex_scripts "
                                 "WHERE scope = ? AND owner_id = ?", (scope, owner_id))
@@ -71,7 +88,32 @@ class RegexRepo:
              json.dumps(rule.get("extra") or {}, ensure_ascii=False), now, now))
         return self.get(rule_id)
 
+    def create_many(self, scope: str, owner_id: str, rules: list[dict[str, Any]], *, approved: bool = True
+                    ) -> list[dict[str, Any]]:
+        """Many rules in one transaction (an import of a thousand is one write, not a thousand)."""
+        RegexRepo.changes += 1
+        now = now_iso()
+        ids: list[str] = []
+        with self.db.transaction() as conn:
+            position = conn.execute("SELECT COALESCE(MAX(position), 0) FROM regex_scripts "
+                                    "WHERE scope = ? AND owner_id = ?", (scope, owner_id)).fetchone()[0]
+            for rule in rules:
+                position += 1
+                ids.append(new_id())
+                conn.execute(
+                    "INSERT INTO regex_scripts (id, scope, owner_id, name, enabled, find, replace_with, trim_out, "
+                    "places, applies_to, min_depth, max_depth, run_on_edit, macros, render_html, approved, position, "
+                    "extra, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (ids[-1], scope, owner_id, rule["name"], int(rule["enabled"]), rule["find"], rule["replace"],
+                     json.dumps(rule["trim"], ensure_ascii=False), json.dumps(rule["places"]), rule["when"],
+                     rule["min_depth"], rule["max_depth"], int(rule["run_on_edit"]), rule["macros"],
+                     int(rule["render_html"]), int(approved), position,
+                     json.dumps(rule.get("extra") or {}, ensure_ascii=False), now, now))
+        made = set(ids)
+        return [r for r in self.list(scope, owner_id) if r["id"] in made]
+
     def update(self, rule_id: str, rule: dict[str, Any]) -> dict[str, Any]:
+        RegexRepo.changes += 1
         self.get(rule_id)
         self.db.execute(
             "UPDATE regex_scripts SET name = ?, enabled = ?, find = ?, replace_with = ?, trim_out = ?, places = ?, "
@@ -84,16 +126,19 @@ class RegexRepo:
         return self.get(rule_id)
 
     def delete(self, rule_id: str) -> None:
+        RegexRepo.changes += 1
         self.get(rule_id)
         self.db.execute("DELETE FROM regex_scripts WHERE id = ?", (rule_id,))
 
     def set_order(self, scope: str, owner_id: str, ids: list[str]) -> None:
+        RegexRepo.changes += 1
         with self.db.transaction() as conn:
             for position, rule_id in enumerate(ids, start=1):
                 conn.execute("UPDATE regex_scripts SET position = ? WHERE id = ? AND scope = ? AND owner_id = ?",
                              (position, rule_id, scope, owner_id))
 
     def approve(self, scope: str, owner_id: str) -> int:
+        RegexRepo.changes += 1
         return self.db.execute("UPDATE regex_scripts SET approved = 1 WHERE scope = ? AND owner_id = ? "
                                "AND approved = 0", (scope, owner_id)).rowcount
 
@@ -103,4 +148,5 @@ class RegexRepo:
         return row["n"]
 
     def delete_owner(self, scope: str, owner_id: str) -> None:
+        RegexRepo.changes += 1
         self.db.execute("DELETE FROM regex_scripts WHERE scope = ? AND owner_id = ?", (scope, owner_id))

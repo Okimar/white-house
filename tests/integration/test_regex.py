@@ -527,6 +527,63 @@ async def test_a_long_chat_with_many_rules_stays_fast(client):
     assert cold < 3.0 and warm < 1.0
 
 
+async def test_a_thousand_rules_over_a_long_chat_stay_fast(client, ctx):
+    """Owner's question: «1000 regexes, lag?». Measured at the time: view of 300 messages ~150 ms cold, ~10 ms
+    cached; the bounds are generous so a slow machine does not fail, but a return of the per-rule work does."""
+    ann, chat_id = await setup(client)
+    rules = [{"name": f"r{i}", "find": f"/#{i}#/g", "replace": f"W{i}", "places": ["user", "assistant"],
+              "when": "display" if i % 3 else "both", "min_depth": 2 if i % 7 == 0 else None}
+             for i in range(1000)]
+    from tavern.storage.repos.regex import RegexRepo
+    from tavern.core.regex import normalize_rule
+
+    RegexRepo(ctx.db).create_many("global", "", [normalize_rule(r) for r in rules])
+    items = [{"id": str(i), "text": f"message {i} with #{i % 1000}# and #{(i * 7) % 1000}# " * 4,
+              "role": "assistant" if i % 2 else "user", "depth": 299 - i} for i in range(300)]
+    started = time.monotonic()
+    first = (await client.post("/api/regex/display", json={"chat_id": chat_id, "items": items})).json()
+    cold = time.monotonic() - started
+    started = time.monotonic()
+    second = (await client.post("/api/regex/display", json={"chat_id": chat_id, "items": items})).json()
+    warm = time.monotonic() - started
+    assert second == first and first["skipped"] == []
+    assert "W5 " in first["results"]["5"]["text"] and "#5#" not in first["results"]["5"]["text"]
+    # the prompt: all rules in one worker call
+    chat = ctx.chats.get_chat(chat_id)
+    history = [{"id": i["id"], "role": i["role"], "content": i["text"], "swipe_meta": {}} for i in items]
+    started = time.monotonic()
+    messages, _, _, skipped = await asyncio.to_thread(regex_service.prompt_texts, ctx, chat, history, [], "Ann", "You")
+    prompt = time.monotonic() - started
+    assert skipped == [] and "W3 " in messages["3"] and "5" not in messages
+    print(f"\nregex 1000 rules x 300 messages: display cold {cold * 1000:.0f} ms, cached {warm * 1000:.0f} ms, "
+          f"prompt {prompt * 1000:.0f} ms")
+    assert cold < 4.0 and warm < 0.8 and prompt < 3.0
+
+
+async def test_import_of_a_thousand_rules_keeps_them_all(client):
+    scripts = [{"scriptName": f"s{i}", "findRegex": f"/x{i}/g", "replaceString": "y", "placement": [1, 2]}
+               for i in range(1000)]
+    result = (await client.post("/api/regex/import", json={"scope": "global", "scripts": scripts})).json()
+    assert len(result["imported"]) == 1000 and result["problems"] == []
+    assert [r["position"] for r in result["imported"]] == list(range(1, 1001))
+    assert len((await client.get("/api/regex/rules?scope=global")).json()["rules"]) == 1000
+
+
+async def test_rules_read_again_after_every_kind_of_change(client):
+    """The rules of a chat are kept between requests; any change (edit, switch off, order, delete) shows at once."""
+    _, chat_id = await setup(client)
+    a = await add(client, "/a/", "1", name="a")
+    b = await add(client, "/a/", "2", name="b")
+    assert (await display(client, chat_id, "a"))["text"] == "1"       # a -> 1, then b finds no "a" left
+    assert (await display(client, chat_id, "a"))["text"] == "1"
+    await client.put("/api/regex/order", json={"scope": "global", "ids": [b["id"], a["id"]]})
+    assert (await display(client, chat_id, "a"))["text"] == "2"       # b -> 2, a finds no "a"
+    await client.put(f"/api/regex/rules/{a['id']}", json={"enabled": False})
+    assert (await display(client, chat_id, "a"))["text"] == "2"
+    await client.delete(f"/api/regex/rules/{b['id']}")
+    assert (await display(client, chat_id, "a"))["text"] == "a"
+
+
 async def test_the_doctor_fix_removes_rules_without_an_owner(client, ctx):
     from tavern.services import doctor
 

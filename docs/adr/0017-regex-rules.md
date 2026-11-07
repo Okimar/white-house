@@ -65,6 +65,17 @@ chat of hundreds of messages with dozens of rules is one pipe round trip at most
 Measured on the dev machine: 300 messages x 31 rules, first view about 100 ms, cached about 25 ms, a worker start about
 60 ms, a catastrophic pattern stopped after the limit (1 s in the tests).
 
+**A thousand rules (measured 2026-11-08, dev PC).** Before: opening a chat of 300 messages 370 to 570 ms and 35 to 85 ms
+cached, sending 300 ms to the model, the rule list 85 ms. Causes: the worker said «R n» before every rule and the
+parent handed each line over a queue (800 thread hand-offs); it looked up every rule in every item's list (quadratic);
+the rules were read from the database and translated again on every request; `pick` ran `applies` for each rule and
+message. Now: the parent only keeps the last «R n» (no queue), the worker groups items by rule, keeps compiled
+patterns between jobs, skips a plain-text rule whose text is not in the message, and only the rules a job uses go over
+the pipe; the service keeps the rules and the built rule set while `RegexRepo.stamp()` is unchanged (one small
+query), and the rules of a place and depth are chosen once per set. Result: view 130 to 150 ms first time after a
+rule change or start, about 10 ms after; send to the model 60 to 90 ms (30 without rules); the rule list 14 ms. The
+limit of rules per list is 2000 (it was 300, and an import cut the rest silently; it now says so).
+
 **Display and HTML.** The page asks the server how each visible message looks (`POST /api/regex/display`),
 because the engine is there; the answer is `{text, changed, nodes}`. `nodes` exists when a rule with
 `render_html` changed the text. It is a **tree**, built by `core/safe_html.py` (stdlib `html.parser`): only listed tags
