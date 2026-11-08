@@ -213,7 +213,7 @@ class OpenAICompatProvider(Provider):
         try:
             response = await self._client.post(f"{self.base_url}/embeddings", json=body, headers=self._headers())
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Cannot reach {self.base_url}: {exc!r}") from exc
+            raise ProviderError(f"Cannot reach {self.base_url}: {exc!r}", reason="network") from exc
         if response.status_code >= 400:
             raise await _error_from(response)
         try:
@@ -333,6 +333,8 @@ async def _error_from(response: httpx.Response) -> ProviderError:
             message = str(err["message"])
         elif isinstance(err, str):
             message = err
+        elif isinstance(response.json().get("detail"), str):  # Voyage and others
+            message = response.json()["detail"]
     except (ValueError, AttributeError):
         pass
     status = response.status_code

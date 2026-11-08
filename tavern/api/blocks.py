@@ -71,6 +71,11 @@ async def vectorize(request: Request) -> JSONResponse:
     return JSONResponse({"made": made})
 
 
+async def check_vectors(request: Request) -> JSONResponse:
+    """Settings → Промпт «Проверить векторы»: one tiny request through the chosen connection."""
+    return JSONResponse(await character_tree.check_vectors(ctx_of(request)))
+
+
 async def add_link(request: Request) -> JSONResponse:
     """Body: {a, b}: two bubbles of this character to link."""
     body = await json_body(request)
@@ -98,6 +103,7 @@ async def set_chance(request: Request) -> JSONResponse:
 routes = [
     Route("/characters/{id}/blocks", list_blocks, methods=["GET"]),
     Route("/characters/{id}/blocks", create_block, methods=["POST"]),
+    Route("/vectors/test", check_vectors, methods=["POST"]),
     Route("/characters/{id}/vectorize", vectorize, methods=["POST"]),
     Route("/characters/{id}/blocks/layout", save_layout, methods=["PUT"]),
     Route("/characters/{id}/blocks/chance", set_chance, methods=["PUT"]),

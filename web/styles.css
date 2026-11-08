@@ -1128,3 +1128,5 @@ small, .muted small { font-size: var(--text-sm); }
 .settings-pending { min-height: 80dvh; }
 .regex-search { width: 100%; min-height: var(--tap); margin: 4px 0 8px; }
 .regex-more { width: 100%; min-height: var(--tap); margin: 8px 0; }
+
+.hint.err { color: var(--danger); }

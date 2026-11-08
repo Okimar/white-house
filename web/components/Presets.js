@@ -128,6 +128,17 @@ function RetrievalSettings({ settings, onChanged, onError }) {
   const [connections, setConnections] = useState([]);
   const current = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, ...(settings.retrieval || {}) };
   const [draft, setDraft] = useState(current);
+  const [vecCheck, setVecCheck] = useState(null); // {busy} | {ok, text} | {ok: false, text}
+  const chosen = connections.find((c) => c.id === settings.embedding_connection);
+  const checkVectors = async () => {
+    setVecCheck({ busy: true });
+    try {
+      const d = await api.post("/vectors/test", {});
+      setVecCheck(d.ok ? { ok: true, text: `Работает: модель ${d.model}, вектор из ${d.size} чисел, ${d.ms} мс` }
+        : { ok: false, text: d.error });
+    } catch (e) { setVecCheck({ ok: false, text: e.message }); }
+  };
+  useEffect(() => { setVecCheck(null); }, [settings.embedding_connection]);
   useEffect(() => { api.get("/connections").then((d) => setConnections(d.connections)).catch((e) => onError(e.message)); }, []);
   const save = async (patch) => {
     try { await api.put("/settings", patch); notify("Сохранено", "ok"); onChanged(); } catch (e) { onError(e.message); }
@@ -162,8 +173,19 @@ function RetrievalSettings({ settings, onChanged, onError }) {
       <${Select} value=${settings.embedding_connection || ""} onChange=${(e) => save({ embedding_connection: e.target.value })}>
         <option value="">— нет, только ключевые слова —</option>
         ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name} · ${c.model || "модель не задана"}</option>`)}
-      </${Select}></label>`;
+      </${Select}></label>
+    ${chosen && chosen.model && !looksLikeEmbedding(chosen.model) && html`
+      <p class="hint">Похоже, это модель для чата, а не для векторов. Нажмите «Проверить векторы».</p>`}
+    <div class="row">
+      <button disabled=${!settings.embedding_connection || vecCheck?.busy} onClick=${checkVectors}>Проверить векторы</button>
+    </div>
+    ${vecCheck && !vecCheck.busy && html`<p class=${vecCheck.ok ? "hint" : "hint err"} role="status">${vecCheck.text}</p>`}
+    ${vecCheck?.busy && html`<p class="hint" role="status">Проверяю…</p>`}`;
 }
+
+// Words that embedding models carry in their names; a chat model has none of them (same list as providers/catalog.py).
+const EMBED_HINTS = ["embed", "voyage", "e5", "bge", "gte", "nomic", "minilm", "mxbai", "arctic", "jina", "bert", "snowflake", "uae", "sentence"];
+const looksLikeEmbedding = (model) => EMBED_HINTS.some((h) => (model || "").toLowerCase().includes(h));
 
 function ExportDialog({ preset, onClose }) {
   useEscape(onClose);

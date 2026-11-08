@@ -6,6 +6,7 @@ The older single `api_key` field still works: it replaces all keys with one.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from starlette.requests import Request
@@ -19,6 +20,8 @@ from tavern.providers import keys as K
 from tavern.providers import params as P
 from tavern.services import connections as conn_service
 from tavern.services import parallel
+
+log = logging.getLogger(__name__)
 
 
 def _public(ctx: Any, conn: dict[str, Any]) -> dict[str, Any]:
@@ -75,6 +78,9 @@ def _kind_and_url(ctx: Any, body: dict[str, Any]) -> tuple[str, str, str]:
     base_url = field(body, "base_url", str, default=preset.get("base_url", "")).strip()
     if not base_url:
         raise BadRequest("Field 'base_url' must not be empty")
+    base_url, fixed = services.fix_address(base_url, kind)
+    if fixed:
+        log.info("Connection address corrected to %s", base_url)
     return service, kind, base_url
 
 
@@ -98,7 +104,10 @@ async def create_connection(request: Request) -> JSONResponse:
     K.save_keys(ctx.secrets, conn["id"], keys)
     if ctx.settings.get("active_connection") is None:
         ctx.settings.set("active_connection", conn["id"])
-    return JSONResponse(_public(ctx, conn), status_code=201)
+    out = _public(ctx, conn)
+    if base_url != str(body.get("base_url") or base_url).strip():
+        out["address_fixed"] = base_url
+    return JSONResponse(out, status_code=201)
 
 
 async def update_connection(request: Request) -> JSONResponse:
@@ -108,19 +117,31 @@ async def update_connection(request: Request) -> JSONResponse:
     kind = field(body, "kind", str, default=None)
     if kind is not None and kind not in ctx.providers.kinds:
         raise BadRequest(f"Unknown provider kind {kind!r}. Available: {', '.join(ctx.providers.kinds)}")
+    new_url = field(body, "base_url", str, default=None, allow_empty=False)
+    fixed_url = None
+    if new_url is not None:
+        kind_now = kind or ctx.connections.get(conn_id)["kind"]
+        fixed_url, changed = services.fix_address(new_url, kind_now)
+        if changed:
+            log.info("Connection address corrected to %s", fixed_url)
+        else:
+            fixed_url = None
     conn = ctx.connections.update(
         conn_id,
         name=field(body, "name", str, default=None, allow_empty=False),
         kind=kind,
         service=field(body, "service", str, default=None),
-        base_url=field(body, "base_url", str, default=None, allow_empty=False),
+        base_url=fixed_url or new_url,
         model=field(body, "model", str, default=None),
         params=_params(body, None),
     )
     if "api_key" in body:
         api_key = field(body, "api_key", str)
         K.save_keys(ctx.secrets, conn_id, [K.new_key(key=api_key)] if api_key else [])
-    return JSONResponse(_public(ctx, conn))
+    out = _public(ctx, conn)
+    if fixed_url:
+        out["address_fixed"] = fixed_url
+    return JSONResponse(out)
 
 
 async def delete_connection(request: Request) -> JSONResponse:
@@ -204,14 +225,19 @@ async def _models_of(provider: Any) -> JSONResponse:
 async def list_models(request: Request) -> JSONResponse:
     """Ask the backend which models it offers (also serves as a connection test)."""
     ctx = ctx_of(request)
-    return await _models_of(ctx.providers.create(ctx.connections.get(request.path_params["id"]), fallbacks=False))
+    conn = ctx.connections.get(request.path_params["id"])
+    if services.builtin_models(conn.get("service") or ""):
+        return JSONResponse({"models": services.builtin_models(conn["service"])})
+    return await _models_of(ctx.providers.create(conn, fallbacks=False))
 
 
 async def probe_models(request: Request) -> JSONResponse:
     """Model list for settings not saved yet, so the form can offer models while it is filled in."""
     ctx = ctx_of(request)
     body = await json_body(request)
-    _service, kind, base_url = _kind_and_url(ctx, body)
+    service, kind, base_url = _kind_and_url(ctx, body)
+    if services.builtin_models(service):
+        return JSONResponse({"models": services.builtin_models(service)})
     proxy = field(body, "proxy", str, default="").strip()
     try:
         K.check_proxy(proxy)

@@ -61,6 +61,12 @@ SERVICES: list[dict[str, Any]] = [
      "base_url": "https://api.totalgpt.ai/v1", "key": "required", "site": "https://infermatic.ai"},
     {"id": "chutes", "name": "Chutes", "kind": "openai", "group": "cloud",
      "base_url": "https://llm.chutes.ai/v1", "key": "required", "site": "https://chutes.ai"},
+    {"id": "voyage", "name": "Voyage AI (векторы)", "kind": "openai", "group": "cloud",
+     "base_url": "https://api.voyageai.com/v1", "key": "required", "embeddings": True,
+     "site": "https://dashboard.voyageai.com/organization/api-keys",
+     # Voyage has no model list endpoint; names from docs.voyageai.com/docs/embeddings.
+     "models": ["voyage-4-large", "voyage-4", "voyage-4-lite", "voyage-code-4", "voyage-finance-2",
+                "voyage-law-2", "voyage-3.5", "voyage-3.5-lite", "voyage-code-3"]},
     {"id": "aimlapi", "name": "AI/ML API", "kind": "openai", "group": "cloud",
      "base_url": "https://api.aimlapi.com/v1", "key": "required", "site": "https://aimlapi.com/app/keys"},
     # On your own machine
@@ -97,3 +103,32 @@ BY_ID = {s["id"]: s for s in SERVICES}
 def catalog(kinds: list[str]) -> dict[str, Any]:
     """Services whose protocol is available (a plugin may add kinds; core ones are always there)."""
     return {"services": [s for s in SERVICES if s["kind"] in kinds], "groups": GROUPS}
+
+
+def builtin_models(service_id: str) -> list[str]:
+    """Models a service has no list endpoint for (empty: ask the service)."""
+    return list(BY_ID.get(service_id, {}).get("models") or [])
+
+
+_WRONG_ENDINGS = ("/chat/completions", "/embeddings", "/completions")
+
+
+def fix_address(base_url: str, kind: str) -> tuple[str, bool]:
+    """A pasted full endpoint (…/v1/embeddings) becomes the API root (…/v1): requests add the tail themselves."""
+    url = base_url.strip()
+    if kind != "openai":
+        return url, False
+    trimmed = url.rstrip("/")
+    for tail in _WRONG_ENDINGS:
+        if trimmed.lower().endswith(tail):
+            return trimmed[: -len(tail)].rstrip("/"), True
+    return url, False
+
+
+_EMBED_HINTS = ("embed", "voyage", "e5", "bge", "gte", "nomic", "minilm", "mxbai", "arctic", "jina", "bert",
+                "snowflake", "uae", "sentence")
+
+
+def looks_like_embedding_model(model: str) -> bool:
+    name = model.lower()
+    return any(h in name for h in _EMBED_HINTS)

@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from tavern.context import AppContext
@@ -526,6 +527,41 @@ def embedding_connection(ctx: AppContext) -> dict[str, Any] | None:
         return ctx.connections.get(connection_id)
     except NotFound:
         return None
+
+
+_REASON_RU = {
+    "auth": "Сервис не принял ключ (проверьте ключ API).",
+    "limit": "Лимит или деньги на аккаунте закончились.",
+    "network": "Не удалось связаться с сервисом (проверьте адрес и интернет).",
+    "server": "Сервис сейчас сломался, попробуйте позже.",
+    "request": "Сервис не принял запрос: проверьте адрес (он должен заканчиваться на /v1) и название модели.",
+}
+
+
+async def check_vectors(ctx: AppContext) -> dict[str, Any]:
+    """One tiny request through the chosen vector connection: does it give vectors, how many numbers, how fast.
+    A failure is an answer, not an error: {"ok": False, "error": plain Russian text}."""
+    connection = embedding_connection(ctx)
+    if connection is None:
+        raise AppError("Сначала выберите подключение для векторов", code="no_embedding_connection")
+    model = connection["model"]
+    if not model:
+        return {"ok": False, "model": "", "error": "У этого подключения не задана модель."}
+    provider = ctx.providers.create(connection, fallbacks=False)
+    started = time.monotonic()
+    try:
+        vectors = await provider.embed(["проверка"], model=model)
+    except ProviderError as exc:
+        log.info("Vector check failed: %s", exc)
+        hint = _REASON_RU.get(exc.reason, "")
+        if exc.upstream_status == 404:
+            hint = "Адрес не найден (404): проверьте адрес, он должен заканчиваться на /v1, и название модели."
+        return {"ok": False, "model": model, "error": f"{hint} Ответ сервиса: {exc}".strip()}
+    finally:
+        await provider.aclose()
+    spending.record_call(ctx, connection, "vectors", model=model, tokens=2)
+    return {"ok": True, "model": model, "size": len(vectors[0]) if vectors else 0,
+            "ms": round((time.monotonic() - started) * 1000)}
 
 
 async def vectorize(ctx: AppContext, owner_ids: list[str]) -> int:

@@ -131,6 +131,7 @@ function NewConnection({ catalog, onCreated, onCancel, onError }) {
       const conn = await api.post("/connections", {
         name: form.name, service: service.id, base_url: form.base_url, keys,
       });
+      if (conn.address_fixed) notify(`Адрес исправлен: ${conn.address_fixed}`, "ok");
       onCreated(conn);
     } catch (err) { onError(err.message); }
   };
@@ -209,8 +210,12 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
   // Name, address and model are saved the moment the field is left; the settings below wait for «Сохранить настройки».
   const saveHead = async (patch) => {
     try {
-      await api.put(`/connections/${conn.id}`, patch);
-      notify("Сохранено", "ok");
+      const saved = await api.put(`/connections/${conn.id}`, patch);
+      if (saved.address_fixed) {
+        notify(`Адрес исправлен: ${saved.address_fixed}`, "ok");
+        say(`Адрес исправлен: ${saved.address_fixed} (дописывать /embeddings или /chat/completions не нужно)`, "ok");
+        setHead((h) => ({ ...h, base_url: saved.address_fixed }));
+      } else notify("Сохранено", "ok");
       onSaved();
     } catch (err) { onError(err.message); }
   };

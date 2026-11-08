@@ -18,8 +18,9 @@ import anyio
 from tavern.context import AppContext
 from tavern.core import structured
 from tavern.core.llm import extract_json
+from tavern.providers import catalog
 from tavern.providers import params as P
-from tavern.providers.base import ChatMessage, GenerationRequest, Provider, ProviderError
+from tavern.providers.base import ChatMessage, GenerationRequest, ModelInfo, Provider, ProviderError
 from tavern.services import spending
 
 PROBE_PARALLEL = 3
@@ -44,11 +45,15 @@ def probeable(kind: str) -> list[str]:
 
 async def inspect(ctx: AppContext, connection: dict[str, Any]) -> list[dict[str, Any]]:
     """Ask the service about its models and remember the answer."""
-    provider = ctx.providers.create(connection, fallbacks=False)
-    try:
-        infos = await provider.describe_models()
-    finally:
-        await provider.aclose()
+    built_in = catalog.builtin_models(connection.get("service") or "")
+    if built_in:
+        infos = [ModelInfo(m) for m in built_in]
+    else:
+        provider = ctx.providers.create(connection, fallbacks=False)
+        try:
+            infos = await provider.describe_models()
+        finally:
+            await provider.aclose()
     ctx.connections.replace_models(connection["id"], [i.as_dict() for i in infos])
     return ctx.connections.models(connection["id"])
 
