@@ -799,7 +799,7 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 
 /* Folded sections below the list of connections. */
 details.conn-more { border-top: 1px solid var(--line); padding: 8px 0; margin-top: 8px; }
-details.conn-more > summary, details.skills-dev > summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; color: var(--text2); font-size: var(--text-md); }
+details.conn-more > summary, details.skills-dev > summary, .gdrive > details > summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; color: var(--text2); font-size: var(--text-md); }
 
 /* Raw setting ids are quiet. */
 .param-id { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); }
@@ -966,7 +966,6 @@ a.button.icon-btn:hover { color: var(--fg); }
 .group-picker .list .item[aria-pressed="true"] { background: var(--raised); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
 .group-picker .list { max-height: 50vh; overflow-y: auto; }
 .group-big .group-map { flex: 1; }
-
 /* Dragging into groups (Groups.js): the picked bubble/row is lifted, the group under the finger lights up. */
 .group-item { cursor: grab; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 .group-item.dragging { opacity: .9; z-index: 5; transition: none; box-shadow: 0 6px 18px rgba(0, 0, 0, .35), 0 0 0 3px var(--accent); }
@@ -980,6 +979,29 @@ a.button.icon-btn:hover { color: var(--fg); }
   padding: 0 16px; border-radius: 22px; background: var(--dialog-bg); color: var(--fg); border: 2px solid var(--accent);
   box-shadow: 0 6px 18px rgba(0, 0, 0, .35); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-md, 1rem); }
 .tree-map.far .group-frame { transition: none; }
+
+/* Оформление → Цвета: main colours of the look */
+.colors-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 0 12px 12px; margin-bottom: 12px; }
+.colors-box > summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; font-weight: 600; }
+.color-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.color-row { display: flex; align-items: center; gap: 12px; min-height: 56px; border-bottom: 1px solid var(--line); }
+.color-row.changed .color-name strong::after { content: " •"; color: var(--accent); }
+.color-pick { flex: none; width: 44px; height: 44px; padding: 2px; border-radius: var(--radius-sm); cursor: pointer; }
+.color-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.color-name .hint { font-size: var(--text-sm); }
+.color-hex { flex: none; width: 7.5em; font-family: var(--font-mono); }
+.list-plain { margin: 4px 0; padding-left: 18px; }
+.lore-order { margin: 0; padding-left: 20px; }
+.lore-settings .param-grid input.num { width: 100%; }
+
+/* Members panel: one block per person, parts under small headings */
+.member-part { margin: 12px 0 0; font-size: var(--text-sm); color: var(--text2); }
+.member .hint { margin: 0 0 4px; }
+.check { display: flex; align-items: center; gap: 8px; min-height: var(--tap); }
+.ask-never { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--tap); margin: 4px 0; }
+.ask-never .hint { flex-basis: 100%; margin: 0; }
+.notes-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--text-sm); color: var(--muted); }
+.notes-line .num { width: 4.5em; min-height: var(--tap); }
 
 /* A bubble that enters the page while the map moves fades in (opacity only); it never pops. */
 @keyframes bubble-in { from { opacity: 0; } }
@@ -1089,25 +1111,7 @@ a.button.icon-btn:hover { color: var(--fg); }
 
 small, .muted small { font-size: var(--text-sm); }
 
-/* Оформление → Цвета: main colours of the look */
-.colors-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 0 12px 12px; margin-bottom: 12px; }
-.colors-box > summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; font-weight: 600; }
-.color-list { list-style: none; margin: 0 0 8px; padding: 0; }
-.color-row { display: flex; align-items: center; gap: 12px; min-height: 56px; border-bottom: 1px solid var(--line); }
-.color-row.changed .color-name strong::after { content: " •"; color: var(--accent); }
-.color-pick { flex: none; width: 44px; height: 44px; padding: 2px; border-radius: var(--radius-sm); cursor: pointer; }
-.color-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.color-name .hint { font-size: var(--text-sm); }
-.color-hex { flex: none; width: 7.5em; font-family: var(--font-mono); }
-.list-plain { margin: 4px 0; padding-left: 18px; }
-.lore-order { margin: 0; padding-left: 20px; }
-.lore-settings .param-grid input.num { width: 100%; }
-
-/* Members panel: one block per person, parts under small headings */
-.member-part { margin: 12px 0 0; font-size: var(--text-sm); color: var(--text2); }
-.member .hint { margin: 0 0 4px; }
-.check { display: flex; align-items: center; gap: 8px; min-height: var(--tap); }
-.ask-never { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--tap); margin: 4px 0; }
-.ask-never .hint { flex-basis: 100%; margin: 0; }
-.notes-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--text-sm); color: var(--muted); }
-.notes-line .num { width: 4.5em; min-height: var(--tap); }
+/* A settings tab waiting for its first data keeps its place, so what arrives does not push anything. */
+.settings-pending { min-height: 80dvh; }
+.regex-search { width: 100%; min-height: var(--tap); margin: 4px 0 8px; }
+.regex-more { width: 100%; min-height: var(--tap); margin: 8px 0; }

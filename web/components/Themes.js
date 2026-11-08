@@ -153,7 +153,7 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
   const versionsBox = useRef(null);
   const current = settings.theme || "default";
   const byId = Object.fromEntries(themes.map((t) => [t.id, t]));
-  const [parked, setParked] = useState(null);
+  const [parked, setParked] = useState(undefined); // undefined: not asked yet (the tab waits, so the notice does not push the themes down)
   const pending = byId[current];
   const needsApproval = pending && pending.script && !scriptAllowed(pending, settings);
 
@@ -166,7 +166,7 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
 
   // What an update switched off (the old look): kept, and one action brings it back.
   useEffect(() => {
-    api.get("/look").then((d) => setParked(d.parked)).catch(() => setParked(null));
+    api.get("/look").then((d) => setParked(d.parked ?? null)).catch(() => setParked(null));
   }, [settings.theme]);
   const restoreParked = async () => {
     if (!await ask("Вернуть прежнее оформление?", { ok: "Вернуть", danger: true,
@@ -250,6 +250,7 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
     save({ character_themes: map });
   };
 
+  if (parked === undefined) return html`<div class="settings-pending" aria-busy="true"></div>`;
   return html`
     ${needsApproval && html`<div class="notice" role="alert">
       <p>Тема «${pending.name}» хочет запустить свой скрипт эффектов (анимации, интерактив).

@@ -184,6 +184,7 @@ function App() {
     }
   };
   useEffect(() => { refresh(); }, []);
+  useEffect(() => { window.addEventListener("tavern:settings-changed", refresh); return () => window.removeEventListener("tavern:settings-changed", refresh); }, []);
   // The assistant changed something (or undid it): lists, books, the open chat and its members reload
   // (the settings reload brings a new theme too). "show": it opens a chat or a character for the user.
   const assistantChanged = () => {

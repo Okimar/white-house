@@ -187,6 +187,7 @@ export function Presets({ settings, onChanged, onError }) {
   const [active, setActive] = useState(settings.active_preset || "default");
   const [current, setCurrent] = useState(null); // {id, name, builtin, data} being viewed/edited
   const [dirty, setDirty] = useState(false);
+  const [ready, setReady] = useState(false); // the first list and preset are here: until then an empty box keeps the place (no jump)
   const [exporting, setExporting] = useState(null); // preset whose file format is being chosen
   const fileInput = useRef(null);
 
@@ -199,8 +200,8 @@ export function Presets({ settings, onChanged, onError }) {
     reload().then((d) => {
       if (!d) return;
       const mine = getChoice("preset");
-      open(mine && d.presets.some((p) => p.id === mine) ? mine : d.active);
-    });
+      return open(mine && d.presets.some((p) => p.id === mine) ? mine : d.active);
+    }).finally(() => setReady(true));
   }, []);
 
   // Leaving a preset with unsaved edits asks first.
@@ -295,6 +296,7 @@ export function Presets({ settings, onChanged, onError }) {
   };
   const readOnly = !current || current.builtin;
 
+  if (!ready) return html`<div class="settings-pending" aria-busy="true"></div>`;
   return html`
     ${Array.isArray(settings.service_texts_moved) && settings.service_texts_moved.length > 0 && html`
       <div class="notice" data-slot="moved-notice" role="status">

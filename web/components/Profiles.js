@@ -78,7 +78,7 @@ export function Profiles({ onApplied, onError }) {
     if (saved) notify("Сохранено", "ok");
   };
   const remove = async (p) => {
-    if (!await ask(`Удалить профиль «${p.name}»?`, { ok: "Удалить", danger: true })) return;
+    if (!await ask(`Удалить профиль «${p.name}»?`, { ok: "Удалить", danger: true, skip: "profile" })) return;
     await api.del(`/profiles/${p.id}`).catch((e) => onError(e.message));
     reload();
   };

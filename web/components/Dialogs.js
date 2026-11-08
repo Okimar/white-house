@@ -36,6 +36,7 @@ export async function setSkip(key, on) {
   if (on) next[key] = true; else delete next[key];
   const saved = await api.put("/settings", { skip_confirms: next });
   syncSkips(saved.skip_confirms);
+  window.dispatchEvent(new Event("tavern:settings-changed")); // the app's copy of the settings is read again (Settings shows it)
   return skips;
 }
 

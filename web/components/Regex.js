@@ -236,8 +236,16 @@ function RuleRow({ rule, index, count, onMove, onEdit, onToggle, onCopy, onDelet
   </div>`;
 }
 
+const PAGE_RULES = 40;  // a list of a thousand rules is shown by pages: all of them in the page would freeze a phone
+const SEARCH_FROM = 20; // the search field appears with this many rules
+
 function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed }) {
   const [editing, setEditing] = useState(null); // a rule, or {} for a new one
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(PAGE_RULES);
+  const needle = query.trim().toLowerCase();
+  const found = rules.map((rule, i) => ({ rule, i }))
+    .filter(({ rule }) => !needle || (rule.name || "").toLowerCase().includes(needle) || (rule.find || "").toLowerCase().includes(needle));
   const fileInput = useRef(null);
   const act = (fn) => async (...args) => {
     try { await fn(...args); changed(); } catch (e) { onError(e.message); }
@@ -271,8 +279,12 @@ function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed
         что получает модель, поэтому оно включится только с вашего согласия. Прочитайте их и разрешите, если всё в порядке.</p>
       <button class="primary" onClick=${allow}>Разрешить все (${pending})</button></div>`}
     ${rules.length === 0 && html`<${EmptyNote} title="Правил пока нет" hint="Правило находит кусок текста и заменяет его: на экране, для модели или в самом сообщении." />`}
-    ${rules.map((r, i) => html`<${RuleRow} key=${r.id} rule=${r} index=${i} count=${rules.length} onMove=${move}
+    ${rules.length >= SEARCH_FROM && html`<input type="search" class="regex-search" value=${query} placeholder=${`Найти среди ${rules.length} правил`}
+      aria-label="Найти правило по имени или шаблону" onInput=${(e) => { setQuery(e.target.value); setLimit(PAGE_RULES); }} />`}
+    ${found.slice(0, limit).map(({ rule, i }) => html`<${RuleRow} key=${rule.id} rule=${rule} index=${i} count=${rules.length} onMove=${move}
       onEdit=${setEditing} onToggle=${toggle} onCopy=${copy} onDelete=${remove} />`)}
+    ${found.length > limit && html`<button class="regex-more" onClick=${() => setLimit(limit + PAGE_RULES)}>Показать ещё (${found.length - limit})</button>`}
+    ${needle && found.length === 0 && html`<p class="muted">Ничего не найдено.</p>`}
     <div class="row regex-actions">
       <button onClick=${() => setEditing({})}><${Icon} name="plus" /> Новое правило</button>
       <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
