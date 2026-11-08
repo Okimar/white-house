@@ -252,3 +252,14 @@ async def test_a_card_naming_its_lorebook_gets_it(client, ctx):
             "data": {"name": "Bo", "extensions": {"world": "эйра"}}}
     bo = (await client.post("/api/characters", json=card)).json()
     assert ctx.lorebooks.uses("character", bo["id"]) == [world]
+
+
+async def test_import_names_the_book_by_the_file_inside_name_not_the_file_name(client):
+    tree = {"name": "The Garden 1.5", "description": "d", "entries": {}, "tavern_tree": {"blocks": []}}
+    made = await client.post("/api/lorebooks/import?name=true.json", content=json.dumps(tree).encode())
+    assert made.status_code == 201, made.text
+    assert made.json()["name"] == "The Garden 1.5"
+    padded = await client.post("/api/lorebooks/import?name=a.json", content=json.dumps({"name": "  Sad  ", "entries": {}}).encode())
+    assert padded.json()["name"] == "Sad"
+    blank = await client.post("/api/lorebooks/import?name=true.json", content=json.dumps({"name": "   ", "entries": {}}).encode())
+    assert blank.json()["name"] == "true"

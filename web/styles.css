@@ -323,6 +323,11 @@ input.num { width: 4.5em; }
 .tree-map.far .bubble-port, .tree-map.far .bubble-order, .tree-map.far .bubble-vec, .tree-map.far .bubble-chance { display: none; }
 .tree-map.far .tree-lines path, .tree-map.moving .tree-lines path.tree-refs { stroke-dasharray: none; stroke-linecap: butt; }
 .tree-map.far .bubble.selected { box-shadow: 0 0 0 3px var(--accent); }
+/* On a touch screen the blurred shadows are the costly paint while the map moves: plain bubbles drop them until it stops. */
+@media (pointer: coarse) {
+  .tree-map.moving .bubble { transition: none; }
+  .tree-map.moving .bubble:not(.depth-1):not(.depth-2):not(.depth-3):not(.selected):not(.linking):not(.target) { box-shadow: none; }
+}
 .mode-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--mode-color); flex: none; }
 .mode-pick { display: flex; gap: 4px; flex-wrap: wrap; }
 .mode-btn[aria-checked="true"] { border-color: var(--mode-color); box-shadow: inset 0 0 0 1px var(--mode-color); font-weight: 600; }

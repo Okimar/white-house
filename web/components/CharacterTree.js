@@ -11,7 +11,7 @@
 // Built to stay smooth with thousands of bubbles: only bubbles in view are rendered, lines are a
 // few SVG paths (one per colour), pan/zoom moves one layer, and pointer moves apply once per frame.
 import { Select } from "./Select.js";
-import { html, useState, useEffect, useRef, useMemo, useCallback } from "../vendor/preact-htm.mjs";
+import { html, Component, useState, useEffect, useRef, useMemo, useCallback } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ROLES } from "./roles.js";
 import { Icon, IconButton } from "./Icon.js";
@@ -143,6 +143,34 @@ const curve = (p, q) => {
   const x1 = p.x + W; const y1 = p.y + H / 2; const x2 = q.x; const y2 = q.y + H / 2; const mx = (x1 + x2) / 2;
   return `M${x1} ${y1}C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}`;
 };
+
+// One bubble of the map. A re-render of the map (the camera moved a good way) leaves the bubbles that stay the same
+// untouched: every prop is a plain value, so a shallow compare tells.
+class BubbleNode extends Component {
+  shouldComponentUpdate(next) {
+    for (const k in next) if (next[k] !== this.props[k]) return true;
+    return false;
+  }
+  render({ id, cls, x, y, tip, mode, title, orderN, chance, vec, kidsN, collapsed, far }) {
+    // Zoomed far out the ports, numbers and marks are hidden by CSS anyway: do not build them (hundreds of bubbles).
+    if (far) {
+      return html`<div data-bid=${id} class=${cls} style=${`transform: translate(${x}px, ${y}px)`} title=${tip}>
+        <${Ring} mode=${mode} /><span class="bubble-title">${title}</span>
+        ${kidsN > 0 && html`<span class="bubble-count">${collapsed ? "+" : ""}${kidsN}</span>`}
+      </div>`;
+    }
+    return html`<div data-bid=${id} class=${cls} style=${`transform: translate(${x}px, ${y}px)`} title=${tip}>
+      <span class="bubble-port in" data-port="in" title=${PORT_TITLE}></span>
+      <${Ring} mode=${mode} /><span class="bubble-title">${title}</span>
+      ${orderN ? html`<sup class="bubble-order" title="номер среди соседей">${orderN}</sup>` : null}
+      ${mode === "search" && chance < 100 && html`<span class="bubble-chance" title="шанс">${chance}%</span>`}
+      ${vec && html`<span class="bubble-vec" title="векторизован"><${Icon} name="waypoints" size=${12} /></span>`}
+      ${kidsN > 0 && html`<span class="bubble-count"
+        title=${collapsed ? "подпузыри свёрнуты" : "подпузырей"}>${collapsed ? "+" : ""}${kidsN}</span>`}
+      <span class="bubble-port out" data-port="out" title=${PORT_TITLE}></span>
+    </div>`;
+  }
+}
 
 function Ring({ mode }) {
   return html`<span class=${"mode-dot mode-" + mode} aria-hidden="true"></span>`;
@@ -515,8 +543,6 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const cam = useRef(camera);
   const gesture = useRef(null);
   const frame = useRef(0);
-  const settle = useRef(0); // timer: the culling catches up a moment after the camera stops
-  const calm = useRef(0); // timer: dashes on the link arcs come back a moment after the map stops moving
   const drawn = useRef(camera); // the camera the bubbles in the page were last chosen for
   const dragRef = useRef(null);
   const dragFrame = useRef(0);
@@ -600,34 +626,49 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   // page (culling) is chosen again only when the camera has gone a good part of the margin away from
   // where they were chosen, or a moment after it stops: re-drawing hundreds of bubbles on every
   // pointer move is what made panning a big zoomed-out tree lag.
+  // No timers per pointer move (a setTimeout/clearTimeout pair on every event was the biggest cost of a pan on a slow
+  // tablet): one frame loop runs while the map moves, checks how far the camera went and how long ago it last moved.
   const commitCamera = () => {
-    clearTimeout(settle.current);
-    cancelAnimationFrame(frame.current);
-    frame.current = 0;
     drawn.current = { ...cam.current };
     setCamera(drawn.current);
   };
-  // While the map moves the link arcs are drawn solid (a dash pattern on long arcs is what made panning and
-  // zooming lag with many links); the class comes off 200 ms after the last move.
-  const markMoving = () => {
+  const lastMove = useRef(0);
+  const movingOn = useRef(false);
+  const loop = () => {
+    frame.current = 0;
     const el = viewport.current;
-    if (!el) return;
-    el.classList.add("moving");
-    clearTimeout(calm.current);
-    calm.current = setTimeout(() => el.classList.remove("moving"), 200);
+    const idle = performance.now() - lastMove.current;
+    const d = drawn.current;
+    const c = cam.current;
+    const far = Math.abs(c.x - d.x) > MOVE_REDRAW || Math.abs(c.y - d.y) > MOVE_REDRAW
+      || Math.abs(Math.log(c.s / d.s)) > 0.12;
+    if (far || (idle > 120 && (c.x !== d.x || c.y !== d.y || c.s !== d.s))) commitCamera();
+    if (idle > 200 || !el) {
+      if (el) el.classList.remove("moving");
+      movingOn.current = false;
+      return;
+    }
+    frame.current = requestAnimationFrame(loop);
+  };
+  // While the map moves the link arcs are drawn solid and bubbles lose shadows and transitions (CSS `.moving`);
+  // the class comes off 200 ms after the last move.
+  const markMoving = () => {
+    lastMove.current = performance.now();
+    if (!movingOn.current && viewport.current) {
+      movingOn.current = true;
+      viewport.current.classList.add("moving");
+    }
+    if (!frame.current) frame.current = requestAnimationFrame(loop);
   };
   const applyCamera = (next) => {
     markMoving();
     cam.current = next;
     if (world.current) world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.s})`;
-    const d = drawn.current;
-    const far = Math.abs(next.x - d.x) > MOVE_REDRAW || Math.abs(next.y - d.y) > MOVE_REDRAW
-      || Math.abs(Math.log(next.s / d.s)) > 0.12;
-    clearTimeout(settle.current);
-    if (far) { if (!frame.current) frame.current = requestAnimationFrame(commitCamera); }
-    else settle.current = setTimeout(commitCamera, 120);
   };
-  useEffect(() => () => { clearTimeout(settle.current); clearTimeout(calm.current); cancelAnimationFrame(frame.current); }, []);
+  useEffect(() => () => { cancelAnimationFrame(frame.current); }, []);
+  // The map's box is read once per gesture: asking for it on every move forces the page to lay out again each time.
+  const boxCache = useRef(null);
+  const boxOf = () => boxCache.current || (boxCache.current = viewport.current.getBoundingClientRect());
   const zoomAt = (px, py, factor) => {
     const c = cam.current;
     const s = Math.min(2.5, Math.max(0.12, c.s * factor));
@@ -639,7 +680,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     if (!el) return undefined;
     const wheel = (e) => {
       e.preventDefault();
-      const box = el.getBoundingClientRect();
+      boxCache.current = null;
+      const box = boxOf();
       if (e.ctrlKey || Math.abs(e.deltaY) >= Math.abs(e.deltaX)) zoomAt(e.clientX - box.left, e.clientY - box.top, Math.exp(-e.deltaY * 0.0015));
       else applyCamera({ ...cam.current, x: cam.current.x - e.deltaX });
     };
@@ -656,13 +698,14 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   };
 
   const toWorld = (clientX, clientY) => {
-    const box = viewport.current.getBoundingClientRect();
+    const box = boxOf();
     const c = cam.current;
     return { x: (clientX - box.left - c.x) / c.s, y: (clientY - box.top - c.y) / c.s };
   };
 
   const onPointerDown = (e) => {
     if (e.button > 0) return;
+    if (!gesture.current) boxCache.current = null; // a new gesture: the map may have moved on the page
     viewport.current.setPointerCapture(e.pointerId);
     const g = gesture.current || { pointers: new Map() };
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -686,7 +729,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     if (!g || !g.pointers.has(e.pointerId)) return;
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (g.mode === "pinch" && g.pointers.size === 2) {
-      const box = viewport.current.getBoundingClientRect();
+      const box = boxOf();
       const [a, b] = [...g.pointers.values()];
       const factor = (g.pinch.s * Math.hypot(a.x - b.x, a.y - b.y)) / g.pinch.dist / cam.current.s;
       zoomAt((a.x + b.x) / 2 - box.left, (a.y + b.y) / 2 - box.top, factor);
@@ -696,8 +739,16 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     const dy = e.clientY - g.start.y;
     if (g.mode === "wire") {
       const w = toWorld(e.clientX, e.clientY);
-      dragRef.current = { from: g.bid, port: g.port, ...w, target: dropTarget(e.clientX, e.clientY, new Set([g.bid])) };
-      if (!dragFrame.current) dragFrame.current = requestAnimationFrame(() => { dragFrame.current = 0; setWire(dragRef.current); });
+      // The bubble under the finger is looked up once per frame, not on every move event.
+      const hit = { x: e.clientX, y: e.clientY };
+      dragRef.current = { from: g.bid, port: g.port, ...w, target: dragRef.current?.target || null, hit };
+      if (!dragFrame.current) dragFrame.current = requestAnimationFrame(() => {
+        dragFrame.current = 0;
+        const cur = dragRef.current;
+        if (!cur || !cur.hit) return;
+        dragRef.current = { ...cur, target: dropTarget(cur.hit.x, cur.hit.y, new Set([cur.from])) };
+        setWire(dragRef.current);
+      });
     } else if (g.mode === "pan") {
       applyCamera({ ...cam.current, x: g.start.cam.x + dx, y: g.start.cam.y + dy });
     } else if ((g.mode === "press" && Math.hypot(dx, dy) > 6) || g.mode === "drag") {
@@ -705,8 +756,14 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       markMoving();
       const ids = g.ids || (g.ids = new Set([g.bid, ...descendants(kids, g.bid)]));
       const s = cam.current.s;
-      dragRef.current = { ids, dx: dx / s, dy: dy / s, target: nestOnDrop ? dropTarget(e.clientX, e.clientY, ids) : null };
-      if (!dragFrame.current) dragFrame.current = requestAnimationFrame(() => { dragFrame.current = 0; setDrag(dragRef.current); });
+      dragRef.current = { ids, dx: dx / s, dy: dy / s, target: dragRef.current?.target || null, hit: { x: e.clientX, y: e.clientY } };
+      if (!dragFrame.current) dragFrame.current = requestAnimationFrame(() => {
+        dragFrame.current = 0;
+        const cur = dragRef.current;
+        if (!cur || !cur.hit) return;
+        dragRef.current = { ...cur, target: nestOnDrop ? dropTarget(cur.hit.x, cur.hit.y, cur.ids) : null };
+        setDrag(dragRef.current);
+      });
     }
   };
 
@@ -720,7 +777,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     if (c0.x !== d0.x || c0.y !== d0.y || c0.s !== d0.s) commitCamera();
     const still = Math.hypot(e.clientX - g.start.x, e.clientY - g.start.y) < 6;
     if (g.mode === "wire") {
-      const current = dragRef.current;
+      const found = dragRef.current;
+      const current = found && { ...found, target: dropTarget(e.clientX, e.clientY, new Set([found.from])) };
       dragRef.current = null;
       setWire(null);
       if (current && !still) finishWire(current);
@@ -736,7 +794,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       return;
     }
     if (g.mode !== "drag") return;
-    const current = dragRef.current;
+    const found = dragRef.current;
+    const current = found && { ...found, target: nestOnDrop ? dropTarget(e.clientX, e.clientY, found.ids) : null };
     dragRef.current = null;
     setDrag(null);
     if (!current) return;
@@ -1079,24 +1138,16 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                   style=${`transform: translate(${shown.root.x}px, ${shown.root.y}px)`}>
                   <${Ring} mode=${byId.get(scope)?.mode} /><span class="bubble-title">${byId.get(scope)?.title}</span>
                   <span class="bubble-port out" data-port="out" title=${PORT_TITLE}></span></div>`}
-                ${shown.nodes.map(({ b, p }) => html`<div key=${b.id} data-bid=${b.id}
-                  class=${"bubble mode-" + b.mode + (selected === b.id ? " selected" : "") + (seenIds.current && !seenIds.current.has(b.id) ? " fresh" : "")
+                ${shown.nodes.map(({ b, p }) => html`<${BubbleNode} key=${b.id} id=${b.id}
+                  cls=${"bubble mode-" + b.mode + (selected === b.id ? " selected" : "") + (seenIds.current && !seenIds.current.has(b.id) ? " fresh" : "")
                     + (drag && drag.ids.has(b.id) ? " dragging" : "")
                     + ((drag && drag.target === b.id) || (wire && wire.target === b.id) ? " target" : "")
                     + (inactive.has(b.id) ? " inactive" : "") + (linking === b.id ? " linking" : "")
                     + (b.layout?.collapsed && !scope && (kids.get(b.id) || []).length ? ` depth-${Math.min(3, depthOf(b.id))}` : "")}
-                  style=${`transform: translate(${p.x}px, ${p.y}px)`}
-                  title=${inactive.has(b.id) ? `${b.title} — не прицеплен к карточке, модели не уходит` : b.title}>
-                  <span class="bubble-port in" data-port="in" title=${PORT_TITLE}></span>
-                  <${Ring} mode=${b.mode} /><span class="bubble-title">${b.title}</span>
-                  ${orderOf.has(b.id) && html`<sup class="bubble-order" title="номер среди соседей">${orderOf.get(b.id).n}</sup>`}
-                  ${b.mode === "search" && (b.chance ?? 100) < 100 && html`<span class="bubble-chance" title="шанс">${b.chance}%</span>`}
-                  ${vectorized.has(b.id) && html`<span class="bubble-vec" title="векторизован"><${Icon} name="waypoints" size=${12} /></span>`}
-                  ${(kids.get(b.id) || []).length > 0 && html`<span class="bubble-count"
-                    title=${b.layout?.collapsed ? "подпузыри свёрнуты" : "подпузырей"}>${b.layout?.collapsed ? "+" : ""}${(kids.get(b.id) || []).length}</span>`}
-
-                  <span class="bubble-port out" data-port="out" title=${PORT_TITLE}></span>
-                </div>`)}
+                  x=${p.x} y=${p.y} mode=${b.mode} title=${b.title}
+                  tip=${inactive.has(b.id) ? `${b.title} — не прицеплен к карточке, модели не уходит` : b.title}
+                  orderN=${orderOf.has(b.id) ? orderOf.get(b.id).n : 0} chance=${b.chance ?? 100}
+                  vec=${vectorized.has(b.id)} kidsN=${(kids.get(b.id) || []).length} collapsed=${!!b.layout?.collapsed} far=${farNow.current} />`)}
               </div>
               ${!loaded && html`<${Pending} error=${loadError} onRetry=${reload} />`}
               ${loaded && blocks.length === 0 && html`<p class="tree-empty muted">Нажмите «Пузырь» вверху, чтобы добавить первый пузырь:

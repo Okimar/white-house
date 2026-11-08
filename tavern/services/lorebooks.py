@@ -228,7 +228,8 @@ async def import_book(ctx: AppContext, data: Any, name: str = "") -> dict[str, A
     carries the whole tree, so nesting and links come back). Returns the new book."""
     if not isinstance(data, dict) or not isinstance(data.get("entries"), (dict, list)):
         raise LorebookError("This is not a lorebook file (no entries)")
-    title = (data.get("name") if isinstance(data.get("name"), str) else "") or name or "Лорбук"
+    inside = data.get("name").strip() if isinstance(data.get("name"), str) else ""
+    title = inside or name.strip() or "Лорбук"
     meta = {k: v for k, v in data.items() if k not in ("entries", "name", "description", character_tree.TREE_KEY)}
     book = ctx.lorebooks.create({
         "name": title.strip()[:MAX_NAME] or "Лорбук",
