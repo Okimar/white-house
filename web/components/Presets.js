@@ -40,9 +40,6 @@ const PARAMS = [
 // [key, label, rows, explanation]
 const SERVICE_TEXTS = [
   ["prefill", "Начало ответа модели", 3, "По-английски prefill: отправляется как начало её ответа. Пусто — нет."],
-  ["personality_format", "Формат характера", 1,
-    "Например, [{{char}}'s personality: {{personality}}]. Пусто — «Personality:»."],
-  ["scenario_format", "Формат сценария", 1, "С {{scenario}}. Пусто — «Scenario:»."],
 ];
 
 function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onRemove }) {
@@ -373,7 +370,7 @@ export function Presets({ settings, onChanged, onError }) {
       <label><input type="checkbox" checked=${current.data.prefer_card_prompts} disabled=${readOnly}
         onChange=${(e) => edit({ ...current.data, prefer_card_prompts: e.target.checked })} />
         Свой промпт карточки заменяет главный промпт пресета</label>
-      <h3>Форматы</h3>
+      <h3>Начало ответа модели</h3>
       <p class="hint">Тексты «не писать за меня», «рассказчик», «кто отвечает» и «написать за меня» теперь блоки в списке выше.</p>
       ${SERVICE_TEXTS.map(([key, label, rows, hint]) => html`<label key=${key} class="stack">${label}
         <textarea rows=${rows} disabled=${readOnly} value=${current.data.prompts[key] || ""}
