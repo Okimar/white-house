@@ -86,7 +86,9 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
     if (row) row.scrollIntoView({ block: "nearest" });
   }, [active, q]);
 
-  useEffect(() => {
+  // A layout effect, not a plain one: the list is rendered from inside another component's effect, and a plain
+  // effect of a list made there can be left waiting, so no listener (outside tap, scroll, keys) was ever set.
+  useLayoutEffect(() => {
     const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
     if (filtering && !coarse) panel.current.querySelector("input").focus({ preventScroll: true });
     else panel.current.focus({ preventScroll: true });
@@ -117,11 +119,13 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
     document.addEventListener("keydown", key, true);
     window.addEventListener("resize", place);
     document.addEventListener("scroll", scrolled, true);
+    if (window.visualViewport) window.visualViewport.addEventListener("resize", place);
     return () => {
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", key, true);
       window.removeEventListener("resize", place);
       document.removeEventListener("scroll", scrolled, true);
+      if (window.visualViewport) window.visualViewport.removeEventListener("resize", place);
     };
   }, []);
 
