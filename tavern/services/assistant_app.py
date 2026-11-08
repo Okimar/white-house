@@ -71,7 +71,7 @@ HINTS = {
                                "so the next message starts a new branch there (the old one stays)",
     "GET /messages/{id}/branches": "the other continuations after this message",
     "PUT /messages/{id}/swipe": "{index} — show another version of the message",
-    "DELETE /messages/{id}": "delete the message AND every message after it",
+    "DELETE /messages/{id}": "delete only this message (all its versions); the later ones stay and move up",
     "GET /messages/{id}/prompt": "what the model saw before writing this message (the 👁 window): every "
                                  "part of the prompt with where it came from (card, bubbles, lorebook, notes)",
     "POST /chats/{id}/impersonate": "the model writes the user's next message",

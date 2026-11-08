@@ -411,19 +411,26 @@ class ChatRepo:
         return self.get_message(chat["leaf_id"])["depth"] + 1
 
     def delete_message(self, message_id: str) -> None:
-        """Delete a message and everything below it. Moves the leaf to the parent if needed."""
+        """Delete only this message (all its versions). What came after it stays: its children move up
+        to the deleted message's parent, with their own branches, and every message below gets one
+        position less (`depth` is the message number). The leaf moves to the parent only when the
+        deleted message itself was the tip."""
         message = self.get_message(message_id)
         chat = self.get_chat(message["chat_id"])
         with self.db.transaction() as conn:
-            leaf_below = conn.execute(
-                "WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL "
+            conn.execute(
+                "WITH RECURSIVE sub(id) AS (SELECT id FROM messages WHERE parent_id = ? UNION ALL "
                 "SELECT m.id FROM messages m JOIN sub ON m.parent_id = sub.id) "
-                "SELECT 1 FROM sub WHERE id = ?",
-                (message_id, chat["leaf_id"]),
-            ).fetchone()
+                "UPDATE messages SET depth = depth - 1 WHERE id IN (SELECT id FROM sub)",
+                (message_id,),
+            )
+            conn.execute("UPDATE messages SET parent_id = ? WHERE parent_id = ?",
+                         (message["parent_id"], message_id))
             conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
-            if leaf_below is not None:
+            if chat["leaf_id"] == message_id:
                 conn.execute(
                     "UPDATE chats SET leaf_id = ?, updated_at = ? WHERE id = ?",
                     (message["parent_id"], now_iso(), chat["id"]),
                 )
+            else:
+                conn.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now_iso(), chat["id"]))

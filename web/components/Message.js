@@ -125,7 +125,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     delete: {
       disabled: busy, danger: true,
       onClick: async () => {
-        if (await ask("Удалить это сообщение и всё после него?", { ok: "Удалить", danger: true, skip: "message" })) onRemove(message.id);
+        if (await ask("Удалить это сообщение? Остальные останутся", { ok: "Удалить", danger: true, skip: "message" })) onRemove(message.id);
       },
     },
   };

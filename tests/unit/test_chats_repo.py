@@ -68,15 +68,34 @@ def test_remove_last_swipe_keeps_at_least_one(ctx, chat):
     assert (after["swipe_count"], after["active_swipe"], after["content"]) == (1, 0, "only")
 
 
-def test_delete_message_removes_subtree_and_moves_leaf(ctx, chat):
+def test_delete_message_keeps_later_messages_and_moves_them_up(ctx, chat):
     a = add(ctx, chat, "a")
     b = add(ctx, chat, "b")
-    add(ctx, chat, "c")
+    c = add(ctx, chat, "c")
+    ctx.chats.delete_message(b["id"])
+    assert ctx.chats.get_chat(chat["id"])["leaf_id"] == c["id"]
+    path = ctx.chats.active_path(chat["id"])
+    assert [m["content"] for m in path] == ["a", "c"]
+    assert [m["depth"] for m in path] == [0, 1] and path[1]["parent_id"] == a["id"]
+    assert ctx.db.fetchone("SELECT count(*) FROM messages")[0] == 2
+    assert ctx.db.fetchone("SELECT count(*) FROM swipes")[0] == 2
+
+
+def test_delete_last_message_moves_leaf_to_parent(ctx, chat):
+    a = add(ctx, chat, "a")
+    b = add(ctx, chat, "b")
     ctx.chats.delete_message(b["id"])
     assert ctx.chats.get_chat(chat["id"])["leaf_id"] == a["id"]
-    assert [m["content"] for m in ctx.chats.active_path(chat["id"])] == ["a"]
-    assert ctx.db.fetchone("SELECT count(*) FROM messages")[0] == 1
-    assert ctx.db.fetchone("SELECT count(*) FROM swipes")[0] == 1
+
+
+def test_delete_message_keeps_side_branches(ctx, chat):
+    a = add(ctx, chat, "a")
+    b = add(ctx, chat, "b")
+    c = add(ctx, chat, "c")
+    side = ctx.chats.add_message(chat["id"], role="user", content="side", parent_id=b["id"], set_leaf=False)
+    ctx.chats.delete_message(b["id"])
+    assert {m["id"] for m in ctx.chats.child_messages(a["id"])} == {c["id"], side["id"]}
+    assert ctx.chats.get_message(side["id"])["depth"] == 1
 
 
 def test_service_flags_are_stored_and_filterable(ctx, chat):

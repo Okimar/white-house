@@ -235,7 +235,7 @@ async def test_deleting_through_the_page_asks_and_comes_back_whole(client, ctx, 
     fake_llm.queue(STEP("", act("app_call", method="DELETE", path=f"/messages/{target['id']}",
                                 what="Удалить сообщения с #3")), STEP("Удалил"))
     state = await ask(client, ctx, conv, "Удали последние два", chat["id"], answer=True)
-    assert len(ctx.chats.active_path(chat["id"])) == len(path) - 2
+    assert len(ctx.chats.active_path(chat["id"])) == len(path) - 1
     await client.post(f"/api/assistant/actions/{state['actions'][-1]['id']}/undo")
     back = ctx.chats.active_path(chat["id"])
     assert [(m["id"], m["content"]) for m in back] == [(m["id"], m["content"]) for m in path]
