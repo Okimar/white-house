@@ -34,14 +34,26 @@ def git_identity(monkeypatch):
     updates.install_exit_hook(None)
 
 
+@pytest.fixture(scope="module")
+def origin_template(tmp_path_factory):
+    """The server's repository, built once; each test gets a copy (init and commits cost most of a test)."""
+    origin = tmp_path_factory.mktemp("origin-template") / "origin"
+    origin.mkdir()
+    with pytest.MonkeyPatch.context() as mp:
+        for key, value in (("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@example.invalid"),
+                           ("GIT_COMMITTER_NAME", "t"), ("GIT_COMMITTER_EMAIL", "t@example.invalid")):
+            mp.setenv(key, value)
+        git(origin, "init", "-q", "-b", "main")
+        commit(origin, "requirements.txt", "starlette==1\n", "first")
+        commit(origin, "app.txt", "v1", "second")
+    return origin
+
+
 @pytest.fixture
-def repos(tmp_path, monkeypatch):
+def repos(tmp_path, monkeypatch, origin_template):
     """origin (the server) and install (the clone the app runs from), the code check and pip replaced."""
     origin = tmp_path / "origin"
-    origin.mkdir()
-    git(origin, "init", "-q", "-b", "main")
-    commit(origin, "requirements.txt", "starlette==1\n", "first")
-    commit(origin, "app.txt", "v1", "second")
+    shutil.copytree(origin_template, origin)
     install = tmp_path / "install"
     git(tmp_path, "clone", "-q", str(origin), str(install))
     calls = {"pip": 0}

@@ -9,7 +9,9 @@ description: How to write and run tests in Tavern (pytest, async API tests via h
 
 ```bash
 python -m pytest                    # everything (tests/ and plugins/*/tests)
-python -m pytest tests/unit         # fast, pure logic
+python -m pytest -m fast           # everyday tier, about 30 s (all of tests/unit + a few key integration files)
+python -m pytest -m "not slow"       # all but the tests that start git, a server or a regex worker
+python -m pytest tests/unit         # pure logic only
 python -m pytest -k backup -x       # by name, stop at first failure
 ```
 
@@ -66,6 +68,14 @@ Pictures: `POST /v1/images/generations` on the fake returns a small PNG whose co
 the prompt; requests land in `fake.image_requests`, and `fail_next` applies to them too.
 Manual checks in the browser follow the same rule: point the active connection at
 `python -m tavern.devtools.fake_llm`, never at the owner's real model.
+
+## Tiers
+
+Tiers are set in `tests/conftest.py`: everything in `tests/unit` is `fast`; `FAST_INTEGRATION` lists the
+integration files that guard security, data safety and the chat path; `smoke/` and `SLOW_FILES` are `slow`.
+A new test in `unit/` is fast by itself. Keep a test fast: build the smallest fixture, share expensive setup
+per module, no sleeps. Do not add a test that only greps a `web/` file for a string unless it guards a rule that
+broke before (say which in its docstring).
 
 ## Rules
 

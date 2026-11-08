@@ -94,6 +94,8 @@ async def test_auto_mode_closed_routes_stay_closed(client, ctx, fake_llm):
 async def test_list_is_newest_first_and_marks_imported(client, ctx):
     conv = await setup(client)
     first = (await client.post("/api/assistant/chats")).json()["id"]
+    # two chats made in the same millisecond tie on the time: make the order the test relies on certain
+    ctx.db.execute("UPDATE assistant_chats SET updated_at = '2000-01-01T00:00:00.000Z' WHERE id = ?", (first,))
     ctx.assistant_repo.add_message(conv, "user", "позже")
     chats = (await client.get("/api/assistant")).json()["chats"]
     assert [c["id"] for c in chats][0] == conv and first in [c["id"] for c in chats]

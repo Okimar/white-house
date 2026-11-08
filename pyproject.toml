@@ -10,6 +10,10 @@ readme = "README.md"
 [tool.pytest.ini_options]
 testpaths = ["tests", "plugins"]
 addopts = "-q"
+markers = [
+    "fast: everyday tier (tests/unit and a few key integration files), run with -m fast",
+    "slow: starts git, a server or a regex worker process; the full run only",
+]
 
 [tool.ruff]
 target-version = "py311"

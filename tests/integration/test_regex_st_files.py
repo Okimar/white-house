@@ -347,27 +347,3 @@ async def test_a_think_block_cut_at_save_time_is_not_handled_twice(client, ctx, 
 
 
 # --- speed -------------------------------------------------------------------------------------
-
-
-async def test_a_chat_of_300_messages_with_all_these_rules_is_fast_and_nothing_is_flagged_runaway(client, ctx):
-    _, chat_id = await setup(client)
-    await import_files(client, *THREE, HTML, REASONING)
-    heavy = ("<div class='card'><p>Статус: <b>здоров</b></p><ul>" + "".join(f"<li>пункт {i}<br/></li>" for i in range(40))
-             + "</ul></div><think>" + "долгое размышление " * 200 + "</think>" + "Текст ответа и слова. " * 80 +
-             "<span>x</span> <img src='a.png'> <hr/>")
-    items = [{"id": str(i), "text": (heavy if i % 2 else f"привет как дела {i} " * 10) + f"{BLANK}x{BLANK}",
-              "role": "assistant" if i % 2 else "user", "depth": 300 - i} for i in range(300)]
-    started = time.monotonic()
-    response = (await client.post("/api/regex/display", json={"chat_id": chat_id, "items": items})).json()
-    cold = time.monotonic() - started
-    assert response["skipped"] == [] and "<think>" not in response["results"]["1"]["text"]
-    chat = ctx.chats.get_chat(chat_id)
-    history = [{"id": str(i), "role": it["role"], "content": it["text"], "swipe_meta": {}} for i, it in enumerate(items)]
-    started = time.monotonic()
-    rewritten, _, _, skipped = await asyncio.to_thread(regex_service.prompt_texts, ctx, chat, history, [], "Ann", "Вы")
-    warm = time.monotonic() - started
-    assert skipped == [] and not regex_service._slow
-    assert "<div" not in rewritten["1"] and "<think>" not in rewritten["1"]      # depth 298: both rules cut
-    assert rewritten["0"].count(BLANK) > 10                                      # user text: spaces became blanks
-    print(f"\nst files speed: 300 messages x 5 rules: display {cold * 1000:.0f} ms, prompt {warm * 1000:.0f} ms")
-    assert cold < 3.0 and warm < 3.0

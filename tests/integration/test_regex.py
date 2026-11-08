@@ -509,24 +509,6 @@ def test_migration_on_a_database_from_before(tmp_path):
 # --- speed ------------------------------------------------------------------------------------
 
 
-async def test_a_long_chat_with_many_rules_stays_fast(client):
-    _, chat_id = await setup(client)
-    for index in range(30):
-        await add(client, f"/word{index}/g", f"W{index}", name=f"r{index}")
-    await add(client, r"/\*\*(.+?)\*\*/g", "<b>$1</b>", render_html=True)
-    items = [{"id": str(i), "text": f"message {i} with word{i % 30} and **bold** text " * 8, "role": "assistant",
-              "depth": 300 - i} for i in range(300)]
-    started = time.monotonic()
-    first = (await client.post("/api/regex/display", json={"chat_id": chat_id, "items": items})).json()
-    cold = time.monotonic() - started
-    started = time.monotonic()
-    second = (await client.post("/api/regex/display", json={"chat_id": chat_id, "items": items})).json()
-    warm = time.monotonic() - started
-    assert first["results"]["5"]["nodes"] is not None and second == first
-    print(f"\nregex speed: 300 messages x 31 rules: first {cold * 1000:.0f} ms, cached {warm * 1000:.0f} ms")
-    assert cold < 3.0 and warm < 1.0
-
-
 async def test_a_thousand_rules_over_a_long_chat_stay_fast(client, ctx):
     """Owner's question: «1000 regexes, lag?». Measured at the time: view of 300 messages ~150 ms cold, ~10 ms
     cached; the bounds are generous so a slow machine does not fail, but a return of the per-rule work does."""

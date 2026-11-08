@@ -21,11 +21,23 @@ LOCAL_CLIENT = ("127.0.0.1", 50000)
 REMOTE_CLIENT = ("192.0.2.10", 50000)  # TEST-NET-1, never a real host
 
 
+# Two tiers (see pyproject.toml): `-m fast` is every test in tests/unit plus the files below (security, data
+# safety, the chat path), about 30 s; `-m slow` marks what starts git, a server or a regex worker process.
+FAST_INTEGRATION = {"test_access_control.py", "test_app.py", "test_chat_api.py", "test_prompt_api.py",
+                    "test_backups.py", "test_themes_api.py", "test_cli.py"}
+SLOW_FILES = {"test_updates.py", "test_regex.py", "test_regex_st_files.py", "test_search.py"}
+
+
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Run every `async def` test under anyio without decorating each one."""
+    """Run every `async def` test under anyio without decorating each one; sort tests into the two tiers."""
     for item in items:
         if isinstance(item, pytest.Function) and inspect.iscoroutinefunction(item.obj):
             item.add_marker(pytest.mark.anyio)
+        path = Path(str(item.fspath))
+        if "smoke" in path.parts or path.name in SLOW_FILES:
+            item.add_marker(pytest.mark.slow)
+        elif "unit" in path.parts or path.name in FAST_INTEGRATION:
+            item.add_marker(pytest.mark.fast)
 
 
 @pytest.fixture

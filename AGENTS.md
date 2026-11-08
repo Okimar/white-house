@@ -25,8 +25,9 @@ Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–
 | Install (Linux/macOS/Termux) | `bash install.sh` |
 | Run | `./start.sh` or `start.bat` or `python -m tavern` |
 | Run on a throwaway copy of the data | `python -m tavern --sandbox` |
-| All tests | `python -m pytest` |
-| Fast tests only | `python -m pytest tests/unit` |
+| All tests (about 2 min) | `python -m pytest` |
+| Fast tier for everyday edits (about 30 s: `tests/unit` + key security / data / chat files) | `python -m pytest -m fast` |
+| Everything except git / server / regex-process tests | `python -m pytest -m "not slow"` |
 | Health check of a data dir | `python -m tavern check` |
 | Copies of the whole data folder | `python -m tavern backup create|list|restore NAME` |
 | Check / repair the data folder | `python -m tavern doctor [--fix]` |
