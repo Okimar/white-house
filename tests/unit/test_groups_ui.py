@@ -25,5 +25,5 @@ def test_opening_a_window_does_not_remount_the_top_bar_picker():
 
 def test_tree_map_does_not_flip_looks_or_pop_lines_while_zooming():
     tree, css = text("components", "CharacterTree.js"), text("styles.css")
-    assert "farNow" in tree and "FAR_ZOOM * 1.15" in tree  # dead band around the plain-look limit
+    assert "farNow" in tree and "FAR_NOW * 1.15" in tree  # dead band around the plain-look limit
     assert "const crosses = " in tree and "bubble-in" in css

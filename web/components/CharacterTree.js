@@ -19,6 +19,7 @@ import { ask } from "./Dialogs.js";
 import { EmptyNote, Pending } from "./State.js";
 import { notify } from "../core/notify.js";
 import { panelFolded, setPanelFolded, useLayout } from "../core/layout.js";
+import { buildModel, hitTest, createPainter } from "./TreeCanvas.js";
 
 const COL = 230; // map: distance between levels
 const ROW = 66; // map: distance between leaves
@@ -43,6 +44,8 @@ function readTreeDebug() {
   return new Set(raw.split(",").map((x) => x.trim()).filter(Boolean));
 }
 const DBG = readTreeDebug();
+// The map is drawn on a canvas (TreeCanvas.js); ?treedebug=dom brings back the old DOM map to compare.
+const CANVAS = !DBG.has("dom");
 const COARSE = (() => { try { return matchMedia("(pointer: coarse)").matches; } catch (e) { return false; } })();
 // Touch screens get the cheap look from a higher zoom and a smaller ring: a weak GPU cannot paint the full one in time.
 const LITE = (COARSE || DBG.has("noshadow")) && !DBG.has("shadow");
@@ -566,6 +569,31 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const drawn = useRef(camera); // the camera the bubbles in the page were last chosen for
   const dragRef = useRef(null);
   const dragFrame = useRef(0);
+  // Canvas map: the painter, what it draws that is not the camera (kept in refs: no re-render per frame), the hover.
+  const canvasRef = useRef(null);
+  const painterRef = useRef(null);
+  const liveRef = useRef({});
+  const dragView = useRef(null);
+  const wireView = useRef(null);
+  const hoverRef = useRef(null);
+  const lastTap = useRef(null);
+  const clearDrag = useRef(false);
+  const avatarImg = useRef(null);
+  const paint = () => { if (painterRef.current) painterRef.current.requestDraw(); };
+  const showDrag = (v) => { dragView.current = v; if (CANVAS) paint(); else setDrag(v); };
+  const showWire = (v) => { wireView.current = v; if (CANVAS) paint(); else setWire(v); };
+  // What is under a screen point. Ports count only where they are shown (the picked / hovered bubble, any on touch).
+  const hitAt = (clientX, clientY, exclude = null, withPorts = true) => {
+    const model = liveRef.current.model;
+    if (!model) return {};
+    const box = boxOf();
+    const c = cam.current;
+    const wx = (clientX - box.left - c.x) / c.s; const wy = (clientY - box.top - c.y) / c.s;
+    const far = c.s < 0.45;
+    const L = liveRef.current;
+    return hitTest(model, wx, wy, { portR: (COARSE ? 16 : 9) / c.s, exclude,
+      ports: (it) => withPorts && !far && (COARSE || L.selected === it.id || hoverRef.current === it.id) });
+  };
 
   const reload = useCallback(() => api.get(`${base}/blocks`).then((d) => {
     setBlocks(d.blocks);
@@ -649,6 +677,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   // No timers per pointer move (a setTimeout/clearTimeout pair on every event was the biggest cost of a pan on a slow
   // tablet): one frame loop runs while the map moves, checks how far the camera went and how long ago it last moved.
   const commitCamera = () => {
+    if (CANVAS) { drawn.current = { ...cam.current }; paint(); return; }
     drawn.current = { ...cam.current };
     wideRef.current = false;
     setWide(false);
@@ -659,7 +688,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const wideRef = useRef(false);
   const lastZoom = useRef(0);
   const startWide = () => {
-    if (wideRef.current || DBG.has("noring")) return;
+    if (CANVAS || wideRef.current || DBG.has("noring")) return;
     wideRef.current = true;
     setWide(true);
   };
@@ -696,6 +725,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const applyCamera = (next) => {
     markMoving();
     cam.current = next;
+    if (CANVAS) { paint(); return; }
     if (world.current) world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.s})`;
   };
   useEffect(() => () => { cancelAnimationFrame(frame.current); }, []);
@@ -712,7 +742,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       if (now - t0 >= 500) {
         const fps = Math.round((n * 1000) / (now - t0)); n = 0; t0 = now;
         const w = world.current;
-        box.textContent = `zoom ${cam.current.s.toFixed(2)}  bubbles ${w ? w.querySelectorAll(".bubble").length : 0}
+        box.textContent = `zoom ${cam.current.s.toFixed(2)}  bubbles ${CANVAS ? (painterRef.current ? painterRef.current.stats.drawn : 0) : w ? w.querySelectorAll(".bubble").length : 0}
 `
           + `fps ${fps}  ${[...DBG].filter((x) => x !== "hud").join(",") || "default"}`
           + `${COARSE ? " coarse" : ""}${viewport.current?.classList.contains("far") ? " far" : ""}`;
@@ -748,6 +778,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   }, [view]);
 
   const dropTarget = (clientX, clientY, exclude) => {
+    if (CANVAS) return hitAt(clientX, clientY, exclude, false).bid || null;
     for (const el of document.elementsFromPoint(clientX, clientY)) {
       const id = el.closest && el.closest("[data-bid]")?.dataset.bid;
       if (id && !exclude.has(id)) return id;
@@ -768,8 +799,14 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     const g = gesture.current || { pointers: new Map() };
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (g.pointers.size === 1) {
-      g.bid = e.target.closest("[data-bid]")?.dataset.bid || null;
-      g.port = e.target.closest("[data-port]")?.dataset.port || null;
+      if (CANVAS) {
+        const h = hitAt(e.clientX, e.clientY);
+        g.bid = h.bid || null;
+        g.port = h.port || null;
+      } else {
+        g.bid = e.target.closest("[data-bid]")?.dataset.bid || null;
+        g.port = e.target.closest("[data-port]")?.dataset.port || null;
+      }
       g.mode = g.port && g.bid ? "wire" : g.bid && g.bid !== "root" ? "press" : "pan";
       g.start = { x: e.clientX, y: e.clientY, cam: { ...cam.current } };
     } else if (g.pointers.size === 2) {
@@ -778,13 +815,21 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       startWide();
       g.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, s: cam.current.s };
       dragRef.current = null;
-      setDrag(null);
+      showDrag(null);
     }
     gesture.current = g;
   };
 
   const onPointerMove = (e) => {
     const g = gesture.current;
+    if (CANVAS && !g && e.pointerType === "mouse") {
+      const id = hitAt(e.clientX, e.clientY, null, false).bid || null;
+      if (id !== hoverRef.current) {
+        hoverRef.current = id;
+        if (viewport.current) viewport.current.style.cursor = id ? "pointer" : "";
+        paint();
+      }
+    }
     if (!g || !g.pointers.has(e.pointerId)) return;
     g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (g.mode === "pinch" && g.pointers.size === 2) {
@@ -806,7 +851,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         const cur = dragRef.current;
         if (!cur || !cur.hit) return;
         dragRef.current = { ...cur, target: dropTarget(cur.hit.x, cur.hit.y, new Set([cur.from])) };
-        setWire(dragRef.current);
+        showWire(dragRef.current);
       });
     } else if (g.mode === "pan") {
       applyCamera({ ...cam.current, x: g.start.cam.x + dx, y: g.start.cam.y + dy });
@@ -821,7 +866,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         const cur = dragRef.current;
         if (!cur || !cur.hit) return;
         dragRef.current = { ...cur, target: nestOnDrop ? dropTarget(cur.hit.x, cur.hit.y, cur.ids) : null };
-        setDrag(dragRef.current);
+        showDrag(dragRef.current);
       });
     }
   };
@@ -839,11 +884,21 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       const found = dragRef.current;
       const current = found && { ...found, target: dropTarget(e.clientX, e.clientY, new Set([found.from])) };
       dragRef.current = null;
-      setWire(null);
+      showWire(null);
       if (current && !still) finishWire(current);
       return;
     }
     if (g.mode === "press" || (g.mode === "pan" && still)) {
+      // Canvas: a second tap on the same bubble soon after the first opens it (touch and mouse alike).
+      if (CANVAS && g.bid && !linking) {
+        const t = performance.now(); const last = lastTap.current;
+        if (last && last.bid === g.bid && t - last.t < 420 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 30) {
+          lastTap.current = null;
+          openSpace(g.bid);
+          return;
+        }
+        lastTap.current = { bid: g.bid, t, x: e.clientX, y: e.clientY };
+      }
       if (linking && g.bid && g.bid !== "root" && g.bid !== linking) {
         addLink(linking, g.bid);
         return;
@@ -856,7 +911,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     const found = dragRef.current;
     const current = found && { ...found, target: nestOnDrop ? dropTarget(e.clientX, e.clientY, found.ids) : null };
     dragRef.current = null;
-    setDrag(null);
+    // Canvas: the drag offset stays until the render that carries the new positions (no frame with a jump back).
+    if (CANVAS && current) clearDrag.current = true; else showDrag(null);
     if (!current) return;
     // Dropped on a bubble: it moves inside and takes its place in that group's layout.
     // Dropped on empty space: it stays where it was let go.
@@ -1112,13 +1168,55 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   if (farNow.current ? camera.s > FAR_NOW * 1.15 : camera.s < FAR_NOW * 0.87) farNow.current = !farNow.current;
   // Bubbles that came into the page after the first draw fade in (opacity only) instead of popping.
   const seenIds = useRef(null);
-  const shown = useMemo(() => (view === "map" ? scene(scope, camera, drag, wide ? WIDE : MARGIN_PX)
+  const shown = useMemo(() => (view === "map" && !CANVAS ? scene(scope, camera, drag, wide ? WIDE : MARGIN_PX)
     : { nodes: [], groups: [], lines: {}, refs: "", root: null }),
   [view, pos, kids, camera, size, drag, links, inactive, scope, wide]);
   // The space underneath an opened bubble, frozen where it was and blurred.
-  const behind = useMemo(() => (view === "map" && spaces.length
+  const behind = useMemo(() => (view === "map" && !CANVAS && spaces.length
     ? scene(spaces.length > 1 ? spaces[spaces.length - 2].id : null, spaces[spaces.length - 1].cam, null) : null),
   [view, pos, kids, size, links, inactive, spaces]);
+
+  // Canvas map: the model of the open space (and of the one behind it) is rebuilt only when the tree changes.
+  const modelData = { pos, kids, links, inactive, orderOf, vectorized, character, byId, descendants };
+  const cmodel = useMemo(() => (CANVAS && view === "map" ? buildModel(modelData, scope) : null),
+    [view, pos, kids, links, inactive, orderOf, vectorized, scope, character.name, character.avatar]);
+  const cbehind = useMemo(() => (CANVAS && view === "map" && spaces.length
+    ? buildModel(modelData, spaces.length > 1 ? spaces[spaces.length - 2].id : null) : null),
+  [view, pos, kids, links, inactive, orderOf, vectorized, spaces]);
+  if (clearDrag.current) { dragView.current = null; clearDrag.current = false; }
+  liveRef.current = { model: cmodel, behind: cbehind, behindCam: spaces.length ? spaces[spaces.length - 1].cam : null,
+    selected, linking, avatar: avatarImg.current, coarse: COARSE };
+  useEffect(() => {
+    if (!CANVAS || view !== "map" || !canvasRef.current || !viewport.current) return undefined;
+    const painter = createPainter(canvasRef.current, viewport.current, () => ({
+      ...liveRef.current, cam: cam.current, moving: movingOn.current, drag: dragView.current, wire: wireView.current,
+      hover: hoverRef.current }));
+    painterRef.current = painter;
+    canvasRef.current.__tree = painter; // for measuring (stats) from the console
+    painter.requestDraw();
+    return () => { painter.destroy(); painterRef.current = null; };
+  }, [view]);
+  useEffect(() => { paint(); });
+  useEffect(() => {
+    if (!CANVAS || !character.avatar) { avatarImg.current = null; return; }
+    const img = new Image();
+    img.onload = paint;
+    img.src = `/api/characters/${character.id}/avatar`;
+    avatarImg.current = img;
+  }, [character.id, character.avatar]);
+  // Keys with the map focused: arrows move it, + and - zoom (the «Список» tab is the other way to reach every bubble).
+  const onMapKey = (e) => {
+    const c = cam.current;
+    const k = e.key;
+    if (k === "ArrowLeft") applyCamera({ ...c, x: c.x + 80 });
+    else if (k === "ArrowRight") applyCamera({ ...c, x: c.x - 80 });
+    else if (k === "ArrowUp") applyCamera({ ...c, y: c.y + 80 });
+    else if (k === "ArrowDown") applyCamera({ ...c, y: c.y - 80 });
+    else if (k === "+" || k === "=") { boxCache.current = null; zoomAt(boxOf().width / 2, boxOf().height / 2, 1.25); }
+    else if (k === "-") { boxCache.current = null; zoomAt(boxOf().width / 2, boxOf().height / 2, 0.8); }
+    else return;
+    e.preventDefault();
+  };
 
   // The ring put in the page for a zoom, and the draw right after it, show bubbles at once: no fade-in.
   const wideWas = useRef(false);
@@ -1186,12 +1284,15 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       <div key="body" class="tree-body">
         ${view === "map"
           ? html`<div class=${"tree-map" + (spaces.length ? " in-space" : "") + (farNow.current ? " far" : "")
-            + (LITE ? " lite" : "") + (DBG.has("dash") ? " dash" : "") + (DBG.has("nolines") ? " nolines" : "")
+            + (LITE ? " lite" : "") + (CANVAS ? " canvas" : "") + (DBG.has("dash") ? " dash" : "") + (DBG.has("nolines") ? " nolines" : "")
             + (DBG.has("nowc") ? " nowc" : DBG.has("wc") || !COARSE ? " wc" : "")} ref=${viewport}
               onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
               onPointerUp=${onPointerUp} onPointerCancel=${onPointerUp}
-              onDblClick=${(e) => openSpace(e.target.closest("[data-bid]")?.dataset.bid)}>
-              ${behind && html`<div class="tree-behind" aria-hidden="true">
+              onDblClick=${CANVAS ? undefined : (e) => openSpace(e.target.closest("[data-bid]")?.dataset.bid)}>
+              ${CANVAS ? html`<canvas class="tree-canvas" ref=${canvasRef} role="application" tabindex="0"
+                aria-label="Карта пузырей. Стрелки двигают карту, плюс и минус меняют масштаб; все пузыри есть на вкладке «Список»"
+                onKeyDown=${onMapKey}></canvas>` : null}
+              ${!CANVAS && behind && html`<div class="tree-behind" aria-hidden="true">
                 <div class="tree-world" style=${`transform: translate(${spaces[spaces.length - 1].cam.x}px, ${spaces[spaces.length - 1].cam.y}px) scale(${spaces[spaces.length - 1].cam.s})`}>
                   <svg class="tree-lines">${Object.entries(behind.lines).map(([key, d]) => d && html`<path key=${key} class=${"line-" + key} d=${d} />`)}</svg>
                   ${behind.root && html`<div class="bubble root" style=${`transform: translate(${behind.root.x}px, ${behind.root.y}px)`}>
@@ -1199,7 +1300,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                   ${behind.nodes.map(({ b, p }) => html`<div key=${b.id} class=${"bubble mode-" + b.mode}
                     style=${`transform: translate(${p.x}px, ${p.y}px)`}><${Ring} mode=${b.mode} /><span class="bubble-title">${b.title}</span></div>`)}
                 </div></div>`}
-              <div class="tree-world" ref=${world}
+              ${!CANVAS && html`<div class="tree-world" ref=${world}
                 style=${`transform: translate(${cam.current.x}px, ${cam.current.y}px) scale(${cam.current.s})`}>
                 ${shown.groups.map(({ b, box }) => html`<div key=${"g" + b.id} class=${"tree-group mode-" + b.mode}
                   style=${`left:${box.x}px;top:${box.y}px;width:${box.w}px;height:${box.h}px`}></div>`)}
@@ -1233,7 +1334,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                   tip=${inactive.has(b.id) ? `${b.title} — не прицеплен к карточке, модели не уходит` : b.title}
                   orderN=${orderOf.has(b.id) ? orderOf.get(b.id).n : 0} chance=${b.chance ?? 100}
                   vec=${vectorized.has(b.id)} kidsN=${(kids.get(b.id) || []).length} collapsed=${!!b.layout?.collapsed} far=${farNow.current || wide} />`)}
-              </div>
+              </div>`}
               ${!loaded && html`<${Pending} error=${loadError} onRetry=${reload} />`}
               ${loaded && blocks.length === 0 && html`<p class="tree-empty muted">Нажмите «Пузырь» вверху, чтобы добавить первый пузырь:
                 например «Внешность», а в него «Волосы»</p>`}

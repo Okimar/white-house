@@ -247,6 +247,8 @@ button.link { border: 0; background: transparent; color: var(--accent); padding:
 .tree-map { flex: 1; position: relative; overflow: hidden; touch-action: none; cursor: grab; background:
   radial-gradient(circle, var(--line) 1px, transparent 1px) 0 0 / 24px 24px, var(--panel); user-select: none; }
 .tree-map:active { cursor: grabbing; }
+/* Canvas map (components/TreeCanvas.js): one canvas fills the map; the dotted background and the in-space frame below are CSS and show through. */
+.tree-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline-offset: -3px; }
 .tree-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 /* Touch screens: the layer is promoted only while the map moves (a huge permanent layer is rastered whole and
    pieces blank out on a weak GPU); ?treedebug=wc / nowc forces it always / never. */

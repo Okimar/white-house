@@ -196,7 +196,7 @@ web/                    browser UI: Preact + htm vendored in web/vendor, plain E
                         Profiles (profiles, top-bar switch, fallback steps, parallel requests,
                         side-by-side choice of variants), Spending (top-bar line, «Расход» tab;
                         core/spending.js formats money and tokens),
-                        Members (chat members + chat preset), CharacterEditor, CharacterTree,
+                        Members (chat members + chat preset), CharacterEditor, CharacterTree (owns camera, pointers, API calls) with TreeCanvas (the bubble map drawn on one canvas from theme tokens; `?treedebug=dom` = old DOM map),
                         Presets, PromptView, Notes (📝 window, notes by numbers),
                         Lorebooks (left-panel shelf, book window, BookPicker, settings tab),
                         roles (role icons/labels), Plugins (Settings tab, «may it?» window), Assistant (🪄 window);
@@ -258,7 +258,7 @@ data/                   user data, git-ignored. Never commit, never delete
 | [ui-a11y](.claude/skills/ui-a11y/SKILL.md) | labels, ARIA, focus, keys, contrast, reduced motion (adapted public skill, MIT) |
 | [add-provider](.claude/skills/add-provider/SKILL.md) | adding an LLM provider kind (core or plugin) |
 | [make-theme](.claude/skills/make-theme/SKILL.md) | restyling the interface: themes, pictures, animations, effects scripts |
-| [style-bubble-map](.claude/skills/style-bubble-map/SKILL.md) | restyling the character bubble map: classes, states, lines, tokens, speed rules |
+| [style-bubble-map](.claude/skills/style-bubble-map/SKILL.md) | restyling the bubble map (canvas): theme tokens, what is drawn, speed rules; old DOM classes |
 | [create-plugin](.claude/skills/create-plugin/SKILL.md) | writing or changing a plugin (server part, web part, tests, sharing) |
 | [agentic-plugin](.claude/skills/agentic-plugin/SKILL.md) | a reply writer that thinks: several model calls, live tree, data kept with the reply |
 
