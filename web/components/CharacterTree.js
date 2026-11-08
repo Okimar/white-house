@@ -521,6 +521,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const [vecBusy, setVecBusy] = useState(false);
   const [vecStatus, setVecStatus] = useState(null); // {connected, auto, total, current, stale, missing}
   const vecTries = useRef(0);
+  const vecWas = useRef(null); // a job was seen running: {current} at that moment, for the final notice
   const [vecTick, setVecTick] = useState(0); // wakes the poll again after a skipped tick
   const [toolsOpen, setToolsOpen] = useState(false); // phone: legend and «Шанс всем» folded in the toolbar
   const [vectorized, setVectorized] = useState(new Set());
@@ -939,32 +940,52 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const setOrder = async (block, place) => {
     try { await api.put(`/blocks/${block.id}/order`, { place }); await reload(); } catch (e) { onError(e.message); }
   };
-  // Auto vectorization works in the background: look at the counter again a few times until it is full. Only the
+  // One poller for both kinds of background vectorization (a press of the button, or the auto setting): only the
   // counter is fetched (never the blocks or links), state changes only if it differs, and a tick is skipped while
-  // the map moves, so panning is never interrupted by a re-render.
+  // the map moves, so panning is never interrupted by a re-render. It runs while a job runs (also when the window
+  // was opened in the middle of one), and for auto mode up to 6 looks while the counter is not full.
+  const vecRunning = !!(vecStatus && vecStatus.job && vecStatus.job.running);
   const vecPending = vecStatus ? vecStatus.stale + vecStatus.missing : 0;
+  const finishVec = (s) => {
+    const was = vecWas.current;
+    vecWas.current = null;
+    if (!was) return;
+    if (s.job && s.job.error) onError(s.job.error);
+    else onNotice(`Векторизовано: ${Math.max(0, s.current - was.current)}`);
+  };
   useEffect(() => {
-    if (!vecStatus || !vecStatus.auto || !vecStatus.connected || !vecPending || vecTries.current >= 6) return undefined;
+    if (vecRunning && !vecWas.current) vecWas.current = { current: vecStatus.current };
+    const auto = !!(vecStatus && vecStatus.auto && vecStatus.connected && vecPending && vecTries.current < 6);
+    if (!vecRunning && !auto) return undefined;
+    let dead = false;
     const timer = setTimeout(async () => {
       if (viewport.current && viewport.current.classList.contains("moving")) { setVecTick((n) => n + 1); return; }
-      vecTries.current += 1;
+      if (!vecRunning) vecTries.current += 1;
       try {
         const d = await api.get(`${base}/vector-status`);
+        if (dead) return;
         const s = d.vector_status;
-        setVecStatus((old) => (old && ["connected", "auto", "total", "current", "stale", "missing"].every((k) => old[k] === s[k]) ? old : s));
+        if (!(s.job && s.job.running)) finishVec(s);
+        const same = (o) => o && ["connected", "auto", "total", "current", "stale", "missing"].every((k) => o[k] === s[k])
+          && !!(o.job && o.job.running) === !!(s.job && s.job.running) && ((o.job && o.job.error) || "") === ((s.job && s.job.error) || "");
+        setVecStatus((old) => (same(old) ? old : s));
         setVectorized((old) => (old.size === d.vectorized.length && d.vectorized.every((i) => old.has(i)) ? old : new Set(d.vectorized)));
       } catch (e) { /* the next tick or a manual reload shows it */ }
-      setVecTick((n) => n + 1); // look again (at most 6 times) if it is still not full
+      if (!dead) setVecTick((n) => n + 1);
     }, 2500);
-    return () => clearTimeout(timer);
+    return () => { dead = true; clearTimeout(timer); };
   }, [vecStatus, vecTick]);
-  useEffect(() => { vecTries.current = 0; }, [revision, character.id]);
+  useEffect(() => { vecTries.current = 0; vecWas.current = null; }, [revision, character.id]);
   const vectorize = async () => {
     setVecBusy(true);
     try {
-      const { made } = await api.post(`${base}/vectorize`);
-      if (made) onNotice(`Векторизовано пузырей: ${made}`); else onNotice("Все зелёные пузыри уже векторизованы", "info");
-      reload();
+      const r = await api.post(`${base}/vectorize`);
+      if (r.started) {
+        onNotice(`Векторизация идёт в фоне: ${r.todo} пузырей`, "info");
+        if (!vecWas.current) vecWas.current = { current: vecStatus ? vecStatus.current : 0 };
+        setVecStatus((old) => (old ? { ...old, job: { running: true, error: "" } } : old));
+      } else if (r.made) { onNotice(`Векторизовано пузырей: ${r.made}`); reload(); }
+      else onNotice("Все зелёные пузыри уже векторизованы", "info");
     } catch (e) { onError(e.message); } finally { setVecBusy(false); }
   };
 
@@ -1063,10 +1084,10 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         ${view === "list" && html`<button title="Показать все ветки списка"
             onClick=${() => keepOpen(new Set(blocks.filter((b) => (kids.get(b.id) || []).length).map((b) => b.id)))}>Развернуть всё</button>
           <button title="Оставить только верхний уровень" onClick=${() => keepOpen(new Set())}>Свернуть всё</button>`}
-        <button disabled=${vecBusy || !settings.embedding_connection} onClick=${vectorize}
+        <button disabled=${vecBusy || vecRunning || !settings.embedding_connection} onClick=${vectorize}
           title=${settings.embedding_connection ? "Сделать векторы для поиска по смыслу (только текст пузырей)"
             : "Выберите подключение для векторов: Настройки → Промпт"}>
-          <${Icon} name="waypoints" /> ${vecBusy ? "Векторизую…" : "Векторизовать"}</button>
+          ${vecBusy || vecRunning ? html`<span class="vec-spin"><${Icon} name="refresh-cw" /></span>` : html`<${Icon} name="waypoints" />`} ${vecBusy || vecRunning ? "Векторизуется…" : "Векторизовать"}</button>
         <button class="tree-tools-toggle" aria-expanded=${toolsOpen} onClick=${() => setToolsOpen(!toolsOpen)}>
           <${Icon} name=${toolsOpen ? "chevron-down" : "chevron-right"} /> Легенда и шанс</button>
         <div class=${"tree-tools" + (toolsOpen ? " open" : "")}>
@@ -1083,7 +1104,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         </div>
       </div>
       <div key="vecline" class="tree-vec" role="status">
-        ${!settings.embedding_connection ? html`<span class="muted">Выберите подключение для векторов: Настройки → Промпт</span>`
+        ${!settings.embedding_connection ? html`<span class="muted">Нет подключения для векторов (Настройки → Промпт)</span>`
           : vecStatus ? html`<span class="muted">Векторы: ${vecStatus.current} из ${vecStatus.total}</span>
             ${vecPending > 0 && html`<span class="tree-vec-warn"><${Icon} name="triangle-alert" size=${14} />
               ${vecPending} без векторов или устарели${vecStatus.auto ? " (обновляются сами)" : ""}</span>`}` : null}
