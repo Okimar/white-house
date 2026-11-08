@@ -248,6 +248,12 @@ button.link { border: 0; background: transparent; color: var(--accent); padding:
   radial-gradient(circle, var(--line) 1px, transparent 1px) 0 0 / 24px 24px, var(--panel); user-select: none; }
 .tree-map:active { cursor: grabbing; }
 .tree-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+/* Touch screens: the layer is promoted only while the map moves (a huge permanent layer is rastered whole and
+   pieces blank out on a weak GPU); ?treedebug=wc / nowc forces it always / never. */
+@media (pointer: coarse) { .tree-map:not(.moving):not(.wc) .tree-world { will-change: auto; } }
+.tree-map.nowc .tree-world { will-change: auto !important; }
+.tree-map.wc .tree-world { will-change: transform; }
+.tree-map.nolines .tree-lines { display: none; }
 /* An opened bubble: the space underneath stays behind, frozen, dimmed and blurred. One layer, rasterised
    once (it does not move), so many nested spaces cost the same as one. */
 .tree-behind { position: absolute; inset: 0; pointer-events: none; filter: blur(4px) saturate(.6); opacity: .22;
@@ -328,6 +334,12 @@ input.num { width: 4.5em; }
 .tree-map.far .tree-lines path, .tree-map.moving .tree-lines path.tree-refs { stroke-dasharray: none; stroke-linecap: butt; }
 .tree-map.far .bubble.selected { box-shadow: 0 0 0 3px var(--accent); }
 /* On a touch screen the blurred shadows are the costly paint while the map moves: plain bubbles drop them until it stops. */
+/* `.lite` (touch screens, or ?treedebug=noshadow): no blurred shadows, no transitions, solid lines, bubbles painted alone. */
+.tree-map.lite .bubble { transition: none; }
+.tree-map.lite .bubble:not(.depth-1):not(.depth-2):not(.depth-3):not(.selected):not(.linking):not(.target) { box-shadow: none; }
+.tree-map.lite.far .bubble { contain: layout paint style; }
+.tree-map.lite:not(.dash) .tree-lines path { stroke-dasharray: none; stroke-linecap: butt; shape-rendering: optimizeSpeed; }
+.tree-map.lite:not(.dash) .tree-lines path.tree-refs { opacity: .35; }
 @media (pointer: coarse) {
   .tree-map.moving .bubble { transition: none; }
   .tree-map.moving .bubble:not(.depth-1):not(.depth-2):not(.depth-3):not(.selected):not(.linking):not(.target) { box-shadow: none; }

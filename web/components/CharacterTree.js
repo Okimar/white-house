@@ -31,6 +31,23 @@ export const WIDE_PX = 2400; // while a zoom gesture runs this much is kept in t
 export const MARGIN_PX = 300; // bubbles this far outside the screen are kept in the page
 export const MOVE_REDRAW = 120; // the camera may move this many screen pixels before the bubbles are chosen again
 export const FAR_ZOOM = 0.45; // below this zoom bubbles are drawn plain: no ports, numbers or shadows
+// Debug flags for a tablet where the map blinks (pieces vanish): ?treedebug=hud,nowc,... (kept in localStorage, ?treedebug=off clears).
+function readTreeDebug() {
+  let raw = "";
+  try {
+    const q = new URLSearchParams(location.search).get("treedebug");
+    if (q === "off") localStorage.removeItem("tavern.treedebug");
+    else if (q !== null) localStorage.setItem("tavern.treedebug", q);
+    raw = q === "off" ? "" : q !== null ? q : localStorage.getItem("tavern.treedebug") || "";
+  } catch (e) { /* storage may be blocked */ }
+  return new Set(raw.split(",").map((x) => x.trim()).filter(Boolean));
+}
+const DBG = readTreeDebug();
+const COARSE = (() => { try { return matchMedia("(pointer: coarse)").matches; } catch (e) { return false; } })();
+// Touch screens get the cheap look from a higher zoom and a smaller ring: a weak GPU cannot paint the full one in time.
+const LITE = (COARSE || DBG.has("noshadow")) && !DBG.has("shadow");
+const FAR_NOW = DBG.has("farall") ? Infinity : DBG.has("nofar") ? 0 : COARSE ? 0.6 : FAR_ZOOM;
+const WIDE = COARSE ? 1000 : WIDE_PX;
 const SAVE_AFTER = 600; // ms of quiet typing before a bubble's text is saved
 const PORT_TITLE = "Потяните линию к другому пузырю, чтобы связать их ссылкой";
 
@@ -642,7 +659,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const wideRef = useRef(false);
   const lastZoom = useRef(0);
   const startWide = () => {
-    if (wideRef.current) return;
+    if (wideRef.current || DBG.has("noring")) return;
     wideRef.current = true;
     setWide(true);
   };
@@ -682,6 +699,29 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     if (world.current) world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.s})`;
   };
   useEffect(() => () => { cancelAnimationFrame(frame.current); }, []);
+  // ?treedebug=hud: a small corner readout (zoom, bubbles in the page, fps, flags). It never takes touches.
+  useEffect(() => {
+    if (!DBG.has("hud") || view !== "map") return undefined;
+    const box = document.createElement("div");
+    box.style.cssText = "position:fixed;right:6px;bottom:6px;z-index:99999;pointer-events:none;background:rgba(0,0,0,.75);"
+      + "color:#fff;font:14px/1.3 monospace;padding:4px 8px;border-radius:6px;white-space:pre";
+    document.body.appendChild(box);
+    let raf = 0; let n = 0; let t0 = performance.now();
+    const tick = (now) => {
+      n += 1;
+      if (now - t0 >= 500) {
+        const fps = Math.round((n * 1000) / (now - t0)); n = 0; t0 = now;
+        const w = world.current;
+        box.textContent = `zoom ${cam.current.s.toFixed(2)}  bubbles ${w ? w.querySelectorAll(".bubble").length : 0}
+`
+          + `fps ${fps}  ${[...DBG].filter((x) => x !== "hud").join(",") || "default"}`
+          + `${COARSE ? " coarse" : ""}${viewport.current?.classList.contains("far") ? " far" : ""}`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf); box.remove(); };
+  }, [view]);
   // The map's box is read once per gesture: asking for it on every move forces the page to lay out again each time.
   const boxCache = useRef(null);
   const boxOf = () => boxCache.current || (boxCache.current = viewport.current.getBoundingClientRect());
@@ -1068,11 +1108,11 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const scope = spaces.length ? spaces[spaces.length - 1].id : null;
   // The plain look below FAR_ZOOM has a dead band (it comes on a little below, goes off a little above), so
   // a pinch that hovers around the limit does not flip every bubble back and forth.
-  const farNow = useRef(camera.s < FAR_ZOOM);
-  if (farNow.current ? camera.s > FAR_ZOOM * 1.15 : camera.s < FAR_ZOOM * 0.87) farNow.current = !farNow.current;
+  const farNow = useRef(camera.s < FAR_NOW);
+  if (farNow.current ? camera.s > FAR_NOW * 1.15 : camera.s < FAR_NOW * 0.87) farNow.current = !farNow.current;
   // Bubbles that came into the page after the first draw fade in (opacity only) instead of popping.
   const seenIds = useRef(null);
-  const shown = useMemo(() => (view === "map" ? scene(scope, camera, drag, wide ? WIDE_PX : MARGIN_PX)
+  const shown = useMemo(() => (view === "map" ? scene(scope, camera, drag, wide ? WIDE : MARGIN_PX)
     : { nodes: [], groups: [], lines: {}, refs: "", root: null }),
   [view, pos, kids, camera, size, drag, links, inactive, scope, wide]);
   // The space underneath an opened bubble, frozen where it was and blurred.
@@ -1145,7 +1185,9 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
       </div>`}
       <div key="body" class="tree-body">
         ${view === "map"
-          ? html`<div class=${"tree-map" + (spaces.length ? " in-space" : "") + (farNow.current ? " far" : "")} ref=${viewport}
+          ? html`<div class=${"tree-map" + (spaces.length ? " in-space" : "") + (farNow.current ? " far" : "")
+            + (LITE ? " lite" : "") + (DBG.has("dash") ? " dash" : "") + (DBG.has("nolines") ? " nolines" : "")
+            + (DBG.has("nowc") ? " nowc" : DBG.has("wc") || !COARSE ? " wc" : "")} ref=${viewport}
               onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
               onPointerUp=${onPointerUp} onPointerCancel=${onPointerUp}
               onDblClick=${(e) => openSpace(e.target.closest("[data-bid]")?.dataset.bid)}>
