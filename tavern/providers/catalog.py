@@ -63,13 +63,13 @@ SERVICES: list[dict[str, Any]] = [
     {"id": "chutes", "name": "Chutes", "kind": "openai", "group": "cloud",
      "base_url": "https://llm.chutes.ai/v1", "key": "required", "site": "https://chutes.ai"},
     {"id": "voyage", "name": "Voyage AI (векторы)", "kind": "openai", "group": "cloud",
-     "base_url": "https://api.voyageai.com/v1", "key": "required", "embeddings": True,
+     "base_url": "https://api.voyageai.com/v1", "key": "required", "embeddings": True, "threshold": 0.45,
      "site": "https://dashboard.voyageai.com/organization/api-keys",
      # Voyage has no model list endpoint; names from docs.voyageai.com/docs/embeddings.
      "models": ["voyage-4-large", "voyage-4", "voyage-4-lite", "voyage-code-4", "voyage-finance-2",
                 "voyage-law-2", "voyage-3.5", "voyage-3.5-lite", "voyage-code-3"]},
     {"id": "cohere", "name": "Cohere (векторы)", "kind": "openai", "group": "cloud",
-     "base_url": "https://api.cohere.ai/compatibility/v1", "key": "required", "embeddings": True,
+     "base_url": "https://api.cohere.ai/compatibility/v1", "key": "required", "embeddings": True, "threshold": 0.30,
      "site": "https://dashboard.cohere.com/api-keys",
      # The compatibility /models mixes chat and embedding models; embedding names from docs.cohere.com/docs/models.
      "models": ["embed-v5.0-pro", "embed-v5.0-fast", "embed-v4.0", "embed-multilingual-v3.0",
@@ -115,6 +115,27 @@ def catalog(kinds: list[str]) -> dict[str, Any]:
 def builtin_models(service_id: str) -> list[str]:
     """Models a service has no list endpoint for (empty: ask the service)."""
     return list(BY_ID.get(service_id, {}).get("models") or [])
+
+
+DEFAULT_THRESHOLD = 0.55  # meaning-search similarity for services nobody measured
+_HOSTS = {"api.cohere.ai": "cohere", "api.cohere.com": "cohere", "api.voyageai.com": "voyage"}
+
+
+def service_of(connection: dict[str, Any]) -> dict[str, Any] | None:
+    """The catalog entry a connection belongs to: by its remembered service id, else by the address host."""
+    entry = BY_ID.get(connection.get("service") or "")
+    if entry and entry.get("embeddings"):
+        return entry
+    host = re.sub(r"^https?://", "", str(connection.get("base_url") or "").lower()).split("/")[0].split(":")[0]
+    return BY_ID.get(_HOSTS.get(host, ""))
+
+
+def service_threshold(connection: dict[str, Any] | None) -> tuple[str, float] | None:
+    """(service name, similarity threshold measured for it) or None when the service is unknown."""
+    entry = service_of(connection) if connection else None
+    if not entry or "threshold" not in entry:
+        return None
+    return entry["name"].replace(" (векторы)", ""), float(entry["threshold"])
 
 
 COHERE_COMPAT_URL = "https://api.cohere.ai/compatibility/v1"

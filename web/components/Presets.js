@@ -126,10 +126,14 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
 // Global settings for finding character tree blocks (green bubbles).
 function RetrievalSettings({ settings, onChanged, onError }) {
   const [connections, setConnections] = useState([]);
-  const current = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, ...(settings.retrieval || {}) };
+  const stored = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, ...(settings.retrieval || {}) };
+  const manual = !!stored.threshold_manual;
+  const chosen = connections.find((c) => c.id === settings.embedding_connection);
+  const svc = chosen?.meaning_threshold || null; // {service, value}: what suits the chosen vector service
+  // until the user types a number, the service's own default stands (the server does the same)
+  const current = { ...stored, threshold: !manual && svc ? svc.value : stored.threshold };
   const [draft, setDraft] = useState(current);
   const [vecCheck, setVecCheck] = useState(null); // {busy} | {ok, text} | {ok: false, text}
-  const chosen = connections.find((c) => c.id === settings.embedding_connection);
   const checkVectors = async () => {
     setVecCheck({ busy: true });
     try {
@@ -144,12 +148,27 @@ function RetrievalSettings({ settings, onChanged, onError }) {
     try { await api.put("/settings", patch); notify("Сохранено", "ok"); onChanged(); } catch (e) { onError(e.message); }
   };
   const num = (key, value) => setDraft({ ...draft, [key]: value === "" ? "" : Number(value) });
-  const dirty = JSON.stringify(draft) !== JSON.stringify(current);
+  const FIELDS = ["scan_messages", "budget_tokens", "threshold"];
+  const dirty = FIELDS.some((k) => draft[k] !== current[k]);
+  const setServiceThreshold = async () => {
+    const next = { ...stored, threshold: svc.value, threshold_manual: false };
+    setDraft({ ...draft, threshold: svc.value });
+    await save({ retrieval: next });
+  };
+  // picking a service moves the threshold to its default, unless the user set one by hand
+  const pickConnection = async (id) => {
+    const found = connections.find((c) => c.id === id)?.meaning_threshold;
+    const patch = { embedding_connection: id };
+    if (found && !manual) patch.retrieval = { ...stored, threshold: found.value, threshold_manual: false };
+    if (found && !manual) setDraft((d) => ({ ...d, threshold: found.value }));
+    await save(patch);
+  };
   const saveRetrieval = async () => {
     const next = {
       scan_messages: Math.max(1, Math.round(Number(draft.scan_messages) || 3)),
       budget_tokens: Math.max(0, Math.round(Number(draft.budget_tokens) || 0)),
       threshold: Math.min(1, Math.max(0, Number(draft.threshold) || 0)) };
+    next.threshold_manual = manual || next.threshold !== current.threshold;
     await save({ retrieval: next });
     setDraft(next); // what was stored, so the button does not stay lit after an empty field
   };
@@ -166,11 +185,15 @@ function RetrievalSettings({ settings, onChanged, onError }) {
         <input type="number" min="0" max="1" step="0.05" value=${draft.threshold} onInput=${(e) => num("threshold", e.target.value)} />
         <span class="hint">От 0 до 1: насколько близким по смыслу должен быть пузырь.</span></label>
     </div>
+    ${svc && html`<div class="row" data-testid="threshold-hint">
+      <span class="hint">Для ${svc.service} подходит около ${svc.value.toFixed(2).replace(".", ",")}</span>
+      ${Number(draft.threshold) !== svc.value && html`<button onClick=${setServiceThreshold}>Поставить</button>`}
+    </div>`}
     <div class="row">
       <button disabled=${!dirty} onClick=${saveRetrieval}>Сохранить поиск</button>
     </div>
     <label class="stack">Подключение для поиска по смыслу (векторы)
-      <${Select} value=${settings.embedding_connection || ""} onChange=${(e) => save({ embedding_connection: e.target.value })}>
+      <${Select} value=${settings.embedding_connection || ""} onChange=${(e) => pickConnection(e.target.value)}>
         <option value="">— нет, только ключевые слова —</option>
         ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name} · ${c.model || "модель не задана"}</option>`)}
       </${Select}></label>

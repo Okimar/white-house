@@ -26,7 +26,9 @@ log = logging.getLogger(__name__)
 
 def _public(ctx: Any, conn: dict[str, Any]) -> dict[str, Any]:
     keys = ctx.providers.keys(conn["id"])
-    return {**conn, "has_key": any(k["key"] for k in keys), "keys": K.public_keys(keys)}
+    found = services.service_threshold(conn)
+    return {**conn, "has_key": any(k["key"] for k in keys), "keys": K.public_keys(keys),
+            "meaning_threshold": {"service": found[0], "value": found[1]} if found else None}
 
 
 def _params(body: dict[str, Any], default: Any) -> Any:

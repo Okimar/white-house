@@ -29,6 +29,7 @@ from tavern.core.retrieval import LOGICS, PATH_SEPARATOR, FoundBlock, cosine, se
 from tavern.errors import AppError, NotFound
 from tavern.formats.st_lorebook import LOGIC_FROM_ST, LOGIC_TO_ST
 from tavern.services import history, spending
+from tavern.providers import catalog
 from tavern.providers.base import ChatMessage, ProviderError
 
 log = logging.getLogger(__name__)
@@ -36,7 +37,8 @@ log = logging.getLogger(__name__)
 MODES = ("always", "search", "off")
 ROLES = ("system", "user", "assistant")
 DISPLAYS = ("line", "nested")
-DEFAULT_RETRIEVAL = {"scan_messages": 3, "budget_tokens": 2000, "threshold": 0.55}
+# threshold_manual: the user typed the threshold; until then the vector service's own default is used
+DEFAULT_RETRIEVAL = {"scan_messages": 3, "budget_tokens": 2000, "threshold": 0.55, "threshold_manual": False}
 MAX_TITLE = 200
 MAX_CONTENT = 200_000
 MAX_KEYWORDS = 100
@@ -68,7 +70,12 @@ LAYER_CALLS_AT_ONCE = 4
 
 def retrieval_settings(ctx: AppContext) -> dict[str, Any]:
     stored = ctx.settings.get("retrieval") or {}
-    return {**DEFAULT_RETRIEVAL, **{k: v for k, v in stored.items() if k in DEFAULT_RETRIEVAL}}
+    result = {**DEFAULT_RETRIEVAL, **{k: v for k, v in stored.items() if k in DEFAULT_RETRIEVAL}}
+    if not result["threshold_manual"]:
+        service = catalog.service_threshold(embedding_connection(ctx))
+        if service:
+            result["threshold"] = service[1]
+    return result
 
 
 def _clean(changes: dict[str, Any], *, creating: bool) -> dict[str, Any]:
