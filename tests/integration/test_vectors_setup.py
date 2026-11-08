@@ -63,3 +63,23 @@ async def test_vector_check_works_and_reports_errors(client, fake_llm):
     fake_llm.failures.append((404, "Not Found"))
     bad = (await client.post("/api/vectors/test")).json()
     assert bad["ok"] is False and "404" in bad["error"] and "/v1" in bad["error"]
+
+
+def test_cohere_addresses_become_the_compatible_root():
+    fix = catalog.fix_address
+    root = "https://api.cohere.ai/compatibility/v1"
+    for pasted in ("https://api.cohere.com/v2", "https://api.cohere.com/v2/embed", "https://api.cohere.com/v1/",
+                   "https://api.cohere.ai/v1", "https://api.cohere.ai/v2/embed"):
+        assert fix(pasted, "openai") == (root, True), pasted
+    assert fix(root, "openai") == (root, False)
+    assert fix("https://api.cohere.com/v2", "gemini") == ("https://api.cohere.com/v2", False)
+    assert catalog.looks_like_embedding_model("embed-v4.0")
+
+
+async def test_cohere_has_a_built_in_embedding_list(client):
+    cohere = {s["id"]: s for s in (await client.get("/api/connections/catalog")).json()["services"]}["cohere"]
+    assert cohere["base_url"] == "https://api.cohere.ai/compatibility/v1" and cohere["embeddings"]
+    conn = await make(client, service="cohere", api_key="k", base_url="https://api.cohere.com/v2/embed")
+    assert conn["base_url"] == cohere["base_url"] and conn["address_fixed"] == cohere["base_url"]
+    models = {m["id"] for m in (await client.post(f"/api/connections/{conn['id']}/inspect")).json()["models"]}
+    assert {"embed-v5.0-pro", "embed-v5.0-fast", "embed-v4.0", "embed-multilingual-v3.0"} <= models and not any(m.startswith("command") for m in models)

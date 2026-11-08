@@ -7,6 +7,7 @@ Addresses are the services' documented API roots and may drift: the user can alw
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # key: "required" | "optional" | "none"
@@ -67,6 +68,12 @@ SERVICES: list[dict[str, Any]] = [
      # Voyage has no model list endpoint; names from docs.voyageai.com/docs/embeddings.
      "models": ["voyage-4-large", "voyage-4", "voyage-4-lite", "voyage-code-4", "voyage-finance-2",
                 "voyage-law-2", "voyage-3.5", "voyage-3.5-lite", "voyage-code-3"]},
+    {"id": "cohere", "name": "Cohere (векторы)", "kind": "openai", "group": "cloud",
+     "base_url": "https://api.cohere.ai/compatibility/v1", "key": "required", "embeddings": True,
+     "site": "https://dashboard.cohere.com/api-keys",
+     # The compatibility /models mixes chat and embedding models; embedding names from docs.cohere.com/docs/models.
+     "models": ["embed-v5.0-pro", "embed-v5.0-fast", "embed-v4.0", "embed-multilingual-v3.0",
+                "embed-multilingual-light-v3.0", "embed-english-v3.0", "embed-english-light-v3.0"]},
     {"id": "aimlapi", "name": "AI/ML API", "kind": "openai", "group": "cloud",
      "base_url": "https://api.aimlapi.com/v1", "key": "required", "site": "https://aimlapi.com/app/keys"},
     # On your own machine
@@ -110,6 +117,8 @@ def builtin_models(service_id: str) -> list[str]:
     return list(BY_ID.get(service_id, {}).get("models") or [])
 
 
+COHERE_COMPAT_URL = "https://api.cohere.ai/compatibility/v1"
+_COHERE_NATIVE = re.compile(r"^https?://api\.cohere\.(?:com|ai)/(?:v[12])(?:/(?:embed|chat|models))?$", re.I)
 _WRONG_ENDINGS = ("/chat/completions", "/embeddings", "/completions")
 
 
@@ -119,6 +128,9 @@ def fix_address(base_url: str, kind: str) -> tuple[str, bool]:
     if kind != "openai":
         return url, False
     trimmed = url.rstrip("/")
+    cohere = _COHERE_NATIVE.match(trimmed)
+    if cohere:  # Cohere's own API is not OpenAI-shaped; its OpenAI-compatible root is elsewhere
+        return COHERE_COMPAT_URL, True
     for tail in _WRONG_ENDINGS:
         if trimmed.lower().endswith(tail):
             return trimmed[: -len(tail)].rstrip("/"), True
