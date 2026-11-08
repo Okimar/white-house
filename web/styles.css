@@ -124,6 +124,13 @@ body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
 .msg-actions { display: inline-flex; flex: none; }
 .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-reading); font-size: var(--text-reading); line-height: 1.6; }
 .msg textarea.edit { width: 100%; margin: 8px 0; }
+/* Editing in place: same box, font and line height as the text; grows with it, no inner scroll. */
+.msg textarea.edit-inline { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: inherit; resize: none; overflow: hidden; outline: none; min-height: 1.6em; }
+.msg .edit-bar { position: sticky; bottom: 0; z-index: 2; display: flex; gap: 8px; margin: 8px -12px -8px;
+  padding: 8px 12px; background: var(--msg-bot-bg); border-top: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius); }
+.msg-user .edit-bar { background: var(--msg-user-bg); }
+.msg .edit-bar button { min-height: 44px; min-width: 44px; }
 .swipes { display: inline-flex; align-items: center; color: var(--text2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; flex: none; }
 .caret { display: inline-block; width: .5em; height: 1em; vertical-align: text-bottom; background: var(--muted); animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }

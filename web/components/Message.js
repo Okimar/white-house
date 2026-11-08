@@ -12,7 +12,7 @@
 // version cost ("≈" = the service gave no counts, or the reply was stopped).
 // Regex rules (stage 11): `shown` is how the rules make the text look on screen (core/regex.js); the saved text is untouched.
 // Plugins add buttons to the header and plain-text lines under the text (core/plugins.js).
-import { html, useEffect, useState } from "../vendor/preact-htm.mjs";
+import { html, useEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { MAX_SHOWN, setNotesShown, useNotesShown } from "../core/notesShown.js";
 import { ROLES, roleOf } from "./roles.js";
 import { usageLine } from "../core/spending.js";
@@ -94,6 +94,24 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     setSaving(false);
     if (ok !== false) setEditing(null);
   };
+
+  // Leaving with unsaved changes asks once.
+  const cancel = async () => {
+    if (saving) return;
+    if (editing !== message.content && !(await ask("Выйти без сохранения? Изменения пропадут", { ok: "Выйти", danger: true }))) return;
+    setEditing(null);
+  };
+  // The field is as tall as its text, so the chat scrolls instead of the field.
+  const grow = (el) => { if (el) { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; } };
+  const editRef = useRef(null);
+  const isEditing = editing !== null;
+  useEffect(() => {
+    const el = editRef.current;
+    if (!isEditing || !el) return;
+    grow(el);
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [isEditing]);
 
   const pickRole = (button) => openMenu(button, ROLES.map((r) => ({
     icon: r.icon, label: r.label + (r.id === message.role ? " (сейчас)" : ""), disabled: r.id === message.role,
@@ -184,11 +202,16 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
       </header>
       ${editing !== null
         ? html`
-          <textarea class="edit" value=${editing} rows="6" aria-label="Текст сообщения"
-            onInput=${(e) => setEditing(e.target.value)}></textarea>
-          <div class="row">
+          <textarea class="body edit-inline" ref=${editRef} value=${editing} rows="1" spellcheck="false"
+            aria-label="Текст сообщения" disabled=${saving}
+            onInput=${(e) => { setEditing(e.target.value); grow(e.target); }}
+            onKeyDown=${(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+              else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+            }}></textarea>
+          <div class="edit-bar" data-slot="message-edit-bar">
             <button class="primary" disabled=${saving} onClick=${save}>Сохранить</button>
-            <button disabled=${saving} onClick=${() => setEditing(null)}>Отмена</button>
+            <button disabled=${saving} onClick=${cancel}>Отмена</button>
           </div>`
         : html`${thinking && thinkingDisplay !== "hidden" && html`<details class="thinking" data-slot="message-thinking"
             open=${thinkingDisplay === "open" || (streaming && !text)}>
