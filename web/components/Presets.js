@@ -176,6 +176,10 @@ function RetrievalSettings({ settings, onChanged, onError }) {
       </${Select}></label>
     ${chosen && chosen.model && !looksLikeEmbedding(chosen.model) && html`
       <p class="hint">Похоже, это модель для чата, а не для векторов. Нажмите «Проверить векторы».</p>`}
+    <label class="check"><input type="checkbox" checked=${!!settings.auto_vectors} disabled=${!settings.embedding_connection}
+      onChange=${(e) => save({ auto_vectors: e.target.checked })} />
+      Автовекторизация: после правки пузыря векторы обновляются сами</label>
+    <p class="hint">Выключено: ничего не тратится, а в дереве видно, сколько пузырей без векторов, и есть кнопка «Векторизовать».</p>
     <div class="row">
       <button disabled=${!settings.embedding_connection || vecCheck?.busy} onClick=${checkVectors}>Проверить векторы</button>
     </div>

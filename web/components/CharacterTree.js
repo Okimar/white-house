@@ -491,6 +491,9 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const [loaded, setLoaded] = useState(false); // the first answer has come: before it, no «empty» hints
   const [loadError, setLoadError] = useState("");
   const [vecBusy, setVecBusy] = useState(false);
+  const [vecStatus, setVecStatus] = useState(null); // {connected, auto, total, current, stale, missing}
+  const vecTries = useRef(0);
+  const [vecTick, setVecTick] = useState(0); // wakes the poll again after a skipped tick
   const [toolsOpen, setToolsOpen] = useState(false); // phone: legend and «Шанс всем» folded in the toolbar
   const [vectorized, setVectorized] = useState(new Set());
   const [selected, setSelected] = useState(null);
@@ -521,6 +524,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const reload = useCallback(() => api.get(`${base}/blocks`).then((d) => {
     setBlocks(d.blocks);
     setVectorized(new Set(d.vectorized));
+    setVecStatus(d.vector_status || null);
     setLinks(d.links || []);
     setLoaded(true);
     setLoadError("");
@@ -876,6 +880,26 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const setOrder = async (block, place) => {
     try { await api.put(`/blocks/${block.id}/order`, { place }); await reload(); } catch (e) { onError(e.message); }
   };
+  // Auto vectorization works in the background: look at the counter again a few times until it is full. Only the
+  // counter is fetched (never the blocks or links), state changes only if it differs, and a tick is skipped while
+  // the map moves, so panning is never interrupted by a re-render.
+  const vecPending = vecStatus ? vecStatus.stale + vecStatus.missing : 0;
+  useEffect(() => {
+    if (!vecStatus || !vecStatus.auto || !vecStatus.connected || !vecPending || vecTries.current >= 6) return undefined;
+    const timer = setTimeout(async () => {
+      if (viewport.current && viewport.current.classList.contains("moving")) { setVecTick((n) => n + 1); return; }
+      vecTries.current += 1;
+      try {
+        const d = await api.get(`${base}/vector-status`);
+        const s = d.vector_status;
+        setVecStatus((old) => (old && ["connected", "auto", "total", "current", "stale", "missing"].every((k) => old[k] === s[k]) ? old : s));
+        setVectorized((old) => (old.size === d.vectorized.length && d.vectorized.every((i) => old.has(i)) ? old : new Set(d.vectorized)));
+      } catch (e) { /* the next tick or a manual reload shows it */ }
+      setVecTick((n) => n + 1); // look again (at most 6 times) if it is still not full
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [vecStatus, vecTick]);
+  useEffect(() => { vecTries.current = 0; }, [revision, character.id]);
   const vectorize = async () => {
     setVecBusy(true);
     try {
@@ -980,9 +1004,10 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         ${view === "list" && html`<button title="Показать все ветки списка"
             onClick=${() => keepOpen(new Set(blocks.filter((b) => (kids.get(b.id) || []).length).map((b) => b.id)))}>Развернуть всё</button>
           <button title="Оставить только верхний уровень" onClick=${() => keepOpen(new Set())}>Свернуть всё</button>`}
-        ${settings.embedding_connection && html`<button disabled=${vecBusy} onClick=${vectorize}
-          title="Сделать векторы для поиска по смыслу (только текст пузырей)">
-          <${Icon} name="waypoints" /> ${vecBusy ? "Векторизую…" : "Векторизовать"}</button>`}
+        <button disabled=${vecBusy || !settings.embedding_connection} onClick=${vectorize}
+          title=${settings.embedding_connection ? "Сделать векторы для поиска по смыслу (только текст пузырей)"
+            : "Выберите подключение для векторов: Настройки → Промпт"}>
+          <${Icon} name="waypoints" /> ${vecBusy ? "Векторизую…" : "Векторизовать"}</button>
         <button class="tree-tools-toggle" aria-expanded=${toolsOpen} onClick=${() => setToolsOpen(!toolsOpen)}>
           <${Icon} name=${toolsOpen ? "chevron-down" : "chevron-right"} /> Легенда и шанс</button>
         <div class=${"tree-tools" + (toolsOpen ? " open" : "")}>
@@ -997,6 +1022,12 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
             <button disabled=${chanceAll === null}
               onClick=${() => { setChance(chanceAll); setChanceAll(null); }}>Применить</button></label>
         </div>
+      </div>
+      <div key="vecline" class="tree-vec" role="status">
+        ${!settings.embedding_connection ? html`<span class="muted">Выберите подключение для векторов: Настройки → Промпт</span>`
+          : vecStatus ? html`<span class="muted">Векторы: ${vecStatus.current} из ${vecStatus.total}</span>
+            ${vecPending > 0 && html`<span class="tree-vec-warn"><${Icon} name="triangle-alert" size=${14} />
+              ${vecPending} без векторов или устарели${vecStatus.auto ? " (обновляются сами)" : ""}</span>`}` : null}
       </div>
       ${linking ? html`<div key="linking" class="tree-hint" role="status"><${Icon} name="link" /> Нажмите на пузырь, с которым связать
         «${byId.get(linking)?.title}» <button onClick=${() => setLinking(null)}>Отмена</button></div>` : null}

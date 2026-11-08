@@ -249,6 +249,7 @@ async def import_book(ctx: AppContext, data: Any, name: str = "") -> dict[str, A
             for item in fields:
                 ctx.blocks.create(book["id"], item)
     await ctx.events.emit("lorebooks.changed", lorebook_id=book["id"])
+    character_tree.schedule_auto_vectors(ctx, book["id"])
     return ctx.lorebooks.get(book["id"])
 
 

@@ -95,6 +95,7 @@ routes = [
     # the book's bubbles and history: the same handlers as a character's
     Route("/lorebooks/{id}/blocks", blocks_api.list_blocks, methods=["GET"]),
     Route("/lorebooks/{id}/blocks", blocks_api.create_block, methods=["POST"]),
+    Route("/lorebooks/{id}/vector-status", blocks_api.vector_status, methods=["GET"]),
     Route("/lorebooks/{id}/vectorize", blocks_api.vectorize, methods=["POST"]),
     Route("/lorebooks/{id}/blocks/layout", blocks_api.save_layout, methods=["PUT"]),
     Route("/lorebooks/{id}/blocks/chance", blocks_api.set_chance, methods=["PUT"]),

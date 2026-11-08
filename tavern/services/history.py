@@ -98,6 +98,9 @@ async def _changed(ctx: AppContext, owner_id: str) -> None:
     else:
         await ctx.events.emit("character.blocks_changed", character_id=owner_id)
         await ctx.events.emit("character.history_changed", character_id=owner_id)
+    from tavern.services import character_tree  # late: character_tree imports this module
+
+    character_tree.schedule_auto_vectors(ctx, owner_id)
 
 
 async def undo(ctx: AppContext, owner_id: str) -> dict[str, Any] | None:

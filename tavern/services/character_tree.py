@@ -229,6 +229,7 @@ async def _changed(ctx: AppContext, owner_id: str) -> None:
         await ctx.events.emit("lorebook.blocks_changed", lorebook_id=owner_id)
     else:
         await ctx.events.emit("character.blocks_changed", character_id=owner_id)
+    schedule_auto_vectors(ctx, owner_id)
 
 
 def list_blocks(ctx: AppContext, owner_id: str) -> list[dict[str, Any]]:
@@ -564,23 +565,48 @@ async def check_vectors(ctx: AppContext) -> dict[str, Any]:
             "ms": round((time.monotonic() - started) * 1000)}
 
 
+def _vector_plan(ctx: AppContext, owner_id: str, model: str) -> list[tuple[str, str, str, str | None]]:
+    """Every green block with text: (id, text to embed, its hash now, hash of the stored vector or None)."""
+    owner = owner_of(ctx, owner_id)
+    everyone = ctx.blocks.list(owner_id)
+    blocks = [b for b in everyone if b["mode"] == "search" and b["content"].strip()]
+    paths = block_paths(everyone, owner["name"])
+    stored = ctx.blocks.vectors([b["id"] for b in blocks], model)
+    plan = []
+    for block in blocks:
+        text = _embed_text(paths[block["id"]], block["content"])
+        plan.append((block["id"], text, _hash(text), stored[block["id"]][0] if block["id"] in stored else None))
+    return plan
+
+
+def vector_status(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
+    """The vector counter: green blocks with text that have a current vector for the chosen model (`current`),
+    a vector of older text (`stale`) or none (`missing`). `connected` False: no vector connection chosen."""
+    connection = embedding_connection(ctx)
+    result: dict[str, Any] = {"connected": connection is not None, "auto": bool(ctx.settings.get("auto_vectors")),
+                              "total": 0, "current": 0, "stale": 0, "missing": 0, "current_ids": []}
+    if connection is None:
+        return result
+    for owner_id in owner_ids:
+        for block_id, _, digest, have in _vector_plan(ctx, owner_id, connection["model"]):
+            result["total"] += 1
+            if have is None:
+                result["missing"] += 1
+            elif have != digest:
+                result["stale"] += 1
+            else:
+                result["current"] += 1
+                result["current_ids"].append(block_id)
+    return result
+
+
 async def vectorize(ctx: AppContext, owner_ids: list[str]) -> int:
     """Make vectors for green blocks that have none or changed since. Returns how many were made."""
     connection = embedding_connection(ctx)
     if connection is None:
         raise AppError("Choose a connection for meaning search in Settings → Промпт", code="no_embedding_connection")
-    model = connection["model"]
-    todo: list[tuple[str, str, str]] = []  # block id, text, hash
-    for owner_id in owner_ids:
-        owner = owner_of(ctx, owner_id)
-        blocks = [b for b in ctx.blocks.list(owner_id) if b["mode"] == "search" and b["content"].strip()]
-        paths = block_paths(ctx.blocks.list(owner_id), owner["name"])
-        stored = ctx.blocks.vectors([b["id"] for b in blocks], model)
-        for block in blocks:
-            text = _embed_text(paths[block["id"]], block["content"])
-            digest = _hash(text)
-            if stored.get(block["id"], ("",))[0] != digest:
-                todo.append((block["id"], text, digest))
+    todo = [(i, t, d) for owner_id in owner_ids
+            for i, t, d, have in _vector_plan(ctx, owner_id, connection["model"]) if have != d]
     if not todo:
         return 0
     provider = ctx.providers.create(connection)
@@ -591,6 +617,36 @@ async def vectorize(ctx: AppContext, owner_ids: list[str]) -> int:
     finally:
         await provider.aclose()
     return len(todo)
+
+
+AUTO_VECTOR_DELAY = 1.5  # seconds: edits that come one after another are vectorized together
+_auto_tasks: dict[tuple[int, str], asyncio.Task[None]] = {}
+
+
+def schedule_auto_vectors(ctx: AppContext, owner_id: str) -> None:
+    """With «Автовекторизация» on: vectorize this owner's changed green blocks in the background, not blocking
+    the save. A failure is logged; the block then simply shows as stale in the counter."""
+    if not ctx.settings.get("auto_vectors") or embedding_connection(ctx) is None:
+        return
+    key = (id(ctx), owner_id)
+    if key in _auto_tasks:  # one waiting already: it reads the blocks when it wakes up
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    async def run() -> None:
+        try:
+            await asyncio.sleep(AUTO_VECTOR_DELAY)
+            _auto_tasks.pop(key, None)
+            await vectorize(ctx, [owner_id])
+        except Exception:  # noqa: BLE001 - background work must not die loudly; the stale mark tells the user
+            log.warning("Auto vectorization of %s failed", owner_id, exc_info=True)
+        finally:
+            _auto_tasks.pop(key, None)
+
+    _auto_tasks[key] = loop.create_task(run())
 
 
 async def _embed_and_save(ctx: AppContext, provider: Any, connection: dict[str, Any],
@@ -833,6 +889,7 @@ def take_book(ctx: AppContext, owner_id: str) -> int:
         if isinstance(data.get("character_book"), dict):
             data["character_book"] = {k: v for k, v in data["character_book"].items() if k != "entries"}
         ctx.characters.update(owner_id, data)
+        schedule_auto_vectors(ctx, owner_id)
         return made
     fields = blocks_from_book(data.get("character_book"))
     if not fields:
@@ -842,6 +899,7 @@ def take_book(ctx: AppContext, owner_id: str) -> int:
     book = data["character_book"]
     data["character_book"] = {k: v for k, v in book.items() if k != "entries"}  # meta stays for export
     ctx.characters.update(owner_id, data)
+    schedule_auto_vectors(ctx, owner_id)
     return len(fields)
 
 

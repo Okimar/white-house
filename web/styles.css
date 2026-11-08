@@ -289,6 +289,8 @@ button.link { border: 0; background: transparent; color: var(--accent); padding:
 .bubble.inactive { opacity: .4; border-style: dashed; }
 .bubble.linking { box-shadow: 0 0 0 3px var(--accent); }
 .bubble-chance { font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tree-vec { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; min-height: 24px; font-size: var(--text-sm); }
+.tree-vec-warn { display: inline-flex; align-items: center; gap: 4px; color: var(--warning, var(--accent)); }
 .tree-hint { padding: 8px 12px; border-radius: var(--radius-sm); background: var(--dialog-bg); border: 1px dashed var(--accent); }
 .tree-hint.done { border-style: solid; border-color: var(--success); }
 .chance-all { display: inline-flex; align-items: center; gap: 4px; }

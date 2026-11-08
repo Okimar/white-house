@@ -10,15 +10,18 @@ from tavern.api.util import ctx_of, field, json_body
 from tavern.services import character_tree
 
 
+async def vector_status(request: Request) -> JSONResponse:
+    """Only the vector counter and the ids with a current vector: cheap, for the page to look again."""
+    status = character_tree.vector_status(ctx_of(request), [request.path_params["id"]])
+    return JSONResponse({"vectorized": status.pop("current_ids"), "vector_status": status})
+
+
 async def list_blocks(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     character_id = request.path_params["id"]
     blocks = character_tree.list_blocks(ctx, character_id)
-    connection = character_tree.embedding_connection(ctx)
-    vectorized: list[str] = []
-    if connection is not None:
-        vectorized = list(ctx.blocks.vectors([b["id"] for b in blocks], connection["model"]))
-    return JSONResponse({"blocks": blocks, "vectorized": vectorized,
+    status = character_tree.vector_status(ctx, [character_id])
+    return JSONResponse({"blocks": blocks, "vectorized": status.pop("current_ids"), "vector_status": status,
                          "links": [list(pair) for pair in ctx.blocks.links([character_id])],
                          "retrieval": character_tree.retrieval_settings(ctx)})
 
@@ -104,6 +107,7 @@ routes = [
     Route("/characters/{id}/blocks", list_blocks, methods=["GET"]),
     Route("/characters/{id}/blocks", create_block, methods=["POST"]),
     Route("/vectors/test", check_vectors, methods=["POST"]),
+    Route("/characters/{id}/vector-status", vector_status, methods=["GET"]),
     Route("/characters/{id}/vectorize", vectorize, methods=["POST"]),
     Route("/characters/{id}/blocks/layout", save_layout, methods=["PUT"]),
     Route("/characters/{id}/blocks/chance", set_chance, methods=["PUT"]),
