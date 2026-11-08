@@ -66,12 +66,12 @@ async def set_order(request: Request) -> JSONResponse:
 
 
 async def vectorize(request: Request) -> JSONResponse:
-    """Body (optional): {character_ids: [...]}; default: the character in the path."""
+    """Body (optional): {character_ids: [...]}; default: the character in the path. Starts a background job and
+    answers at once: {made: 0, started, todo}; the counter in vector-status shows the progress."""
     ctx = ctx_of(request)
     body = await json_body(request) if await request.body() else {}
     ids = field(body, "character_ids", list, default=[request.path_params["id"]])
-    made = await character_tree.vectorize(ctx, [str(i) for i in ids])
-    return JSONResponse({"made": made})
+    return JSONResponse(character_tree.start_vectorize(ctx, [str(i) for i in ids]))
 
 
 async def check_vectors(request: Request) -> JSONResponse:

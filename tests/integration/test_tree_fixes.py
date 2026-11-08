@@ -3,6 +3,8 @@ and requests outside the chat count as spending."""
 
 from __future__ import annotations
 
+from tests.conftest import settle_vectors
+
 import asyncio
 
 
@@ -52,6 +54,7 @@ async def test_an_edited_bubble_gets_a_new_vector_before_meaning_search_uses_it(
     bubble = await add(client, ann["id"], title="Детство", content="Росла у реки", keywords=["zzz"])
     await add(client, ann["id"], title="Другое", content="Не менялось", keywords=["yyy"])
     await client.post(f"/api/characters/{ann['id']}/vectorize")
+    await settle_vectors()
     other = await add(client, ann["id"], title="Без вектора", content="Никто не векторизовал", keywords=["xxx"])
 
     await client.put(f"/api/blocks/{bubble['id']}", json={"content": "Выросла в горах"})
@@ -95,6 +98,7 @@ async def test_requests_outside_the_chat_count_as_spending(client, ctx, fake_llm
     await client.put("/api/settings", json={"embedding_connection": conn["id"], "image_connection": conn["id"]})
     await add(client, ann["id"], title="Детство", content="Росла у реки", keywords=["zzz"])
     await client.post(f"/api/characters/{ann['id']}/vectorize")
+    await settle_vectors()
     await client.post(f"/api/connections/{conn['id']}/probe", json={"model": "m"})
     await client.post("/api/assets/generate", json={"prompt": "море"})
     await send(client, ctx, chat_id, "росла у реки")

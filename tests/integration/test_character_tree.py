@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.conftest import settle_vectors
+
 import asyncio
 import base64
 
@@ -92,10 +94,11 @@ async def test_meaning_search_uses_only_block_text(client, ctx, fake_llm):
     await client.put("/api/settings", json={"embedding_connection": conn["id"],
                                             "retrieval": {"threshold": 0.3}})
     made = await client.post(f"/api/characters/{ann['id']}/vectorize")
-    assert made.json() == {"made": 1}
+    assert made.json() == {"made": 0, "started": True, "todo": 1}
+    await settle_vectors()
     assert fake_llm.embedding_requests[-1]["input"] == ["Ann › Детство\nРосла у реки рыбаком отца"]
     again = await client.post(f"/api/characters/{ann['id']}/vectorize")
-    assert again.json() == {"made": 0}  # unchanged blocks are not sent again
+    assert again.json() == {"made": 0, "started": False, "todo": 0}  # unchanged blocks are not sent again
 
     await send(client, ctx, chat_id, "расскажи как ты росла у реки")
     assert "Росла у реки" in system_text(fake_llm)

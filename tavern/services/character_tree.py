@@ -530,6 +530,9 @@ def embedding_connection(ctx: AppContext) -> dict[str, Any] | None:
         return None
 
 
+_RATE_RU = ("Лимит Voyage: без карты в Voyage 3 запроса и 10 000 токенов в минуту. "
+            "Векторизация продолжится сама, это займёт около {minutes} мин.")
+
 _REASON_RU = {
     "auth": "Сервис не принял ключ (проверьте ключ API).",
     "limit": "Лимит или деньги на аккаунте закончились.",
@@ -585,6 +588,7 @@ def vector_status(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
     connection = embedding_connection(ctx)
     result: dict[str, Any] = {"connected": connection is not None, "auto": bool(ctx.settings.get("auto_vectors")),
                               "total": 0, "current": 0, "stale": 0, "missing": 0, "current_ids": []}
+    result["job"] = vector_job(ctx, owner_ids)
     if connection is None:
         return result
     for owner_id in owner_ids:
@@ -600,23 +604,75 @@ def vector_status(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
     return result
 
 
-async def vectorize(ctx: AppContext, owner_ids: list[str]) -> int:
-    """Make vectors for green blocks that have none or changed since. Returns how many were made."""
+def _todo(ctx: AppContext, connection: dict[str, Any], owner_ids: list[str]) -> list[tuple[str, str, str]]:
+    return [(i, t, d) for owner_id in owner_ids
+            for i, t, d, have in _vector_plan(ctx, owner_id, connection["model"]) if have != d]
+
+
+async def vectorize(ctx: AppContext, owner_ids: list[str], job: dict[str, Any] | None = None) -> int:
+    """Make vectors for green blocks that have none or changed since. Returns how many were made.
+    Each batch is kept as soon as it is made; a rate limit is waited out (see _embed_and_save)."""
     connection = embedding_connection(ctx)
     if connection is None:
         raise AppError("Choose a connection for meaning search in Settings → Промпт", code="no_embedding_connection")
-    todo = [(i, t, d) for owner_id in owner_ids
-            for i, t, d, have in _vector_plan(ctx, owner_id, connection["model"]) if have != d]
+    todo = _todo(ctx, connection, owner_ids)
     if not todo:
         return 0
     provider = ctx.providers.create(connection)
+    waited = _Waited()
+    remaining = [sum(estimate_tokens(t) for _, t, _ in todo)]
+
+    def minutes() -> int:
+        return max(1, -(-remaining[0] // FREE_TOKENS_PER_MINUTE), -(-len(_batches(todo)) // 3))
+
     try:
-        for start in range(0, len(todo), 64):
-            batch = todo[start : start + 64]
-            await _embed_and_save(ctx, provider, connection, batch)
+        for batch in _batches(todo):
+            await _embed_and_save(ctx, provider, connection, batch, waited=waited, minutes=minutes)
+            remaining[0] -= sum(estimate_tokens(t) for _, t, _ in batch)
+            if job is not None:
+                job["note"] = ""
     finally:
         await provider.aclose()
     return len(todo)
+
+
+_jobs: dict[tuple[int, str], dict[str, Any]] = {}
+
+
+def start_vectorize(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
+    """Vectorize in the background and answer at once: the page watches the counter (vector_status). One job
+    per owner set; pressing again while it runs changes nothing. A failure stays in `job.error` until the next start."""
+    connection = embedding_connection(ctx)
+    if connection is None:
+        raise AppError("Choose a connection for meaning search in Settings → Промпт", code="no_embedding_connection")
+    todo = _todo(ctx, connection, owner_ids)
+    key = (id(ctx), ",".join(sorted(owner_ids)))
+    job = _jobs.get(key)
+    if job and job["running"]:
+        return {"made": 0, "started": True, "todo": len(todo)}
+    if not todo:
+        return {"made": 0, "started": False, "todo": 0}
+    job = _jobs[key] = {"running": True, "error": "", "note": ""}
+
+    async def run() -> None:
+        try:
+            await vectorize(ctx, owner_ids, job)
+        except AppError as exc:
+            job["error"] = str(exc)
+            log.warning("Vectorization stopped: %s", exc)
+        except Exception as exc:  # noqa: BLE001 - background work; the user sees the error in the counter
+            job["error"] = f"Не удалось векторизовать: {exc}"
+            log.warning("Vectorization failed", exc_info=True)
+        finally:
+            job["running"] = False
+
+    job["task"] = asyncio.get_running_loop().create_task(run())
+    return {"made": 0, "started": True, "todo": len(todo)}
+
+
+def vector_job(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
+    job = _jobs.get((id(ctx), ",".join(sorted(owner_ids))))
+    return {"running": bool(job and job["running"]), "error": job["error"] if job else ""}
 
 
 AUTO_VECTOR_DELAY = 1.5  # seconds: edits that come one after another are vectorized together
@@ -649,10 +705,54 @@ def schedule_auto_vectors(ctx: AppContext, owner_id: str) -> None:
     _auto_tasks[key] = loop.create_task(run())
 
 
+BATCH_ITEMS = 64
+BATCH_TOKENS = 3000  # estimated; a free Voyage account takes only 10K tokens a minute and 3 requests a minute
+MAX_WAIT = 300.0  # seconds a vectorization may spend waiting out rate limits before it gives up (progress is kept)
+FREE_TOKENS_PER_MINUTE = 10_000
+RATE_WAIT = 21.0  # seconds to wait after a 429 (3 requests a minute = one every 20 s)
+
+
+def _batches(todo: list[tuple[str, str, str]]) -> list[list[tuple[str, str, str]]]:
+    """Requests of at most BATCH_ITEMS texts and about BATCH_TOKENS tokens, so one request never exceeds a small limit."""
+    out: list[list[tuple[str, str, str]]] = []
+    size = 0
+    for item in todo:
+        tokens = estimate_tokens(item[1])
+        if out and (len(out[-1]) >= BATCH_ITEMS or size + tokens > BATCH_TOKENS):
+            out.append([])
+            size = 0
+        elif not out:
+            out.append([])
+        out[-1].append(item)
+        size += tokens
+    return out
+
+
+class _Waited:
+    """Seconds one vectorization has waited on rate limits so far."""
+    seconds = 0.0
+
+
 async def _embed_and_save(ctx: AppContext, provider: Any, connection: dict[str, Any],
-                          batch: list[tuple[str, str, str]]) -> None:
+                          batch: list[tuple[str, str, str]], *, waited: _Waited | None = None,
+                          minutes: Any = None) -> None:
+    """Embed one batch and keep it. With `waited` (a vectorization job), a 429 is waited out and the same batch
+    asked again, up to MAX_WAIT in all; without it (a reply is waiting) the first failure is raised."""
     model = connection["model"]
-    vectors = await provider.embed([text for _, text, _ in batch], model=model)
+    while True:
+        try:
+            vectors = await provider.embed([text for _, text, _ in batch], model=model)
+            break
+        except ProviderError as exc:
+            if exc.upstream_status != 429 or waited is None:
+                raise
+            left = minutes() if minutes else 1
+            if waited.seconds + RATE_WAIT > MAX_WAIT:
+                raise AppError(_RATE_RU.format(minutes=left) + " Прогресс сохранён: нажмите «Векторизовать» ещё раз позже.",
+                               code="vector_rate_limit") from exc
+            log.info("Vectors: rate limit, waiting %s s", RATE_WAIT)
+            waited.seconds += RATE_WAIT
+            await asyncio.sleep(RATE_WAIT)
     spending.record_call(ctx, connection, "vectors", model=model, tokens=sum(estimate_tokens(t) for _, t, _ in batch))
     for (block_id, _, digest), vector in zip(batch, vectors):
         ctx.blocks.save_vector(block_id, model, digest, vector)
@@ -672,8 +772,8 @@ async def _refresh_edited(ctx: AppContext, provider: Any, connection: dict[str, 
                 digest = _hash(text)
                 if stored[block["id"]][0] != digest:
                     todo.append((block["id"], text, digest))
-    for start in range(0, len(todo), 64):
-        await _embed_and_save(ctx, provider, connection, todo[start : start + 64])
+    for batch in _batches(todo):
+        await _embed_and_save(ctx, provider, connection, batch)
     return ctx.blocks.vectors(list(stored), connection["model"]) if todo else stored
 
 

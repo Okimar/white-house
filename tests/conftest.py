@@ -137,3 +137,12 @@ async def fake_llm(ctx: AppContext) -> AsyncIterator[FakeLLM]:
     ctx.providers.http_client = http
     yield fake
     await http.aclose()
+
+
+async def settle_vectors() -> None:
+    """Wait for the background vectorization jobs the «Векторизовать» button starts."""
+    from tavern.services import character_tree
+
+    for job in list(character_tree._jobs.values()):
+        if job.get("task"):
+            await job["task"]
