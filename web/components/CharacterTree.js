@@ -27,6 +27,7 @@ export const H = 46;
 const PAD = 18; // space around a nested group
 export const GAP = 14; // bubbles push each other apart to keep at least this much space
 const MODES = [["always", "Всегда"], ["search", "По теме"], ["off", "Выключен"]];
+export const WIDE_PX = 2400; // while a zoom gesture runs this much is kept in the page, so zooming out shows no empty edges
 export const MARGIN_PX = 300; // bubbles this far outside the screen are kept in the page
 export const MOVE_REDRAW = 120; // the camera may move this many screen pixels before the bubbles are chosen again
 export const FAR_ZOOM = 0.45; // below this zoom bubbles are drawn plain: no ports, numbers or shadows
@@ -544,6 +545,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const cam = useRef(camera);
   const gesture = useRef(null);
   const frame = useRef(0);
+  const [wide, setWide] = useState(false);
   const drawn = useRef(camera); // the camera the bubbles in the page were last chosen for
   const dragRef = useRef(null);
   const dragFrame = useRef(0);
@@ -631,19 +633,32 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   // tablet): one frame loop runs while the map moves, checks how far the camera went and how long ago it last moved.
   const commitCamera = () => {
     drawn.current = { ...cam.current };
+    wideRef.current = false;
+    setWide(false);
     setCamera(drawn.current);
+  };
+  // A zoom (two fingers, wheel) only scales the layer: nothing is drawn again, no bubble changes look, until it stops.
+  // When it starts, a wide ring of bubbles is put in the page once, so the edges stay full while zooming out.
+  const wideRef = useRef(false);
+  const lastZoom = useRef(0);
+  const startWide = () => {
+    if (wideRef.current) return;
+    wideRef.current = true;
+    setWide(true);
   };
   const lastMove = useRef(0);
   const movingOn = useRef(false);
   const loop = () => {
     frame.current = 0;
     const el = viewport.current;
-    const idle = performance.now() - lastMove.current;
+    const now = performance.now();
+    const idle = now - lastMove.current;
     const d = drawn.current;
     const c = cam.current;
-    const far = Math.abs(c.x - d.x) > MOVE_REDRAW || Math.abs(c.y - d.y) > MOVE_REDRAW
-      || Math.abs(Math.log(c.s / d.s)) > 0.12;
-    if (far || (idle > 120 && (c.x !== d.x || c.y !== d.y || c.s !== d.s))) commitCamera();
+    const zooming = gesture.current?.mode === "pinch" || now - lastZoom.current < 160;
+    const far = !zooming && (Math.abs(c.x - d.x) > MOVE_REDRAW || Math.abs(c.y - d.y) > MOVE_REDRAW
+      || Math.abs(Math.log(c.s / d.s)) > 0.12);
+    if (far || (!zooming && idle > 120 && (c.x !== d.x || c.y !== d.y || c.s !== d.s))) commitCamera();
     if (idle > 200 || !el) {
       if (el) el.classList.remove("moving");
       movingOn.current = false;
@@ -673,6 +688,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const zoomAt = (px, py, factor) => {
     const c = cam.current;
     const s = Math.min(2.5, Math.max(0.12, c.s * factor));
+    lastZoom.current = performance.now();
+    startWide();
     applyCamera({ s, x: px - ((px - c.x) * s) / c.s, y: py - ((py - c.y) * s) / c.s });
   };
 
@@ -718,6 +735,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     } else if (g.pointers.size === 2) {
       const [a, b] = [...g.pointers.values()];
       g.mode = "pinch";
+      startWide();
       g.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, s: cam.current.s };
       dragRef.current = null;
       setDrag(null);
@@ -991,12 +1009,12 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
 
   // What to draw in one space (the whole map, or one bubble opened with "Открыть внутри"): bubbles in view (plus
   // a margin), nested-group spaces, lines by colour, link arcs. `scope` null = the card is the root.
-  const scene = (scope, view_, dragState) => {
+  const scene = (scope, view_, dragState, marginPx = MARGIN_PX) => {
     const at = (id) => {
       const p = pos.get(id);
       return dragState && dragState.ids.has(id) ? { x: p.x + dragState.dx, y: p.y + dragState.dy } : p;
     };
-    const margin = MARGIN_PX / view_.s;
+    const margin = marginPx / view_.s;
     const left = -view_.x / view_.s - margin;
     const top = -view_.y / view_.s - margin;
     const right = left + size.w / view_.s + 2 * margin;
@@ -1054,14 +1072,18 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   if (farNow.current ? camera.s > FAR_ZOOM * 1.15 : camera.s < FAR_ZOOM * 0.87) farNow.current = !farNow.current;
   // Bubbles that came into the page after the first draw fade in (opacity only) instead of popping.
   const seenIds = useRef(null);
-  const shown = useMemo(() => (view === "map" ? scene(scope, camera, drag)
+  const shown = useMemo(() => (view === "map" ? scene(scope, camera, drag, wide ? WIDE_PX : MARGIN_PX)
     : { nodes: [], groups: [], lines: {}, refs: "", root: null }),
-  [view, pos, kids, camera, size, drag, links, inactive, scope]);
+  [view, pos, kids, camera, size, drag, links, inactive, scope, wide]);
   // The space underneath an opened bubble, frozen where it was and blurred.
   const behind = useMemo(() => (view === "map" && spaces.length
     ? scene(spaces.length > 1 ? spaces[spaces.length - 2].id : null, spaces[spaces.length - 1].cam, null) : null),
   [view, pos, kids, size, links, inactive, spaces]);
 
+  // The ring put in the page for a zoom, and the draw right after it, show bubbles at once: no fade-in.
+  const wideWas = useRef(false);
+  const freshOk = !wide && !wideWas.current;
+  useEffect(() => { wideWas.current = wide; });
   useEffect(() => { if (view === "map") seenIds.current = new Set(shown.nodes.map((n) => n.b.id)); });
 
   const selectedBlock = selected && selected !== "root" ? byId.get(selected) : null;
@@ -1160,7 +1182,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                   <${Ring} mode=${byId.get(scope)?.mode} /><span class="bubble-title">${byId.get(scope)?.title}</span>
                   <span class="bubble-port out" data-port="out" title=${PORT_TITLE}></span></div>`}
                 ${shown.nodes.map(({ b, p }) => html`<${BubbleNode} key=${b.id} id=${b.id}
-                  cls=${"bubble mode-" + b.mode + (selected === b.id ? " selected" : "") + (seenIds.current && !seenIds.current.has(b.id) ? " fresh" : "")
+                  cls=${"bubble mode-" + b.mode + (selected === b.id ? " selected" : "") + (freshOk && seenIds.current && !seenIds.current.has(b.id) ? " fresh" : "")
                     + (drag && drag.ids.has(b.id) ? " dragging" : "")
                     + ((drag && drag.target === b.id) || (wire && wire.target === b.id) ? " target" : "")
                     + (inactive.has(b.id) ? " inactive" : "") + (linking === b.id ? " linking" : "")
@@ -1168,7 +1190,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                   x=${p.x} y=${p.y} mode=${b.mode} title=${b.title}
                   tip=${inactive.has(b.id) ? `${b.title} — не прицеплен к карточке, модели не уходит` : b.title}
                   orderN=${orderOf.has(b.id) ? orderOf.get(b.id).n : 0} chance=${b.chance ?? 100}
-                  vec=${vectorized.has(b.id)} kidsN=${(kids.get(b.id) || []).length} collapsed=${!!b.layout?.collapsed} far=${farNow.current} />`)}
+                  vec=${vectorized.has(b.id)} kidsN=${(kids.get(b.id) || []).length} collapsed=${!!b.layout?.collapsed} far=${farNow.current || wide} />`)}
               </div>
               ${!loaded && html`<${Pending} error=${loadError} onRetry=${reload} />`}
               ${loaded && blocks.length === 0 && html`<p class="tree-empty muted">Нажмите «Пузырь» вверху, чтобы добавить первый пузырь:
