@@ -230,7 +230,11 @@ button.link { border: 0; background: transparent; color: var(--accent); padding:
 .preset-block .block-edit .row { flex-wrap: wrap; }
 .preset-block .item { border: 0; background: transparent; }
 .block-edit { padding: 8px 0 2px 32px; }
-.param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); gap: 8px 12px; align-items: start; }
+@media (max-width: 480px) { .param-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.param-grid > * { min-width: 0; overflow-wrap: anywhere; }
+.param-grid input, .param-grid select, .param-grid textarea, .param-grid .select { width: 100%; min-width: 0; box-sizing: border-box; }
+.param-grid .hint { margin: 0; }
 .settings-body .sticky-save { bottom: 0; }
 .sticky-save { position: sticky; bottom: -16px; background: var(--dialog-bg); padding: 8px 0; }
 
