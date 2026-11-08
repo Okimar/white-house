@@ -7,6 +7,7 @@
 // its model, the model of each role, the critic, how much of the work to show, its limits and
 // «Что я о вас знаю». The saved position is clamped to the screen whenever it is applied.
 import { Select } from "./Select.js";
+import { Suggest } from "./Suggest.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api, followRun } from "../core/api.js";
 import { money } from "../core/spending.js";
@@ -159,10 +160,9 @@ function AssistantSettings({ overview, onSaved, onMemory, onOpenSkills, onError 
           onChange=${(e) => role(name, { source: e.target.value })}>
           ${overview.sources.map((o) => html`<option key=${o.id} value=${o.id}>${o.id ? o.label : "Как у помощника"}</option>`)}
         </${Select}>
-        <input list="assistant-models" aria-label=${label + ": модель"} placeholder="как у подключения"
+        <${Suggest} options=${models} aria-label=${label + ": модель"} placeholder="как у подключения"
           value=${s.roles[name].model} onChange=${(e) => role(name, { model: e.target.value.trim() })} />
       </div>`)}
-      <datalist id="assistant-models">${models.map((m) => html`<option key=${m} value=${m} />`)}</datalist>
     </details>
     <div class="row">
       <label><input type="checkbox" checked=${s.critic} onChange=${(e) => save({ critic: e.target.checked })} />

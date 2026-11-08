@@ -2,6 +2,7 @@
 // SillyTavern files, and edit a preset: the list of blocks (order, on/off, role, place) and the
 // model settings. The built-in preset is read-only; duplicate it to change it.
 import { Select } from "./Select.js";
+import { Suggest } from "./Suggest.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -109,7 +110,7 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
               <input type="number" min="0" max="1000" value=${block.depth} disabled=${readOnly}
                 onInput=${(e) => set({ depth: Number(e.target.value) || 0 })} /></label>`}
             <label>Группа «один из»
-              <input value=${block.group || ""} disabled=${readOnly} list="preset-groups" placeholder="нет"
+              <${Suggest} value=${block.group || ""} options=${groups} disabled=${readOnly} aria-label="Группа" placeholder="нет"
                 onInput=${(e) => set({ group: e.target.value })} /></label>
           </div>
           <p class="hint">Блоки с одной группой — варианты на выбор: включите один, остальные выключатся.</p>
@@ -335,7 +336,6 @@ export function Presets({ settings, onChanged, onError }) {
         ${blocks.map((b, i) => html`<${BlockRow} key=${b.id} block=${b} index=${i} count=${blocks.length}
           readOnly=${readOnly} groups=${groups} onChange=${(nb) => setBlock(i, nb)} onMove=${move} onRemove=${removeBlock} />`)}
       </ul>
-      <datalist id="preset-groups">${groups.map((g) => html`<option key=${g} value=${g} />`)}</datalist>
       ${!readOnly && html`<div class="row">
         <button onClick=${addBlock}><${Icon} name="plus" /> Свой блок</button>
         ${!hasThinking && html`<button onClick=${addThinking}><${Icon} name="plus" /> Размышление</button>`}

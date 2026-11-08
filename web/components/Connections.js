@@ -4,6 +4,7 @@
 // whether they are set and shows a proxy's address without its login.
 // The editor of the open connection sits right under its row; profiles and parallel requests are folded below.
 import { Select } from "./Select.js";
+import { Suggest } from "./Suggest.js";
 import { html, useState, useEffect, useMemo, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { notify } from "../core/notify.js";
@@ -282,12 +283,9 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
       <h3>Модель</h3>
       <div class="row">
         <label class="stack">Название модели
-          <input value=${head.model} list=${"models-" + conn.id}
+          <${Suggest} value=${head.model} options=${models}
             onInput=${(e) => setHead({ ...head, model: e.target.value })}
             onChange=${(e) => saveHead({ model: e.target.value })} /></label>
-        <datalist id=${"models-" + conn.id}>
-          ${models.map((m) => html`<option value=${m.id}>${m.name !== m.id ? m.name : ""}</option>`)}
-        </datalist>
         <button disabled=${busy} onClick=${inspect} title="Бесплатно: спросить у сервиса модели и их возможности">Проверить</button>
         <button disabled=${busy} onClick=${probe} title="По одному крошечному запросу на каждую настройку">Пробные запросы</button>
       </div>
