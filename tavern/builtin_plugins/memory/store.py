@@ -137,3 +137,62 @@ class VectorCache:
 
     def clear(self) -> None:
         self._data.clear()
+
+
+# -- chapters (migrations/0002_chapters.sql) -------------------------------------------------------
+
+CHAPTERS = "p_memory_chapters"
+CHAPTER_FIELDS = ("id", "chat_id", "first_id", "last_id", "title", "state", "content_hash", "participants", "whole",
+                  "border_by", "reason", "tries", "created_at", "updated_at")
+
+
+def _chapter(row: Any) -> dict[str, Any]:
+    out = {key: row[key] for key in CHAPTER_FIELDS}
+    out["participants"] = json.loads(out["participants"])
+    out["whole"] = bool(out["whole"])
+    return out
+
+
+def chapter_rows(db: Database, chat_id: str) -> list[dict[str, Any]]:
+    """Every chapter row of the chat, all branches (which of them belong to the open branch: chapters.placed)."""
+    rows = db.fetchall(f"SELECT {', '.join(CHAPTER_FIELDS)} FROM {CHAPTERS} WHERE chat_id = ? "
+                       "ORDER BY created_at, id", (chat_id,))
+    return [_chapter(r) for r in rows]
+
+
+def get_chapter(db: Database, chapter_id: str) -> dict[str, Any] | None:
+    row = db.fetchone(f"SELECT {', '.join(CHAPTER_FIELDS)} FROM {CHAPTERS} WHERE id = ?", (chapter_id,))
+    return None if row is None else _chapter(row)
+
+
+def put_chapters(db: Database, rows: list[dict[str, Any]]) -> None:
+    """Insert or replace whole chapter rows (a new chapter, an edit, an undo): one transaction."""
+    with db.transaction() as conn:
+        for row in rows:
+            values = [json.dumps(row[k], ensure_ascii=False) if k == "participants" else
+                      (int(row[k]) if k == "whole" else row[k]) for k in CHAPTER_FIELDS]
+            conn.execute(
+                f"INSERT OR REPLACE INTO {CHAPTERS} ({', '.join(CHAPTER_FIELDS)}) "
+                f"VALUES ({', '.join('?' * len(CHAPTER_FIELDS))})", values)
+
+
+def delete_chapters(db: Database, ids: list[str]) -> None:
+    with db.transaction() as conn:
+        for chapter_id in ids:
+            conn.execute(f"DELETE FROM {CHAPTERS} WHERE id = ?", (chapter_id,))
+
+
+def new_chapter(chat_id: str, first_id: str, last_id: str, content_hash: str, participants: list[str], *,
+                by: str = "script", reason: str = "", title: str = "") -> dict[str, Any]:
+    now = now_iso()
+    return {"id": new_id(), "chat_id": chat_id, "first_id": first_id, "last_id": last_id, "title": title,
+            "state": "raw", "content_hash": content_hash, "participants": participants, "whole": False,
+            "border_by": by, "reason": reason, "tries": 0, "created_at": now, "updated_at": now}
+
+
+def existing_messages(db: Database, ids: list[str]) -> set[str]:
+    """Which of these message ids are still in the database."""
+    if not ids:
+        return set()
+    marks = ", ".join("?" * len(ids))
+    return {r["id"] for r in db.fetchall(f"SELECT id FROM messages WHERE id IN ({marks})", tuple(ids))}

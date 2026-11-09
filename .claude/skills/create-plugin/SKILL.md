@@ -143,6 +143,20 @@ Zip the folder (or the folder inside) → «Установить из файла
 ссылке» (`https://github.com/me/repo`, `/tree/<branch>/<folder>` for a plugin inside a repository).
 Every update needs the user's approval again.
 
+## Windows, dividers, menu items, chips (stage M2)
+
+```js
+const win = t.window({ icon: "🧠", title: "Память", button: false, render: (ui) => ui.html`...` });  // win.open() / win.close()
+t.messageDivider((m) => ({ label, title, state, onClick }) || null);   // a thin line ABOVE a message, plain text
+t.messageMenu({ label, icon, show: (m) => bool, onClick: (m) => ... }); // an item in a message's «⋯» menu
+t.status(() => ({ text, title, state: "wait" | "error" | "", onClick }) || null);   // a chip in the top bar
+t.on("job", (e) => ...);   // {owner, key, running, queued, paused, done, total, note, error} of background jobs
+```
+`render(ui)` runs as a component (hooks work): `ui = {html, useState, useEffect, useRef, Select, Icon, IconButton, ask,
+askText, toast, close}` are the page's own parts, so do not bring your own. The window is a full-height sheet on a
+phone (✕ always visible); buttons 44px, text 14px+, no native `<select>`. Call `t.refresh()` after your state changed.
+Example: `tavern/builtin_plugins/memory/web.js`.
+
 ## Composer helper (2026-11-07)
 
 `t.composerHelper({onText(text, caret), view()})` draws a strip above the chat message box; `t.composer.text()/.caret()/.replace(edits, caret?)` read and edit the box. Only the chat composer is bridged, not the assistant's box. Example: tavern/builtin_plugins/spelling.

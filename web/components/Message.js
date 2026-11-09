@@ -16,7 +16,7 @@ import { html, useEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { MAX_SHOWN, setNotesShown, useNotesShown } from "../core/notesShown.js";
 import { ROLES, roleOf } from "./roles.js";
 import { usageLine } from "../core/spending.js";
-import { messageExtras, messageTrees, usePluginUi } from "../core/plugins.js";
+import { messageDividers, messageExtras, messageMenuItems, messageTrees, usePluginUi } from "../core/plugins.js";
 import { DEFAULT_PINNED, MESSAGE_ACTIONS, splitActions } from "../core/messageActions.js";
 import { MessageTree } from "./PluginTree.js";
 import { Icon, IconButton } from "./Icon.js";
@@ -153,14 +153,17 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   const describe = (id) => ({ ...MESSAGE_ACTIONS.find((a) => a.id === id), ...actions[id] });
   const pluginButtons = streaming ? [] : plugins.messageButtons;
   const titleOf = (b) => (typeof b.title === "function" ? b.title(message) : b.title);
+  const pluginMenu = streaming ? [] : messageMenuItems(message);
   const menuItems = () => [
     ...menu.map(describe),
+    ...pluginMenu.map((m) => ({ icon: m.icon || "", emoji: true, label: m.label, onClick: () => m.onClick(message) })),
     ...(actionsMode === "always" ? [] : pluginButtons.map((b) => ({
       icon: b.icon, emoji: true, label: titleOf(b), onClick: () => b.onClick(message),
     }))),
   ];
 
-  return html`<div class="msg-row" data-slot="message-row">
+  const dividers = streaming ? [] : messageDividers(message);
+  const row = html`<div class="msg-row" data-slot="message-row">
     ${showHiddenHere && hidden.length > 0 && html`<${NoteColumn} notes=${hidden} side="left" few=${few}
       onHide=${hide} onMore=${more} />`}
     <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (excluded ? " msg-excluded" : "")}
@@ -196,7 +199,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           ${actionsMode === "always" && pluginButtons.map((b, i) => html`<button key=${b.owner + i} type="button"
             class="icon-btn" data-slot="message-plugin-button" data-plugin=${b.owner} title=${titleOf(b)}
             aria-label=${titleOf(b)} onClick=${() => b.onClick(message)}>${b.icon}</button>`)}
-          ${(menu.length > 0 || (actionsMode !== "always" && pluginButtons.length > 0)) && html`<${MenuButton}
+          ${(menu.length > 0 || pluginMenu.length > 0 || (actionsMode !== "always" && pluginButtons.length > 0)) && html`<${MenuButton}
             label="Действия с сообщением" data-slot="message-menu" items=${menuItems} />`}
         </span>`}
       </header>
@@ -237,4 +240,10 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     ${showVisible && visible.length > 0 && html`<${NoteColumn} notes=${visible} side="right" few=${few}
       onHide=${hide} onMore=${more} />`}
   </div>`;
+  if (dividers.length === 0) return row;
+  return html`<div class="msg-block" data-slot="message-block">
+    ${dividers.map((d, i) => html`<button key=${d.owner + i} type="button" class=${"msg-divider" + (d.state ? " " + d.state : "")}
+      data-slot="message-divider" data-plugin=${d.owner} title=${d.title || ""} onClick=${d.onClick || null}>
+      <span class="msg-divider-label">${d.label}</span></button>`)}
+    ${row}</div>`;
 }

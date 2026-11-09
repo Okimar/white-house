@@ -23,14 +23,28 @@
 //     {note, items: [{label, title, options: [{label, onClick}]}], undo: {label, onClick}} (plain text);
 //     t.composer.text() / .caret() / .replace([{start, end, text}], caret?) read and edit the box
 //     (the caret stays where it was unless `caret` is given); call t.refresh() to redraw the strip
+//   t.window({icon, title, render(ui), button}) -> {open(), close()}: a window of the plugin (a full-height sheet on a
+//     phone). `render(ui)` runs as a component: it may call ui.useState / ui.useEffect and returns ui.html`...`;
+//     ui = {html, useState, useEffect, useRef, Select, Icon, IconButton, ask, askText, toast, close}, the page's own
+//     parts, so the plugin brings none. `button: false` leaves out the top-bar button (open it from your own place)
+//   t.messageDivider(message => {label, title, state, onClick} | null): a thin line ABOVE a message (plain text)
+//   t.messageMenu({label, icon, onClick(message), show(message)}): an item in a message's «⋯» menu
+//   t.status(() => {text, title, onClick, state} | null): a small chip in the top bar (progress); state "wait" |
+//     "done" | "error" | ""; call t.refresh() to redraw it. t.on("job", fn): progress of this app's background jobs
+//     {owner, key, running, paused, done, total, note, error}
 //   t.toast(text), t.reloadChat(), t.url(path) -> this plugin's file
 // A plugin's style.css is added while it is on. Errors are caught and reported with the plugin's
 // name; a failing setup leaves that plugin's web part off. Safe mode (/?safe) loads none of them.
-import { useEffect, useState } from "../vendor/preact-htm.mjs";
+import { html, useEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { api } from "./api.js";
+import { Select } from "../components/Select.js";
+import { Icon, IconButton } from "../components/Icon.js";
+import { ask, askText } from "../components/Dialogs.js";
+import { notify } from "./notify.js";
 import { SAFE_MODE, on as onEvent } from "./theme.js";
 
-const ui = { messageButtons: [], messageFooters: [], composerButtons: [], composerHelpers: [], assistantButtons: [], messageTrees: [], panels: [] };
+const ui = { messageButtons: [], messageFooters: [], composerButtons: [], composerHelpers: [], assistantButtons: [], messageTrees: [], panels: [],
+  windows: [], messageDividers: [], messageMenus: [], statuses: [] };
 const listeners = new Set();
 const loaded = new Map(); // id -> {hash, controller, cleanup}
 const current = new Map(); // id -> plugin summary from /api/plugins (fresh settings)
@@ -143,6 +157,16 @@ async function load(p) {
       replace: (edits, caret) => (composerBridge ? composerBridge.replace(edits, caret) : false),
     },
     messageTree: (fn) => add("messageTrees", { fn: guard(fn) }),
+    messageDivider: (fn) => add("messageDividers", { fn: guard(fn) }),
+    messageMenu: ({ label, icon, onClick, show }) =>
+      add("messageMenus", { label, icon, show: show ? guard(show) : null, onClick: guard(onClick) }),
+    status: (fn) => add("statuses", { fn: guard(fn) }),
+    window: ({ icon, title, render, button = true }) => {
+      const win = { icon, title, button, render: guard(render), shown: false, key: p.id + ":w" + ui.windows.length,
+        ui: { html, useState, useEffect, useRef, Select, Icon, IconButton, ask, askText, toast: (text, kind) => notify(text, kind) } };
+      add("windows", win);
+      return { open: () => setWindow(win.key, true), close: () => setWindow(win.key, false) };
+    },
     panel: ({ icon, title, render }) => {
       const panel = { icon, title, render: guard(render), shown: false, key: p.id + ":" + ui.panels.length };
       add("panels", panel);
@@ -200,4 +224,35 @@ export function messageTrees(message) {
 export function togglePanel(key, shown) {
   ui.panels = ui.panels.map((x) => (x.key === key ? { ...x, shown } : x));
   changed();
+}
+
+// Windows of plugins (t.window): shown by key.
+export function setWindow(key, shown) {
+  ui.windows = ui.windows.map((x) => (x.key === key ? { ...x, shown } : x));
+  changed();
+}
+
+// Lines above a message: [{owner, label, title, state, onClick}].
+export function messageDividers(message) {
+  const out = [];
+  for (const d of ui.messageDividers) {
+    const item = d.fn(message);
+    if (item) out.push({ owner: d.owner, ...item });
+  }
+  return out;
+}
+
+// Items plugins add to a message's «⋯» menu.
+export function messageMenuItems(message) {
+  return ui.messageMenus.filter((m) => !m.show || m.show(message)).map((m) => ({ ...m }));
+}
+
+// Chips for the top bar.
+export function statusChips() {
+  const out = [];
+  for (const s of ui.statuses) {
+    const item = s.fn();
+    if (item) out.push({ owner: s.owner, ...item });
+  }
+  return out;
 }

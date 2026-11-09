@@ -1,11 +1,11 @@
 # 0019. Memory++: chapters, summaries, character development and threads, as a built-in plugin
 
-Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 done 2026-11-09 (see «M1 done» at the end of
+Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09 (see «M1 done» and «M2 done» in
 section 7). Builds on 0004 (character tree, vectors), 0006
 (lorebooks), 0009 (plugins), 0010 / 0013 (assistant), 0011 (tree of thoughts: an agentic built-in plugin),
 and the foreground rule being built now (`tavern/core/foreground.py`).
 
-Only stage M1 is implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
+Stages M1 and M2 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
 M1–M8; section 8 lists risks and the owner's answers to the open questions (all decided 2026-11-09).
 
 ## 1. Context
@@ -729,6 +729,29 @@ vectors averaged past 3 M multiply-adds, only keyword hits and the newest pieces
   not yet in a chapter are still found by their pieces.
 - Browser: an 80-message fake chat; dividers appear; split and merge from the menu at 375×667 (44 px, the sheet
   closes without scrolling); switch a branch and see the dividers change.
+
+**M2 done (2026-11-09).** Built: `borders.py` (gap scores only before a user message: marker 1.0, time words / «Тем
+временем» 0.8, cast change 0.3, cohesion valley up to 0.35, vector drift up to 0.3, pause over 6 h 0.15; OOC scores 0;
+threshold 0.5; a chapter closes when the open part is longer than N (setting, default 40) and a gap of [N/4 .. 3N]
+reaches the threshold, the earliest of near-equal gaps wins; forced at 3N), the optional model judge
+(`border_judge`, off, own connection / model settings, `generate_json`, scene definition in the prompt, the script's
+candidates as hints, a failed or refused request falls back to the script with a note, asked again only after 4 new
+messages); `chapters.py` (membership by last / first message on the path, staleness by hash, repair on a deleted
+message, split / merge / move / delete / restore / accept / title / whole, undo of the last 50 in plugin storage);
+migration 0002_chapters.sql; job step 3 (`work.close_chapter`: one chapter per step through `job.step`, never beside a
+reply); chapters as search candidates (`inject.py`: a found chapter brings its best piece with one neighbour each
+side as one entry «Ранее в истории: Глава N» with `covers` = their range; `whole` brings the full text; pieces of
+messages in no chapter are still found one by one); actions `chapters`, `split`, `merge`, `move_border`, `remove`,
+`restore`, `accept`, `edit`, `undo`; web API `t.window`, `t.messageDivider`, `t.messageMenu`, `t.status` and the
+`job` event; the «Память» window (full height on a phone) with «Главы», dividers, «Новая глава отсюда», the chip.
+Choices where the ADR left room: (1) `first_id` / `last_id` of a chapter have no foreign key to messages, because the
+event «message deleted» fires after the row is gone and a cascade would remove the chapter before the repair;
+(2) `stale` also goes back to `raw` by itself when the text is the same again, «Принять изменения» adopts the new
+text; summarized / failed states come with M3; (3) a deleted chapter keeps its range (not re-cut) and can be restored;
+(4) the cast uses members, lorebook entry titles and capitalised names inside sentences; (5) a marker in the reply
+after the user's message counts for the gap before that message; (6) split / move in the window take the message
+NUMBER the chat shows; (7) the 🧠 composer button now opens the window, where the per-chat switch lives; (8) the
+browser was not used (owner's decision of 2026-11-09): nothing here is seen on screen.
 
 **M3: summaries, two-level search, «Сюжет до сих пор».** One agent.
 - Job steps 4–5, `prompts.py`, summary vectors, the scoring in `search.py` (summary vs piece, `whole`), sticky

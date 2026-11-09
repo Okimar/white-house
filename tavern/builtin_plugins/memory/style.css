@@ -1,0 +1,20 @@
+/* 🧠 Память++: the «Память» window. Sizes from the app's variables; 44px targets. */
+.memory-window { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.memory-switch { display: flex; align-items: center; gap: 8px; min-height: var(--tap); }
+.memory-switch input[type="checkbox"] { width: 24px; height: 24px; flex: none; }
+.memory-hint { margin: 0; font-size: var(--text-sm); }
+.memory-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.memory-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.memory-chapter { border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.memory-chapter.deleted { opacity: .6; }
+.memory-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: var(--tap);
+  border: 0; background: transparent; text-align: left; font-size: var(--text-sm); }
+.memory-row-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-state { flex: none; font-size: var(--text-sm); color: var(--accent); }
+.memory-sheet { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 8px; font-size: var(--text-sm); }
+.memory-sheet p { margin: 0; }
+.memory-preview { color: var(--text2); overflow-wrap: anywhere; }
+.memory-field { display: flex; gap: 8px; align-items: center; }
+.memory-field input { flex: 1; min-width: 0; min-height: var(--tap); font-size: var(--text-md); }
+.memory-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.memory-actions button { flex: 1 1 140px; }

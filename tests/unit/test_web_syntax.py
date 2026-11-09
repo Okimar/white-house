@@ -16,7 +16,8 @@ import pytest
 
 WEB = Path(__file__).resolve().parents[2] / "web"
 NODE = shutil.which("node")
-FILES = sorted(p for p in WEB.rglob("*.js") if "vendor" not in p.parts)
+PLUGINS = Path(__file__).resolve().parents[2] / "tavern" / "builtin_plugins"
+FILES = sorted([p for p in WEB.rglob("*.js") if "vendor" not in p.parts] + list(PLUGINS.glob("*/*.js")))
 
 
 def _check(path: Path) -> str | None:
@@ -24,7 +25,7 @@ def _check(path: Path) -> str | None:
                             capture_output=True, timeout=60)
     if result.returncode == 0:
         return None
-    return f"{path.relative_to(WEB)}: {result.stderr.decode('utf-8', 'replace')[:400]}"
+    return f"{path.name}: {result.stderr.decode('utf-8', 'replace')[:400]}"
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")

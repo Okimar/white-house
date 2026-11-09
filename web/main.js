@@ -20,8 +20,9 @@ import { CharacterEditor } from "./components/CharacterEditor.js";
 import { PromptView } from "./components/PromptView.js";
 import { MessageNotes, Notes, NotesByNumbers } from "./components/Notes.js";
 import { ROLES } from "./components/roles.js";
-import { pluginNotice, setPluginEnv, syncPlugins, usePluginUi } from "./core/plugins.js";
+import { pluginNotice, setPluginEnv, statusChips, syncPlugins, usePluginUi } from "./core/plugins.js";
 import { PanelButtons, Panels } from "./components/PluginTree.js";
+import { PluginWindows, StatusChips, WindowButtons } from "./components/PluginWindow.js";
 import { PluginAsks } from "./components/Plugins.js";
 import { Assistant } from "./components/Assistant.js";
 import { Search } from "./components/Search.js";
@@ -131,6 +132,7 @@ function App() {
       else if (event.type === "plugin_ask") setAsks((a) => [...a.filter((x) => x.id !== event.ask.id), event.ask]);
       else if (event.type === "plugin_asked") setAsks((a) => a.filter((x) => x.id !== event.id));
       else if (event.type === "plugin") pluginNotice(event);
+      else if (event.type === "job") emit("job", event);
       else if (event.type === "assistant_changed") assistantRef.current.changed();
       else if (event.type === "assistant_show") assistantRef.current.show(event);
       else if (event.type === "assistant_capture") handleCapture(event);
@@ -577,6 +579,8 @@ function App() {
             <${Icon} name="wand" /> ${assistantState.waiting.length ? "Ждёт вас" : "Работает"}</button>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
           ${shown && html`<${ProfileSwitch} refreshKey=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
+          ${shown && html`<${StatusChips} chips=${statusChips()} />`}
+          ${shown && html`<${WindowButtons} windows=${pluginUi.windows} />`}
           ${shown && html`<${PanelButtons} panels=${pluginUi.panels} />`}
           ${shown && html`<${IconButton} icon="users" label="Участники чата и пресет" class="only-wide"
             data-slot="members-button" onClick=${() => setShowMembers(true)} />`}
@@ -657,6 +661,7 @@ function App() {
         <div class="overlay-layer" data-slot="overlay"></div>
       </main>
       ${shown && html`<${Panels} panels=${pluginUi.panels} />`}
+      ${shown && html`<${PluginWindows} windows=${pluginUi.windows} />`}
       ${showSettings && html`<${Settings} settings=${settings} themes=${themes.themes}
         initialTab=${typeof showSettings === "string" ? showSettings : undefined}
         deletedThemes=${themes.deleted} characters=${characters} onClose=${() => { setShowSettings(false); reloadSpending(); loadPlugins(); }}
