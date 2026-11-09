@@ -88,7 +88,9 @@ tavern/                 Python package (backend)
                         (our full .tavern-preset.json or SillyTavern)
   services/character_tree.py  the block tree of an owner (a card or a lorebook): edit (fires
                         character.blocks_changed / lorebook.blocks_changed), finer `rules` checked,
-                        keyword suggestions, meaning vectors, choosing blocks for a reply,
+                        keyword suggestions, meaning vectors, meaning search (one embedding request per reply, one input per chat
+                        message, best cosine per bubble, stale vectors not scored, never re-embeds; lorebooks.meaning_for_reply),
+                        choosing blocks for a reply,
                         ST character_book <-> blocks on import/export
   services/lorebooks.py lorebooks: books, where they are on (global / chat / character), choosing
                         entries for a reply (pool, budget, chains), ST world files in and out

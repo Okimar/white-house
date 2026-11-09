@@ -161,8 +161,6 @@ async def test_reply_time_meaning_search_does_not_wait_on_a_rate_limit(client, c
     await client.put("/api/settings", json={"embedding_connection": conn["id"]})
     await client.post(f"/api/lorebooks/{book['id']}/vectorize")
     await settle_vectors()
-    first = (await status(client, book))["blocks"][0]
-    await client.put(f"/api/blocks/{first['id']}", json={"content": "Изменено"})
     monkeypatch.setattr(character_tree, "RATE_WAIT", 60)  # would hang the test if the reply waited
 
     class Stub:
@@ -174,4 +172,5 @@ async def test_reply_time_meaning_search_does_not_wait_on_a_rate_limit(client, c
 
     monkeypatch.setattr(ctx.providers, "create", lambda *a, **k: Stub())
     blocks = ctx.blocks.list(book["id"])
-    assert await asyncio.wait_for(character_tree.meaning_scores(ctx, blocks, "запрос"), 5) == {}
+    scores, error = await asyncio.wait_for(character_tree.meaning_search(ctx, blocks, ["запрос"]), 5)
+    assert scores == {} and "Поиск по смыслу не сработал" in error and "Ответ без него" in error

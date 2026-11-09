@@ -8,7 +8,8 @@ fires the action event
     lorebook.blocks_changed    lorebook_id       (a lorebook's bubbles)
 
 Settings used (global, Settings → "Промпт"):
-    retrieval            {scan_messages: 3, budget_tokens: 2000, threshold: 0.55}
+    retrieval            {scan_messages: 3, budget_tokens: 2000, threshold: 0.55,
+                          meaning_on: true, meaning_messages: 3, meaning_user: true, meaning_characters: true}
     embedding_connection connection id for meaning vectors; unset = keywords only
 """
 
@@ -38,7 +39,12 @@ MODES = ("always", "search", "off")
 ROLES = ("system", "user", "assistant")
 DISPLAYS = ("line", "nested")
 # threshold_manual: the user typed the threshold; until then the vector service's own default is used
-DEFAULT_RETRIEVAL = {"scan_messages": 3, "budget_tokens": 2000, "threshold": 0.55, "threshold_manual": False}
+# meaning_*: the chat text that goes to meaning search (one request per reply, each message its own input)
+DEFAULT_RETRIEVAL = {"scan_messages": 3, "budget_tokens": 2000, "threshold": 0.55, "threshold_manual": False,
+                     "meaning_on": True, "meaning_messages": 3, "meaning_user": True, "meaning_characters": True}
+MEANING_BOOLS = ("meaning_on", "meaning_user", "meaning_characters", "threshold_manual")
+MEANING_MESSAGES_MAX = 20
+MEANING_TEXT_CHARS = 4000
 MAX_TITLE = 200
 MAX_CONTENT = 200_000
 MAX_KEYWORDS = 100
@@ -76,6 +82,19 @@ def retrieval_settings(ctx: AppContext) -> dict[str, Any]:
         if service:
             result["threshold"] = service[1]
     return result
+
+
+def clean_retrieval(value: dict[str, Any]) -> dict[str, Any]:
+    """Check the fields of the `retrieval` setting that have a fixed shape; other keys pass as they were."""
+    for key in MEANING_BOOLS:
+        if key in value and not isinstance(value[key], bool):
+            raise AppError(f"retrieval.{key} must be true or false", code="bad_setting")
+    count = value.get("meaning_messages")
+    if "meaning_messages" in value and (isinstance(count, bool) or not isinstance(count, int)
+                                        or not 1 <= count <= MEANING_MESSAGES_MAX):
+        raise AppError(f"retrieval.meaning_messages must be a whole number from 1 to {MEANING_MESSAGES_MAX}",
+                       code="bad_setting")
+    return value
 
 
 def _clean(changes: dict[str, Any], *, creating: bool) -> dict[str, Any]:
@@ -765,54 +784,83 @@ async def _embed_and_save(ctx: AppContext, provider: Any, connection: dict[str, 
         ctx.blocks.save_vector(block_id, model, digest, vector)
 
 
-async def _refresh_edited(ctx: AppContext, provider: Any, connection: dict[str, Any],
-                          blocks: list[dict[str, Any]], stored: dict[str, Any]) -> dict[str, Any]:
-    """Bubbles that have a vector but were edited since: their vector is made again here, so meaning
-    search never answers for text that is gone. Bubbles nobody vectorized stay that way."""
-    todo: list[tuple[str, str, str]] = []
-    for owner_id in {b["owner_id"] for b in blocks if b["id"] in stored}:
+def meaning_texts(settings: dict[str, Any], history: list[dict[str, Any]]) -> list[str]:
+    """The chat messages that go to meaning search, oldest first, each its own text: the last `meaning_messages`
+    of the wanted kinds (the user's / the characters'). Only message text, never notes, prompts or thinking."""
+    if not settings.get("meaning_on", True):
+        return []
+    kinds = {"user": bool(settings.get("meaning_user", True)), "assistant": bool(settings.get("meaning_characters", True))}
+    chosen = [m for m in history if not m.get("exclude_from_prompt") and kinds.get(m.get("role"), False)
+              and (m.get("content") or "").strip()]
+    count = int(settings.get("meaning_messages") or 3)
+    return [m["content"][-MEANING_TEXT_CHARS:] for m in chosen[-count:]]
+
+
+def _fresh_vectors(ctx: AppContext, blocks: list[dict[str, Any]], model: str) -> dict[str, list[float]]:
+    """Vectors of green blocks that are made from the block's text as it is now. A stale one (the text was
+    edited after vectorizing) is left out: such a bubble is found by keywords only until it is vectorized again."""
+    green = [b for b in blocks if b["mode"] == "search"]
+    stored = ctx.blocks.vectors([b["id"] for b in green], model)
+    if not stored:
+        return {}
+    fresh: dict[str, list[float]] = {}
+    for owner_id in {b["owner_id"] for b in green if b["id"] in stored}:
         everyone = ctx.blocks.list(owner_id)  # the whole tree: a path needs every parent
         paths = block_paths(everyone, owner_of(ctx, owner_id)["name"])
         for block in everyone:
-            if block["id"] in stored and block["content"].strip():
-                text = _embed_text(paths[block["id"]], block["content"])
-                digest = _hash(text)
-                if stored[block["id"]][0] != digest:
-                    todo.append((block["id"], text, digest))
-    for batch in _batches(todo):
-        await _embed_and_save(ctx, provider, connection, batch)
-    return ctx.blocks.vectors(list(stored), connection["model"]) if todo else stored
+            if block["id"] not in stored or not block["content"].strip():
+                continue
+            digest = _hash(_embed_text(paths[block["id"]], block["content"]))
+            if stored[block["id"]][0] == digest:
+                fresh[block["id"]] = stored[block["id"]][1]
+    return fresh
 
 
-async def meaning_scores(ctx: AppContext, blocks: list[dict[str, Any]], query: str) -> dict[str, float]:
-    """Similarity of the recent chat to each vectorized green block. Empty without a connection."""
+def _failure_text(exc: ProviderError) -> str:
+    if exc.upstream_status == 404:
+        reason = "Адрес не найден (404): проверьте адрес и название модели."
+    else:
+        reason = _REASON_RU.get(exc.reason, "") or str(exc)
+    return f"Поиск по смыслу не сработал: {reason} Ответ без него."
+
+
+async def meaning_search(ctx: AppContext, blocks: list[dict[str, Any]],
+                         texts: list[str]) -> tuple[dict[str, float], str | None]:
+    """Meaning of the recent chat against every green block that has a current vector: ONE embedding request
+    for all `texts` (one input each); a block's score is its best cosine over the texts. Returns (scores, error);
+    the error is plain Russian for the page and the reply goes on without meaning. No request at all when search
+    is off, there is no connection, no text, or no block with a current vector. Never re-embeds bubbles."""
+    texts = [t for t in texts if t.strip()]
     connection = embedding_connection(ctx)
-    if connection is None or not query.strip():
-        return {}
-    stored = ctx.blocks.vectors([b["id"] for b in blocks if b["mode"] == "search"], connection["model"])
-    if not stored:
-        return {}
+    if connection is None or not texts or not retrieval_settings(ctx)["meaning_on"]:
+        return {}, None
+    model = connection["model"]
+    fresh = _fresh_vectors(ctx, blocks, model)
+    if not fresh:
+        return {}, None
     provider = ctx.providers.create(connection)
     try:
-        stored = await _refresh_edited(ctx, provider, connection, blocks, stored)
-        [query_vector] = await provider.embed([query[-4000:]], model=connection["model"])
-        spending.record_call(ctx, connection, "vectors", model=connection["model"],
-                             tokens=estimate_tokens(query[-4000:]))
-    except ProviderError:
+        query_vectors = await provider.embed(texts, model=model)
+        spending.record_call(ctx, connection, "vectors", model=model, tokens=sum(estimate_tokens(t) for t in texts))
+    except ProviderError as exc:
         log.warning("Meaning search skipped: the embedding connection failed", exc_info=True)
-        return {}
+        return {}, _failure_text(exc)
     finally:
         await provider.aclose()
-    return {block_id: cosine(query_vector, vector) for block_id, (_, vector) in stored.items()}
+    if len(query_vectors) != len(texts):
+        return {}, "Поиск по смыслу не сработал: сервис вернул не все векторы. Ответ без него."
+    return {block_id: max(cosine(q, vector) for q in query_vectors) for block_id, vector in fresh.items()}, None
 
 
 # --- choosing blocks for a reply --------------------------------------------------------------
 
 
 async def select_for_chat(
-    ctx: AppContext, chat: dict[str, Any], members: list[Any], history: list[dict[str, Any]]
+    ctx: AppContext, chat: dict[str, Any], members: list[Any], history: list[dict[str, Any]],
+    *, meaning: dict[str, float] | None = None,
 ) -> dict[str, list[FoundBlock]]:
-    """character id -> blocks to send with this reply. Records fresh hits for "stays N replies"."""
+    """character id -> blocks to send with this reply. Records fresh hits for "stays N replies".
+    `meaning`: scores made once for the whole reply (lorebooks.meaning_for_reply); without it they are made here."""
     settings = retrieval_settings(ctx)
     visible = [m for m in history if not m.get("exclude_from_prompt")]
     scan_text = "\n".join(m["content"] for m in visible[-int(settings["scan_messages"]):])
@@ -824,6 +872,9 @@ async def select_for_chat(
     hits, missed = ctx.blocks.hits(chat["id"])
     all_blocks = ctx.blocks.for_owners([m.character_id for m in members])
     links = ctx.blocks.links([m.character_id for m in members])
+    if meaning is None:
+        every = [b for blocks in all_blocks.values() for b in blocks]
+        meaning = (await meaning_search(ctx, every, meaning_texts(settings, history)))[0]
     result: dict[str, list[FoundBlock]] = {}
     fresh: list[str] = []
     misses: list[str] = []
@@ -831,7 +882,7 @@ async def select_for_chat(
         blocks = all_blocks.get(member.character_id, [])
         if not blocks:
             continue
-        scores = await meaning_scores(ctx, blocks, scan_text)
+        scores = meaning
         selection = select_blocks(
             blocks, owner_name=member.name, scan_text=scan_text, hits=hits, generation=generation,
             budget_tokens=int(settings["budget_tokens"]), meaning=scores, threshold=float(settings["threshold"]),

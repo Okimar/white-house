@@ -197,6 +197,8 @@ async def put_settings(request: Request) -> JSONResponse:
             raise BadRequest(f"Setting {key!r} is a list of names")
         if key == "message_pinned" and not all(isinstance(v, str) and v in MESSAGE_BUTTONS for v in value):
             raise BadRequest(f"Setting {key!r} takes these buttons: {', '.join(sorted(MESSAGE_BUTTONS))}")
+        if key == "retrieval" and value:
+            value = character_tree.clean_retrieval(value)
         if key == "lorebooks" and value:
             value = lorebooks.clean_settings(value)
         if value in ("", None):

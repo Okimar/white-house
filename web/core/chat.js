@@ -104,6 +104,8 @@ export function useChat(chatId, onError) {
         onError(event.error.message);
       } else if (event.type === "spend_warning") {
         notify(event.text, "info");
+      } else if (event.type === "meaning_failed") {
+        notify(event.text, "error"); // meaning search failed; the reply goes on by keywords
       } else if (event.type === "variants_failed") {
         onError("Не ответили: " + event.failed.map((f) => `${f.label} (${f.error})`).join("; "));
       } else if (["done", "stopped", "error"].includes(event.type)) {

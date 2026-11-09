@@ -126,7 +126,8 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
 // Global settings for finding character tree blocks (green bubbles).
 function RetrievalSettings({ settings, onChanged, onError }) {
   const [connections, setConnections] = useState([]);
-  const stored = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, ...(settings.retrieval || {}) };
+  const stored = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, meaning_on: true, meaning_messages: 3,
+    meaning_user: true, meaning_characters: true, ...(settings.retrieval || {}) };
   const manual = !!stored.threshold_manual;
   const chosen = connections.find((c) => c.id === settings.embedding_connection);
   const svc = chosen?.meaning_threshold || null; // {service, value}: what suits the chosen vector service
@@ -148,7 +149,8 @@ function RetrievalSettings({ settings, onChanged, onError }) {
     try { await api.put("/settings", patch); notify("Сохранено", "ok"); onChanged(); } catch (e) { onError(e.message); }
   };
   const num = (key, value) => setDraft({ ...draft, [key]: value === "" ? "" : Number(value) });
-  const FIELDS = ["scan_messages", "budget_tokens", "threshold"];
+  const FIELDS = ["scan_messages", "budget_tokens", "threshold", "meaning_messages"];
+  const setMeaning = (patch) => save({ retrieval: { ...stored, ...patch } });
   const dirty = FIELDS.some((k) => draft[k] !== current[k]);
   const setServiceThreshold = async () => {
     const next = { ...stored, threshold: svc.value, threshold_manual: false };
@@ -165,7 +167,9 @@ function RetrievalSettings({ settings, onChanged, onError }) {
   };
   const saveRetrieval = async () => {
     const next = {
+      ...stored,
       scan_messages: Math.max(1, Math.round(Number(draft.scan_messages) || 3)),
+      meaning_messages: Math.min(20, Math.max(1, Math.round(Number(draft.meaning_messages) || 3))),
       budget_tokens: Math.max(0, Math.round(Number(draft.budget_tokens) || 0)),
       threshold: Math.min(1, Math.max(0, Number(draft.threshold) || 0)) };
     next.threshold_manual = manual || next.threshold !== current.threshold;
@@ -189,6 +193,22 @@ function RetrievalSettings({ settings, onChanged, onError }) {
       <span class="hint">Для ${svc.service} подходит около ${svc.value.toFixed(2).replace(".", ",")}</span>
       ${Number(draft.threshold) !== svc.value && html`<button onClick=${setServiceThreshold}>Поставить</button>`}
     </div>`}
+    <label class="check"><input type="checkbox" checked=${stored.meaning_on !== false}
+      onChange=${(e) => setMeaning({ meaning_on: e.target.checked })} />
+      Искать по смыслу</label>
+    <p class="hint">Выключено: векторы и подключение остаются, но запросов за смыслом нет, только ключевые слова.</p>
+    <div class="param-grid">
+      <label class="stack">Сообщений для поиска по смыслу
+        <input type="number" min="1" max="20" disabled=${stored.meaning_on === false} value=${draft.meaning_messages}
+          onInput=${(e) => num("meaning_messages", e.target.value)} />
+        <span class="hint">Каждое сообщение ищется отдельно, пузырь берёт лучшее совпадение. Запрос один на весь ответ.</span></label>
+    </div>
+    <label class="check"><input type="checkbox" checked=${stored.meaning_user !== false} disabled=${stored.meaning_on === false}
+      onChange=${(e) => setMeaning({ meaning_user: e.target.checked })} />
+      Мои сообщения</label>
+    <label class="check"><input type="checkbox" checked=${stored.meaning_characters !== false} disabled=${stored.meaning_on === false}
+      onChange=${(e) => setMeaning({ meaning_characters: e.target.checked })} />
+      Сообщения персонажей</label>
     <div class="row">
       <button disabled=${!dirty} onClick=${saveRetrieval}>Сохранить поиск</button>
     </div>

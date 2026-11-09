@@ -166,13 +166,27 @@ def active_books(ctx: AppContext, chat_id: str, member_ids: list[str]) -> list[s
 # --- choosing entries for a reply ---------------------------------------------------------------
 
 
+async def meaning_for_reply(
+    ctx: AppContext, chat: dict[str, Any], members: list[Any], history_: list[dict[str, Any]],
+) -> tuple[dict[str, float], str | None]:
+    """Meaning scores for a whole reply: the members' cards and the chat's books together, ONE embedding
+    request. Returns (scores by block id, error text for the page or None). Pass the scores to both
+    select_for_chat functions."""
+    owners = [m.character_id for m in members] + active_books(ctx, chat["id"], [m.character_id for m in members])
+    pool = ctx.blocks.for_owners(list(dict.fromkeys(owners)))
+    every = [b for blocks in pool.values() for b in blocks]
+    return await character_tree.meaning_search(
+        ctx, every, character_tree.meaning_texts(character_tree.retrieval_settings(ctx), history_))
+
+
 async def select_for_chat(
     ctx: AppContext, chat: dict[str, Any], members: list[Any], history_: list[dict[str, Any]],
-    *, max_context: int = 0, seed_text: str = "",
+    *, max_context: int = 0, seed_text: str = "", meaning: dict[str, float] | None = None,
 ) -> Selection:
     """Entries of the chat's books for this reply. Call after character_tree.select_for_chat: it
     counts the reply (the chat's generation number) that both use. `seed_text`: the text of the
-    characters' bubbles going with this reply, so chains can start from them too."""
+    characters' bubbles going with this reply, so chains can start from them too. `meaning`: scores made once
+    for the reply by meaning_for_reply; without it they are made here."""
     book_ids = active_books(ctx, chat["id"], [m.character_id for m in members])
     if not book_ids:
         return Selection(found=[])
@@ -189,10 +203,13 @@ async def select_for_chat(
     if lore["budget_percent"] and max_context:
         budget = max_context * lore["budget_percent"] // 100
     hits, missed = ctx.blocks.hits(chat["id"])
+    if meaning is None:
+        meaning = (await character_tree.meaning_search(
+            ctx, blocks, character_tree.meaning_texts(retrieval, history_)))[0]
     selection = select_blocks(
         blocks, owner_name="", scan_text=scan_text, scan_messages=messages, hits=hits,
         generation=generation, budget_tokens=budget,
-        meaning=await character_tree.meaning_scores(ctx, blocks, scan_text),
+        meaning=meaning,
         threshold=float(retrieval["threshold"]), missed=missed, links=ctx.blocks.links(book_ids),
         recursion=lore["recursion"], seed_text=seed_text, present={m.character_id for m in members},
         owner_names={book_id: ctx.lorebooks.get(book_id)["name"] for book_id in book_ids}, by_order=True,

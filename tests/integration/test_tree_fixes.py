@@ -48,26 +48,20 @@ async def test_setting_a_bubble_free_still_works(client):
     assert freed.json()["detached"] is True
 
 
-async def test_an_edited_bubble_gets_a_new_vector_before_meaning_search_uses_it(client, ctx, fake_llm):
+async def test_an_edited_bubble_is_not_re_embedded_during_a_reply(client, ctx, fake_llm):
     ann, conn, chat_id = await setup(client)
     await client.put("/api/settings", json={"embedding_connection": conn["id"], "retrieval": {"threshold": 0.3}})
     bubble = await add(client, ann["id"], title="Детство", content="Росла у реки", keywords=["zzz"])
     await add(client, ann["id"], title="Другое", content="Не менялось", keywords=["yyy"])
     await client.post(f"/api/characters/{ann['id']}/vectorize")
     await settle_vectors()
-    other = await add(client, ann["id"], title="Без вектора", content="Никто не векторизовал", keywords=["xxx"])
 
     await client.put(f"/api/blocks/{bubble['id']}", json={"content": "Выросла в горах"})
     fake_llm.embedding_requests.clear()
     await send(client, ctx, chat_id, "расскажи про горы")
     sent = [text for request in fake_llm.embedding_requests for text in request["input"]]
-    assert "Ann › Детство\nВыросла в горах" in sent
-    assert not any("Не менялось" in text for text in sent)  # unchanged ones are not paid for again
-    assert not any(other["title"] in text for text in sent)  # the user did not ask to vectorize this one
-
-    fake_llm.embedding_requests.clear()
-    await send(client, ctx, chat_id, "ещё про горы")
-    assert not any("Выросла" in text for request in fake_llm.embedding_requests for text in request["input"])
+    assert sent == ["расскажи про горы"]  # only the chat; no bubble text is paid for during a reply
+    assert not any("Выросла" in text or "Не менялось" in text for text in sent)
 
 
 async def test_st_card_second_keys_stay_second_keys_both_ways(client):

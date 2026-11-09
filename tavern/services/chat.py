@@ -610,12 +610,14 @@ def _writer(
                 if character:
                     break
             members = cast.prompt_members(ctx, current, character["id"] if character else None)
-            chosen = await character_tree.select_for_chat(ctx, chat, members, history)
+            meaning, meaning_error = await lorebooks.meaning_for_reply(ctx, chat, members, history)
+            chosen = await character_tree.select_for_chat(ctx, chat, members, history, meaning=meaning)
             for member in members:
                 member.blocks = chosen.get(member.character_id, [])
             lore = await lorebooks.select_for_chat(
                 ctx, chat, members, history, max_context=max_context,
-                seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found))
+                seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found),
+                meaning=meaning)
             # Rules "for the model" (stage 11): in a thread, because the worker is waited for.
             rewritten, lore_rewritten, thoughts_rewritten, skipped = await asyncio.to_thread(
                 regex_service.prompt_texts, ctx, chat, history, lore.found,
@@ -644,6 +646,8 @@ def _writer(
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
             if warning:
                 run.emit("spend_warning", text=warning)
+            if meaning_error:  # the reply goes on by keywords; the page shows why meaning search did not work
+                run.emit("meaning_failed", text=meaning_error)
             allow = allow_parallel and final
             await ctx.events.emit("chat.before_generate", job=job)
             generator = ctx.generators.get(generator_id)
