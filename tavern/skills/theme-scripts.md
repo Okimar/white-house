@@ -13,8 +13,9 @@ THE RULES THAT NEVER BEND
   it, you must not try (the route is closed to you, also in auto mode), and every later edit of the script asks the
   person again. Until then the theme works without the effects. Say this in your report, with these exact steps.
 - Safe mode (/?safe) turns every theme and script off. Tell the person it exists if anything looks wrong.
-- You cannot run the script or see its effect. You can only check that it parses and follows the rules
-  (check_theme_script). Say so; never write that it "works". The person looks and tells you what to fix.
+- You cannot run the script yourself. You can check that it parses and follows the rules (check_theme_script), and
+  after the person allows it, look at the page with `screenshot` (what: screen or phone). A screenshot is one still
+  frame: it shows where things sit, not motion. Never write that the animation "works"; the person looks at the movement.
 - A script gets no network, no cookies, no stored data, no other files; no eval, no new Function, no imports.
 - Touch screens first. Nothing may exist only on hover or mouse move (mouseenter, mouseover, mousemove, :hover):
   a phone has none of them. Use click / pointerdown for presses; pointermove only as a bonus for mice, never as the
@@ -160,5 +161,5 @@ not do.
 - Nothing works only on hover or mouse move; touch targets are at least 40px (var(--tap)); mouse-only extras are optional.
 - No network, cookies, stored data, eval or imports; text goes in with textContent.
 - Motion is CSS on transform and opacity inside prefers-reduced-motion: no-preference; at most 6 moving elements on phones, none with t.reducedMotion.
-- The report says the script does not run until the person allows it, gives the steps, and does not claim it was tested on screen.
+- The report says the script does not run until the person allows it, gives the steps, and does not claim the motion was tested (a screenshot shows only a still frame, and only once the script is allowed).
 - The assistant did not try to allow the script, change trusted_theme_scripts or touch /themes routes itself.

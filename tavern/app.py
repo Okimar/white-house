@@ -154,6 +154,15 @@ def create_app(ctx: AppContext, *, safe_mode: bool = False) -> Callable[..., Any
     return final
 
 
+# The assistant's phone screenshot loads the page itself in a hidden frame (ADR 0020): that one address may be framed
+# by the same origin only. Every other page and every other origin stays «none» / DENY.
+CAPTURE_FRAME_QUERY = b"capture=1"
+
+
+def _capture_frame(scope: dict) -> bool:
+    return scope.get("path") == "/" and CAPTURE_FRAME_QUERY in scope.get("query_string", b"").split(b"&")
+
+
 def with_headers(app: Callable[..., Any], extra: list[tuple[bytes, bytes]]) -> Callable[..., Any]:
     async def wrapped(scope: dict, receive: Callable, send: Callable) -> None:
         if scope["type"] != "http":
@@ -163,6 +172,11 @@ def with_headers(app: Callable[..., Any], extra: list[tuple[bytes, bytes]]) -> C
         async def send_with_headers(message: dict) -> None:
             if message["type"] == "http.response.start":
                 headers = [*message.get("headers", []), *extra]
+                if _capture_frame(scope):
+                    headers = [(n, b"SAMEORIGIN") if n.lower() == b"x-frame-options" else (n, v) for n, v in headers]
+                    headers.append((b"content-security-policy",
+                                    CONTENT_SECURITY_POLICY.replace("frame-ancestors 'none'",
+                                                                    "frame-ancestors 'self'").encode()))
                 # A route may set a stricter policy of its own (sandboxed theme files); keep it.
                 if not any(name.lower() == b"content-security-policy" for name, _ in headers):
                     headers.append((b"content-security-policy", CONTENT_SECURITY_POLICY.encode()))

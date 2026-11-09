@@ -48,6 +48,9 @@ class Env:
     # Asks the person «Разрешить?» in the middle of a tool (install_skill shows what it downloaded first);
     # the engine sets it, "auto" mode answers yes. None: the tool runs without a person (tests of the tool alone).
     ask: Callable[[str], Awaitable[bool]] | None = None
+    # Pictures tools made (screenshots), (media type, base64): the engine sends them to the model with the
+    # next results and empties the list. They are never kept in the conversation or the logs.
+    pictures: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -56,6 +59,7 @@ class Outcome:
     what: str = ""  # empty: nothing changed, nothing to journal
     undo: dict[str, Any] = field(default_factory=snapshot.empty)
     changed: tuple[str, ...] = ()  # what the page should reload: characters, lorebooks, blocks
+    images: tuple[tuple[str, str], ...] = ()  # pictures for the model's next call: (media type, base64)
 
 
 @dataclass

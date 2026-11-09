@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from tavern.api.util import BadRequest, ctx_of, field, json_body, read_body
-from tavern.services import assistant, assistant_files, profiles, spending
+from tavern.services import assistant, assistant_files, assistant_screenshots, profiles, spending
 
 
 async def overview(request: Request) -> JSONResponse:
@@ -69,6 +69,19 @@ async def upload_file(request: Request) -> JSONResponse:
     blob = await read_body(request, assistant_files.MAX_UPLOAD_BYTES)
     return JSONResponse(assistant_files.ingest(ctx_of(request), request.query_params.get("name", ""), blob),
                         status_code=201)
+
+
+async def upload_screenshot(request: Request) -> JSONResponse:
+    """Body: the picture (PNG or JPEG) the page made for a capture request the assistant started. The id is the
+    one from the `assistant_capture` notice: random, single use, short lived. `?failed=reason` instead of a body
+    tells that the page could not draw itself."""
+    ident = request.path_params["id"]
+    ctx = ctx_of(request)
+    if request.query_params.get("failed"):
+        assistant_screenshots.refuse(ctx, ident, request.query_params["failed"])
+        return JSONResponse({"ok": True})
+    assistant_screenshots.accept(ctx, ident, await read_body(request, assistant_screenshots.MAX_BYTES))
+    return JSONResponse({"ok": True}, status_code=201)
 
 
 async def export_chat(request: Request) -> Response:
@@ -163,6 +176,7 @@ routes = [
     Route("/assistant/chats/{id}", rename_chat, methods=["PUT"]),
     Route("/assistant/chats/{id}", delete_chat, methods=["DELETE"]),
     Route("/assistant/files", upload_file, methods=["POST"]),
+    Route("/assistant/screenshots/{id}", upload_screenshot, methods=["POST"]),
     Route("/assistant/import", import_chat, methods=["POST"]),
     Route("/assistant/chats/{id}/export", export_chat, methods=["GET"]),
     Route("/assistant/chats/{id}/send", send, methods=["POST"]),

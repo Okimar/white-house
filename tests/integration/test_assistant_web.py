@@ -187,7 +187,7 @@ async def test_import_a_skill_md_from_a_file_or_a_link(client, ctx, web):
     assert skill["description"] == "Making a night-time interface calm and readable."  # a folded header line
     assert "License: CC-BY-4.0" in skill["body"] and "references/tokens.md" in skill["body"]
     assert any("references/tokens.md" in n and "не перенесены" in n for n in notes)  # files are not carried over, said so
-    assert any("запускать программы" in n and "скриншоты" in n for n in notes)  # what the assistant cannot do, said so
+    assert any("запускать программы" in n for n in notes) and not any("скриншоты" in n for n in notes)  # what the assistant cannot do, said so
     assert any("allowed-tools" in n for n in notes)
     # the checklist became checks for the critic, and the skill still reads whole
     assert skills.checks(skills.get(ctx, skill["id"])) == ["Text has contrast of 4.5 to 1", "One accent only"]
@@ -345,10 +345,10 @@ async def test_the_assistant_writes_adapts_and_undoes_skills_and_never_changes_b
 
 
 def test_the_prompts_say_what_the_assistant_cannot_do():
-    assert "WHAT YOU CANNOT DO" in engine.HONESTY and "pictures" in engine.HONESTY and "see the screen" in engine.HONESTY
+    assert "WHAT YOU CANNOT DO" in engine.HONESTY and "pictures" in engine.HONESTY and "`screenshot` tool" in engine.HONESTY
     assert "do not invent a workaround" in " ".join(engine.HONESTY.split())
     assert 'starts with "CANNOT:"' in engine.PLAN and "CANNOT:" in engine.REPORT
-    assert "pictures, running code, seeing the screen" in engine.CHECKS[0] and "no workaround" in engine.CHECKS[0]
+    assert "pictures, running code; the screen only through the screenshot tool" in engine.CHECKS[0] and "no workaround" in engine.CHECKS[0]
     assert "web_search" in engine.SYSTEM and "never you" in engine.SYSTEM
     assert "cannot give you a tool you do not have" in skills.NOTICE
 

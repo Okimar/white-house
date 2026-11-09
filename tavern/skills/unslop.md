@@ -21,8 +21,11 @@ are never changed. Everything is undoable.
 WHAT YOU CANNOT DO, and must say so in the plan and the report, naming the part, without a workaround:
 - Make pictures or "hero images" (no image tool). A hand-drawn SVG file or a CSS gradient is a different thing;
   offer it only as that, never as the picture that was asked for.
-- See the result. You cannot look at the screen or take a screenshot. Say "I cannot check how it looks; please look
-  and tell me what to fix". Never write "it now looks great".
+- Judge by feeling alone. You CAN look: the `screenshot` tool shows the app (what: screen, phone, tablet). Take one
+  after every theme change, at phone size too, and judge by it. It needs the app open in a browser; if the tool says
+  it is not, tell the person to open it. If you cannot see the picture (the model reads no pictures), say so and ask
+  for a model that does. Effects scripts only run after the person allows them, so a screenshot may not show them.
+  Never write "it now looks great" without a screenshot you looked at.
 - Change the app's own words on buttons and menus, its icons, the layout of its screens, or add a font file:
   those are in the program's code or are binary files. You may change text that is data (names and descriptions of
   characters, chats, presets, lorebooks) when the person asks. Fonts: only those already on the device (a system
@@ -33,8 +36,8 @@ WHAT YOU CANNOT DO, and must say so in the plan and the report, naming the part,
 Ask 2 to 4 questions about taste only, each with ready options taken from THIS product, never about technique:
 the mood (candlelit and warm / cold and quiet / paper and ink / neon city at night), light or dark, how much
 colour (almost none / one accent / two), how much motion (none / a little / lively). Offer 2 or 3 unusual
-twists, not the stock ones. Never ask the person to send a screenshot: read the current theme yourself
-(list_themes, read_theme_file).
+twists, not the stock ones. Never ask the person to send a screenshot: take one yourself
+(`screenshot`) and read the current theme (list_themes, read_theme_file).
 
 Before the items, write the direction in five short lines and put them into "decisions" so the writer sees them:
 - Product: a roleplay chat, read at length, on phones and desktops.
@@ -112,5 +115,6 @@ the safe mode /?safe if anything looks broken.
 - Text on the accent has a contrast of at least 4.5 to 1 and the report says it was computed by hand.
 - Nothing needs hover: hover styles are inside @media (hover: hover) and also exist for :active / :focus-visible.
 - No looping animation, no transition: all, no animated width/height/top/left/box-shadow/filter, no backdrop-filter on scrolling parts; animations sit inside prefers-reduced-motion: no-preference.
-- The report names every part that was asked for and could not be done (pictures, seeing the screen, fonts, the program's own labels) and does not claim the theme "looks great".
+- A screenshot at phone size (what: phone) was taken after the last change and looked at: text is readable, nothing is cut or overlaps, buttons are big enough.
+- The report names every part that was asked for and could not be done (pictures, fonts, the program's own labels, a screenshot that could not be taken) and says what the screenshots showed.
 - The new theme is a copy (the built-in one is unchanged) and is switched on; the person is told how to go back.

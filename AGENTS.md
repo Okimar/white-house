@@ -173,6 +173,10 @@ tavern/                 Python package (backend)
   services/assistant_files.py   files given to the assistant (pictures only in short requests; binary files only described)
   services/web_access.py        the assistant's internet tools (search, read a page); proxies are ignored
   services/assistant_extras.py  more assistant tools (skills it writes through its own tools); ADR 0018
+  services/assistant_screenshots.py  the assistant's `screenshot` tool (ADR 0020): a notice `assistant_capture` to the open page,
+                        the page's PNG/JPEG to POST /api/assistant/screenshots/{id} (random single-use id, 2 MB, 20 s), the
+                        picture goes to the model's next call as an image part, never kept; web/core/capture.js draws the page
+                        (vendored modern-screenshot; phone / tablet in a hidden same-origin frame `/?capture=1`)
   web/components/Select.js  own drop-down instead of the native <select> (themed, filter, keys); never add a native <select>
   web/core/layout.js, choice.js  menu layout (top / side, folded) and the «choice» setting control
   builtin_plugins/memory  «🧠 Память++» (ADR 0019, M1): pieces.py (cut messages, keywords, each speaker's latest left out),

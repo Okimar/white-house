@@ -31,6 +31,7 @@ import { MenuButton } from "./components/Menu.js";
 import { DialogHost, ask } from "./components/Dialogs.js";
 import { EmptyNote, Pending } from "./components/State.js";
 import { dismiss, notify, subscribe } from "./core/notify.js";
+import { handleCapture } from "./core/capture.js";
 import { useEscape } from "./core/keys.js";
 import { useLayout, setMenuFolded } from "./core/layout.js";
 
@@ -132,6 +133,7 @@ function App() {
       else if (event.type === "plugin") pluginNotice(event);
       else if (event.type === "assistant_changed") assistantRef.current.changed();
       else if (event.type === "assistant_show") assistantRef.current.show(event);
+      else if (event.type === "assistant_capture") handleCapture(event);
       else if (event.type === "assistant_state") loadAssistantState();
       else if (event.type === "backups") { loadBackupStatus(); window.dispatchEvent(new Event("tavern:backups")); }
       else if (event.type === "restored") location.reload();

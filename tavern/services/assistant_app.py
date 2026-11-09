@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 
 from tavern.errors import NotFound
-from tavern.services import assistant_tools
+from tavern.services import assistant_screenshots, assistant_tools
 from tavern.services.assistant_tools import Env, Outcome, Tool, ToolError
 from tavern.storage import snapshot
 from tavern.storage.changelog import Recorder
@@ -408,7 +408,24 @@ async def show(env: Env, args: dict[str, Any]) -> Outcome:
     return Outcome({"ok": True, "note": "opened on the page"})
 
 
+async def screenshot(env: Env, args: dict[str, Any]) -> Outcome:
+    """Ask the open page for a picture of itself; the model sees it with the next results (ADR 0020)."""
+    what = str(args.get("what") or "screen").lower()
+    try:
+        media, data = await assistant_screenshots.request(env.ctx, what)
+    except assistant_screenshots.NoPage as exc:
+        raise ToolError(str(exc)) from None
+    return Outcome({"ok": True, "what": assistant_screenshots.WHAT[what], "bytes": len(data) * 3 // 4,
+                    "note": "The picture comes to you as an image with the next message. Look at it and judge by it. "
+                            "If you cannot see any picture, say so plainly and tell the user to pick a model that "
+                            "reads pictures for the assistant (Помощник → модели); never describe what you did not see."},
+                   images=((media, data),))
+
+
 TOOLS = (
+    Tool("screenshot", "Take a picture of the app as the person sees it, to check a theme or a screen by eye. "
+         "what: screen (the current screen) | phone (375x667) | tablet (768x1280). Needs the app open in a browser; "
+         "the person sees a note each time.", {"what": "screen | phone | tablet (default screen)"}, screenshot),
     Tool("app_routes", "The catalog of everything the page can do: METHOD /path — what it takes.",
          {"filter": "optional words, e.g. 'members' or 'notes'"}, app_routes),
     Tool("app_call", "Do what the page does: one request from the catalog. Changes can be undone by the "

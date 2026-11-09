@@ -91,7 +91,7 @@ MINI_PLAN = True  # a mini-plan before each item (one planner call); the older q
 READ_ONLY = frozenset({"list_characters", "read_character", "list_bubbles", "read_bubble", "try_phrase",
                        "list_lorebooks", "list_links",
                        "app_routes", "read_chat", "list_themes", "read_theme_file", "read_skill", "list_skills",
-                       "check_theme_script"})
+                       "check_theme_script", "screenshot"})
 # The internet tools change nothing either, but the critic does not get them: it judges what was made.
 CHANGES_NOTHING = READ_ONLY | {"show", "drive_guide", "begin_sweep", "web_search", "read_page"}
 # What the window says while an internet tool works (progress lines, shown before the answer comes).
@@ -214,8 +214,8 @@ taste, content and behaviour (how it looks, what it says, what happens when). As
 (phones): a thing that works only on hover is wrong.
 - Links between bubbles: only for a pair where one entry cannot be understood without the other. A \
 link adds text to many replies, so make few. Tavern limits them and you never get around the limit.
-- WHAT YOU CANNOT DO: make or edit pictures (you have no image tool), run code or commands, see the screen
-or the result of your CSS and scripts, use a browser, change Tavern's own code, read keys and passwords,
+- WHAT YOU CANNOT DO: make or edit pictures (you have no image tool), run code or commands, use a browser,
+see anything but what the `screenshot` tool shows (it needs the app open in a browser; scripts' effects may not show), change Tavern's own code, read keys and passwords,
 open routes that are closed to you. A request, a plan step or a skill may ask for such a thing. Then do not
 invent a workaround and do not pretend: say plainly, in the plan and in the report, which part you cannot do
 and why, and do everything else. A text description or a placeholder is not a picture; say that you made none.
@@ -414,7 +414,7 @@ Skills:
 
 CHECKS = [
     "Every plan item is really done: its part exists in the made text (see the FACTS too). Nothing is claimed "
-    "that the tools cannot do (pictures, running code, seeing the screen); a part that could not be done is "
+    "that the tools cannot do (pictures, running code; the screen only through the screenshot tool); a part that could not be done is "
     "named as not done and no workaround is passed off as it.",
     "It follows every decision of the task (tone, twists, focus, scale). The content is in {language}.",
     "No contradictions between parts (names, numbers, who controls what).",
@@ -824,6 +824,7 @@ async def act(ctx: AppContext, env: tools.Env, conversation_id: str, run: Run, i
         if name not in CHANGES_NOTHING and name != "app_call":  # app_call waits by itself, for writes only
             await assistant_app.wait_quiet(env)
         outcome = await tool.run(env, args)
+        env.pictures.extend(outcome.images)
     except TavernError as exc:
         error = str(getattr(exc, "message", exc))
         _journal_failure(ctx, conversation_id, run, name, args, error)
@@ -889,6 +890,12 @@ def remember(ctx: AppContext, run: Run, conversation_id: str, value: Any) -> Non
         fact = ctx.assistant_repo.remember(text, conversation_id)
         known.add(text.casefold())
         _say(ctx, run, conversation_id, f"Запомнил: {text}", {"kind": "remembered", "fact_id": fact["id"]})
+
+
+def _results_message(env: tools.Env, text: str) -> ChatMessage:
+    """The results of the actions as the next user message; screenshots taken meanwhile go along as pictures."""
+    images, env.pictures = tuple(env.pictures), []
+    return ChatMessage("user", text, images)
 
 
 def _with_reminder(messages: list[ChatMessage], reminder: str) -> list[ChatMessage]:
@@ -958,10 +965,14 @@ async def small(ctx: AppContext, models: Models, conversation_id: str, chat_id: 
     llm = models.client()
     extra: list[ChatMessage] = []  # a bounced answer and the correction: not part of the conversation
     bounced = False
+    shots: tuple[tuple[str, str], ...] = ()  # screenshots taken by the last actions: seen by the next call only
     for step in range(settings["max_steps"]):
         run.emit("thinking", step=step + 1)
-        messages = _with_reminder([ChatMessage("system", system), *history(ctx, conversation_id), *extra],
-                                  SMALL_REMINDER)
+        messages = [ChatMessage("system", system), *history(ctx, conversation_id), *extra]
+        if shots and messages[-1].role == "user":
+            messages[-1] = ChatMessage("user", messages[-1].content, (*messages[-1].images, *shots))
+        shots = ()
+        messages = _with_reminder(messages, SMALL_REMINDER)
         value = await llm.generate_json(messages, schema=STEP_SCHEMA)
         remember(ctx, run, conversation_id, value.get("remember"))
         sweeping = any(isinstance(a, dict) and a.get("tool") == "begin_sweep" for a in _actions(value))
@@ -996,6 +1007,7 @@ async def small(ctx: AppContext, models: Models, conversation_id: str, chat_id: 
                 _say(ctx, run, conversation_id, f"Инструкция: {read['title']}",
                      {"kind": "skill", "skill_id": read["id"], "name": read["name"]})
         run.emit("message", message=repo.add_message(conversation_id, "tool", "", {"results": results}))
+        shots, env.pictures = tuple(env.pictures), []
     note = (f"Я сделал {settings['max_steps']} шагов — это предел на одну просьбу. "
             "Напишите «продолжай», если нужно ещё.")
     run.emit("message", message=repo.add_message(conversation_id, "assistant", note, {"limit": True}))
@@ -1449,7 +1461,7 @@ async def _sweep_loop(ctx: AppContext, models: Models, conversation_id: str, cha
                 last_errors = errors
                 if repeats + 1 >= REPEATS:
                     break
-                steps.append(ChatMessage("user", "Results of your actions:\n" + _data(results) + (
+                steps.append(_results_message(env, "Results of your actions:\n" + _data(results) + (
                     "\nThe same error as last time. Do not repeat that step; read the error." if repeats else "")))
                 continue
             missing = [(n, b) for n, b in batch if b["id"] not in _accounted(sweep)]
@@ -1540,7 +1552,7 @@ async def _writer_loop(ctx: AppContext, models: Models, conversation_id: str, ch
         if repeats:
             note = ("\nThe same error as last time. Do not repeat that step. Read the error: it says exactly "
                     "which arguments to give and how. Fix the call, or try another way.")
-        steps.append(ChatMessage("user", "Results of your actions:\n" + _data(results) + note))
+        steps.append(_results_message(env, "Results of your actions:\n" + _data(results) + note))
     return say, False, [], changes
 
 
@@ -1771,7 +1783,7 @@ async def _critic(ctx: AppContext, models: Models, conversation_id: str, chat_id
             steps.append(ChatMessage("user", f"You gave no checks. Answer all {len(checks)} checks now."))
             continue
         results = [await act(ctx, env, conversation_id, run, a, read_only=True) for a in actions]
-        steps.append(ChatMessage("user", "Results:\n" + _data(results)))
+        steps.append(_results_message(env, "Results:\n" + _data(results)))
     return None
 
 
