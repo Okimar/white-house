@@ -707,6 +707,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     if (far || (!zooming && idle > 120 && (c.x !== d.x || c.y !== d.y || c.s !== d.s))) commitCamera();
     if (idle > 200 || !el) {
       if (el) el.classList.remove("moving");
+      if (movingOn.current && CANVAS) paint(); // the dashes the moving map leaves out come back
       movingOn.current = false;
       return;
     }
@@ -755,9 +756,21 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   // The map's box is read once per gesture: asking for it on every move forces the page to lay out again each time.
   const boxCache = useRef(null);
   const boxOf = () => boxCache.current || (boxCache.current = viewport.current.getBoundingClientRect());
+  // The farthest zoom is 0.12, or less when the whole tree would not fit the box at that zoom (hundreds of bubbles).
+  const bounds = useMemo(() => {
+    let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+    for (const p of pos.values()) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + W); y1 = Math.max(y1, p.y + H); }
+    return x1 > x0 ? { w: x1 - x0, h: y1 - y0 } : null;
+  }, [pos]);
+  const minZoom = () => {
+    if (!bounds || !viewport.current) return 0.12;
+    const box = boxOf();
+    const fit = Math.min(box.width / bounds.w, box.height / bounds.h) * 0.9;
+    return Math.min(0.12, Math.max(0.03, fit));
+  };
   const zoomAt = (px, py, factor) => {
     const c = cam.current;
-    const s = Math.min(2.5, Math.max(0.12, c.s * factor));
+    const s = Math.min(2.5, Math.max(minZoom(), c.s * factor));
     lastZoom.current = performance.now();
     startWide();
     applyCamera({ s, x: px - ((px - c.x) * s) / c.s, y: py - ((py - c.y) * s) / c.s });
@@ -1185,7 +1198,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   [view, pos, kids, links, inactive, orderOf, vectorized, spaces]);
   if (clearDrag.current) { dragView.current = null; clearDrag.current = false; }
   liveRef.current = { model: cmodel, behind: cbehind, behindCam: spaces.length ? spaces[spaces.length - 1].cam : null,
-    selected, linking, avatar: avatarImg.current, coarse: COARSE };
+    selected, linking, avatar: avatarImg.current, coarse: COARSE, nolines: DBG.has("nolines") };
   useEffect(() => {
     if (!CANVAS || view !== "map" || !canvasRef.current || !viewport.current) return undefined;
     const painter = createPainter(canvasRef.current, viewport.current, () => ({
