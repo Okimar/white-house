@@ -25,6 +25,7 @@ data/plugins/<id>/          (built-in ones: tavern/builtin_plugins/<id>/)
 {"id": "dice", "name": "🎲 Кубики", "version": "1.0.0", "author": "...", "description": "...",
  "server": "server.py", "web": "web.js",
  "uses": ["commands", "messages", "storage", "models", "generator", "events", "ui", "network"],
+ "migrations": "migrations",
  "settings": [{"key": "to", "label": "Язык", "type": "choice", "default": "ru", "choices": [["ru", "Русский"]]},
               {"key": "auto", "label": "Сразу", "type": "bool", "default": false}]}
 ```
@@ -49,6 +50,10 @@ the error shown. Everything registered is removed when the plugin is switched of
 | `api.llm(connection_id=, model=, chat_id=, budget=)` | an `LLMClient` (`generate`, `stream`, `generate_json(schema=)`) |
 | `api.add_generator(gen, name)` | a reply writer; the user picks it per chat in 👥 «Ответ пишет». `gen.id`, `async def generate(job)` yielding text; reuse `job.build_messages()`, `job.llm`, `job.run.trace(kind, ...)`, `job.think(text)`, `job.meta` (kept with the version), `job.message_id`; see the `agentic-plugin` skill |
 | `api.notify(name, **data)` | to the web part on every open page: `t.onNotice(name, fn)` |
+| `api.job(key, work, delay=2.0)` | a background job: `async def work(job)`; each small step through `await job.step(factory)` (a user's request cancels it at once and it is redone later: a step must be safe to redo), `job.progress(done, total, note)`, `await job.rate_wait(seconds)` after a 429 (capped), `job.stopped`. One job per key: scheduling again only asks for one more pass. Cancelled when the plugin is switched off. Make the job todo-driven (each pass asks the tables "what is next?") |
+| `api.job_status(key)` | `{running, queued, paused, done, total, note, error}` |
+| `api.embed(texts, chat_id=)` | vectors on the global embedding connection (one request), metered as the plugin, held to its money limits (not to «may use models»); `AppError` `no_embedding_connection` when none is chosen; a 429 is a `ProviderError` with `upstream_status` 429 |
+| `api.vectors_model()` | the embedding model now chosen ('' if none): key stored vectors by it |
 | `api.on_unload(fn)`, `api.log`, `api.ctx`, `api.folder` | cleanup, logger, the whole app (services may be imported directly: `tavern.services.cast` …) |
 
 **Model access is the user's.** Every request through `api.llm()` or `job.llm` of the plugin's
@@ -59,6 +64,36 @@ for the user). Spending is recorded as `purpose = "plugin:<id>"`.
 
 Errors for the user: raise `tavern.errors.AppError` subclasses with a Russian message. Any other
 exception in a command or action becomes «Дополнение … ошиблось в …» (500) and the plugin stays on.
+
+## Events a plugin can hear (stage M1)
+
+Actions (`api.on(name, fn)`; `fn(**payload)`): `message.received` (message, chat), `message.added` (message, chat_id),
+`message.edited` (message, chat_id, before), `message.excluded` (message, chat_id, excluded), `message.deleted`
+(message, chat_id, children), `message.swipe_selected` (message, chat_id, before_idx), `chat.branch_selected`
+(chat_id, leaf_id, before_leaf), `chat.created` (chat_id), `chat.before_generate` (job). They fire from the page's
+routes, from the assistant's `app_call` and from the chat service. Use them to WAKE work; never rely on them for
+correctness (check content by hash too). Filter: `meaning.wanted` (`value=False, chat=`): return True to make the
+reply's ONE embedding request happen even for a chat without lorebooks.
+
+## Tables of its own (stage M1)
+
+`plugin.json` `"migrations": "migrations"`: a folder of `NNNN_name.sql` (contiguous from 0001, one transaction each,
+never edit a shipped file, no BEGIN/COMMIT). Applied before `setup(api)`. EVERY table, index, trigger and view a file
+creates must be named `p_<id>_...` (`-` in the id becomes `_`), and nothing else in the database may change; a stray
+name rolls the file back and leaves only that plugin off with the error. Tables may `REFERENCES chats(id) / messages(id)
+ON DELETE CASCADE`. Name vector tables `p_<id>_vectors`: they are never journaled for the assistant's undo and never
+captured in snapshots. Use `api.ctx.db` (`fetchone / fetchall / transaction`). «Удалить вместе с данными» drops the
+`p_<id>_*` objects; the doctor warns when `schema_version` is not the folder's. `.sql` files are plugin files: part of
+the approval hash, never served to the browser. Example: `tavern/builtin_plugins/memory`.
+
+## Pieces of the prompt (stage M1)
+
+In `chat.before_generate` add `core.assembly.Extra`s to `job.prompt_input.extras`: `text`, `source` (archive key,
+`plugin:<id>:...`), `label`, `place` ("memory" | "after_card" | "card_before" | "card_after" | "depth" | "an_top"),
+`owner` (character id), `drop_rank`. History first: an Extra with `covers=(first_id, last_id)` or `if_dropped=True` is
+sent only when those history messages were really left out of the window, and only within `prompt_input.memory_reserve`
+tokens. Set `prompt_input.tail_from` (the live tail is not cut before older messages), `prompt_input.values["summary"]`
+for `{{summary}}`. `job.meaning` is the reply's meaning request (`.queries` vectors, `.texts`, `.model`, `.error`).
 
 ## Web part: `setup(t)` (web/core/plugins.js)
 

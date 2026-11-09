@@ -24,6 +24,7 @@ from tavern.core.runs import Run
 
 from tavern.providers.params import request_params
 from tavern.services import cast, character_tree, lorebooks, parallel, speakers, spending
+from tavern.services import messages as message_service
 from tavern.services import notes as note_service
 from tavern.services import presets as preset_service
 from tavern.services import regex as regex_service
@@ -102,6 +103,7 @@ def create_chat(ctx: AppContext, character_id: str | None, title: str | None = N
                 ctx.chats.add_swipe(message["id"], alternative)
             if len(opening) > 1:
                 ctx.chats.set_active_swipe(message["id"], 0)
+    message_service.announce(ctx, "chat.created", chat_id=chat["id"])
     return ctx.chats.get_chat(chat["id"])
 
 
@@ -154,6 +156,7 @@ def start_send(
             chat_id, role="user", content=text, parent_id=chat["leaf_id"], name=user_name(ctx, chat_id))
         if images or original:
             ctx.chats.update_swipe_meta(message["id"], 0, {"images": images or None, "regex_before": original})
+        message_service.announce(ctx, "message.added", message=message, chat_id=chat_id)
         return None
     connection = resolve_connection(ctx, chat)
     if _round_wanted(ctx, chat, reply_role, speaker):  # everyone answers at once
@@ -163,6 +166,7 @@ def start_send(
         if images or original:
             ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images or None, "regex_before": original})
             user_message = ctx.chats.get_message(user_message["id"])
+        message_service.announce(ctx, "message.added", message=user_message, chat_id=chat_id)
         return _start_turn(ctx, chat, connection, replies=1, user_message=user_message, warning=warning)
     pending = {"role": "user", "content": text, "name": user_name(ctx, chat_id), "character_id": None}
     speaker, ask = _pick(ctx, chat, reply_role, speaker, [*ctx.chats.active_path(chat_id), pending])
@@ -174,6 +178,7 @@ def start_send(
     if images or original:
         ctx.chats.update_swipe_meta(user_message["id"], 0, {"images": images or None, "regex_before": original})
         user_message = ctx.chats.get_message(user_message["id"])
+    message_service.announce(ctx, "message.added", message=user_message, chat_id=chat_id)
     character_id, name = _author(ctx, chat, reply_role, speaker, ask)
     reply = ctx.chats.add_message(
         chat_id, role=reply_role, content="", parent_id=user_message["id"], name=name, character_id=character_id,
@@ -300,6 +305,7 @@ def add_message(ctx: AppContext, chat_id: str, text: str, role: str) -> dict[str
     if original is not None:
         ctx.chats.update_swipe_meta(message["id"], 0, {"regex_before": original})
         message = ctx.chats.get_message(message["id"])
+    message_service.announce(ctx, "message.added", message=message, chat_id=chat_id)
     return message
 
 
@@ -373,8 +379,10 @@ def start_regenerate(ctx: AppContext, chat_id: str) -> Run:
         raise Conflict("The last message is not a reply", code="nothing_to_regenerate")
     connection = resolve_connection(ctx, chat)
     warning = spending.guard(ctx)
+    before_idx = last["active_swipe"]
     swipe_idx = ctx.chats.add_swipe(last["id"], "")
     last = ctx.chats.get_message(last["id"])
+    message_service.announce(ctx, "message.swipe_selected", message=last, chat_id=chat_id, before_idx=before_idx)
     return _launch(ctx, chat, connection, last, swipe_idx=swipe_idx, new_swipe=True,
                    user_message=None, instruction=_instruction_for(last["role"]), allow_parallel=True,
                    warning=warning)
@@ -609,7 +617,11 @@ def _writer(
                 if character:
                     break
             members = cast.prompt_members(ctx, current, character["id"] if character else None)
-            meaning, meaning_error = await lorebooks.meaning_for_reply(ctx, chat, members, history)
+            # A plugin (the memory) may need the query vectors even when no bubble has a vector: it says so with the
+            # filter event, and still ONE embedding request serves bubbles, lorebooks and the plugin.
+            wanted = bool(await ctx.events.filter("meaning.wanted", False, chat=chat))
+            found_meaning = await lorebooks.meaning_for_reply(ctx, chat, members, history, wanted=wanted)
+            meaning, meaning_error = found_meaning.scores, found_meaning.error
             chosen = await character_tree.select_for_chat(ctx, chat, members, history, meaning=meaning)
             for member in members:
                 member.blocks = chosen.get(member.character_id, [])
@@ -640,6 +652,7 @@ def _writer(
                                 history=history, user_name=me, llm=llm, run=run,
                                 max_context_tokens=max_context, instruction=instruction,
                                 prompt_input=prompt_input, message_id=reply["id"])
+            job.meaning = found_meaning
             job.params["split_thinking"] = True  # <thinking> written in the reply goes to «Размышление»
             job.on_reasoning = lambda text: run.emit("reasoning", id=reply["id"], text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)

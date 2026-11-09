@@ -19,6 +19,7 @@ const KIND_HINTS = {
   examples: "примеры диалогов", lore_before: "лорбуки до переписки", lore_after: "лорбуки после переписки",
   history: "сама переписка", post_history: "после переписки", text: "свой текст",
   thinking: "размышление перед ответом",
+  memory: "сюда встаёт память (дополнение «Память++»)",
 };
 // Behaviour blocks (block.when): text sent only while the behaviour is on. [what it is for, when it is sent]
 const WHEN_HINTS = {

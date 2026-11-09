@@ -13,6 +13,7 @@ from starlette.routing import Route
 from tavern.api.util import BadRequest, copy_before, ctx_of, field, json_body
 from tavern.errors import NotFound
 from tavern.services import chat as chat_service
+from tavern.services import messages as message_service
 from tavern.services import regex as regex_service
 from tavern.services import speakers
 
@@ -265,15 +266,13 @@ async def edit_message(request: Request) -> JSONResponse:
         raise BadRequest("Wait for the generation to finish before editing", code="busy")
     if "content" not in body and "exclude_from_prompt" not in body:
         raise BadRequest("Nothing to change: give content and/or exclude_from_prompt")
+    text = original = None
     if "content" in body:
         text, original = regex_service.stored(ctx, message["chat_id"], field(body, "content", str),
                                               message["role"], editing=True)
-        ctx.chats.set_content(message_id, text)
-        if original is not None:  # a saved-text rule that runs on edit changed it: keep the text as typed
-            ctx.chats.update_swipe_meta(message_id, message["active_swipe"], {"regex_before": original})
-    if "exclude_from_prompt" in body:
-        ctx.chats.set_excluded(message_id, field(body, "exclude_from_prompt", bool))
-    return JSONResponse(ctx.chats.get_message(message_id))
+        # a saved-text rule that runs on edit may have changed it: the text as typed is kept (`original`)
+    exclude = field(body, "exclude_from_prompt", bool) if "exclude_from_prompt" in body else None
+    return JSONResponse(await message_service.edit(ctx, message_id, text=text, original=original, exclude=exclude))
 
 
 async def list_branches(request: Request) -> JSONResponse:
@@ -295,8 +294,7 @@ async def select_branch(request: Request) -> JSONResponse:
     # Selecting an alternative shows its whole continuation, not just the message itself. `exact`
     # stops at that message: the next one starts a new branch there, the old one stays under ⑂.
     exact = field(body, "exact", bool, default=False)
-    ctx.chats.set_leaf(chat_id, leaf_id if exact else ctx.chats.newest_leaf(leaf_id))
-    return JSONResponse({"chat": ctx.chats.get_chat(chat_id)})
+    return JSONResponse({"chat": await message_service.select_branch(ctx, chat_id, leaf_id, exact=exact)})
 
 
 async def search_chat(request: Request) -> JSONResponse:
@@ -323,7 +321,7 @@ async def select_swipe(request: Request) -> JSONResponse:
     message = ctx.chats.get_message(message_id)
     if ctx.runs.active(message["chat_id"]) is not None:
         raise BadRequest("Wait for the generation to finish", code="busy")
-    return JSONResponse(ctx.chats.set_active_swipe(message_id, field(body, "index", int)))
+    return JSONResponse(await message_service.select_swipe(ctx, message_id, field(body, "index", int)))
 
 
 async def delete_message(request: Request) -> JSONResponse:
@@ -332,8 +330,7 @@ async def delete_message(request: Request) -> JSONResponse:
     message = ctx.chats.get_message(message_id)
     if ctx.runs.active(message["chat_id"]) is not None:
         raise BadRequest("Wait for the generation to finish before deleting", code="busy")
-    ctx.chats.delete_message(message_id)
-    return JSONResponse({"chat": ctx.chats.get_chat(message["chat_id"])})
+    return JSONResponse({"chat": await message_service.delete(ctx, message_id)})
 
 
 routes = [

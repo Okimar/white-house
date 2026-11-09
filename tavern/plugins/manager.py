@@ -34,7 +34,7 @@ import httpx
 
 from tavern.core.llm import GateFn
 from tavern.errors import AppError, Conflict, NotFound
-from tavern.plugins import install
+from tavern.plugins import install, schema
 from tavern.plugins.api import PluginAPI
 from tavern.plugins.manifest import (
     MANIFEST, PluginError, check_settings, files_hash, read_manifest, read_zip, secret_name, with_defaults,
@@ -49,6 +49,7 @@ log = logging.getLogger(__name__)
 ASK_TIMEOUT = 120.0
 VERSIONS_KEEP = 3
 VERSIONS_DIR = ".versions"
+SCHEMA_KEY = "__schema_version"  # plugin_data key: where a plugin deleted without data left its tables
 ACCESS_DEFAULTS: dict[str, Any] = {"models": False, "ask": False, "day": 0.0, "month": 0.0, "per_reply": 0}
 
 
@@ -175,6 +176,8 @@ class PluginManager:
             "access": {**ACCESS_DEFAULTS, **row.get("access", {})},
             "commands": sorted(n for n, (owner, _, _) in self.commands.items() if owner == item.id),
             "data_count": self.ctx.plugin_repo.data_count(item.id),
+            "schema_version": int(row.get("schema_version", 0)),
+            "schema_latest": schema.latest(item.folder, manifest.get("migrations", "")),
             "versions": 0 if item.builtin else len(self._version_ids(item.id)),
             "spent": {"day": self.ctx.spending.purpose(purpose, day=day),
                       "month": self.ctx.spending.purpose(purpose, month=day[:7])},
@@ -258,6 +261,7 @@ class PluginManager:
         loaded = Loaded(api, f"tavern_plugin_{item.id.replace('-', '_')}")
         self.loaded[item.id] = loaded
         try:
+            self._migrate(item)
             module = self._import(loaded.module_name, item.folder / item.manifest["server"])
             setup = getattr(module, "setup", None)
             if not callable(setup):
@@ -275,6 +279,25 @@ class PluginManager:
         log.info("Plugin %s %s started", item.id, item.manifest["version"])
         return True
 
+    def _migrate(self, item: Found) -> None:
+        """The plugin's own tables (plugins/schema.py). A bad file leaves only this plugin off."""
+        assert item.manifest is not None
+        files = schema.folder_migrations(item.folder, item.manifest.get("migrations", ""))
+        if not files:
+            return
+        row = self.ctx.plugin_repo.save(item.id)  # the row holds schema_version
+        current = int(row.get("schema_version", 0))
+        kept = self.ctx.plugin_repo.data_get(item.id, "", SCHEMA_KEY, 0)
+        if current == 0 and kept:  # deleted without its data earlier: the tables are still there
+            current = int(kept)
+            self.ctx.plugin_repo.save(item.id, schema_version=current)
+            self.ctx.plugin_repo.data_delete(item.id, "", SCHEMA_KEY)
+        if current == files[-1].version:
+            return
+        if current > 0:  # tables with data exist: a copy first, like before a core migration
+            self.ctx.backups.before("plugin-migration")
+        schema.apply(self.ctx.db, item.id, files, current)
+
     @staticmethod
     def _import(name: str, path: Path) -> Any:
         # The server file acts as a package, so a plugin can split its code: `from .rules import x`.
@@ -289,6 +312,8 @@ class PluginManager:
     def _unload(self, plugin_id: str) -> None:
         loaded = self.loaded.pop(plugin_id, None)
         self.ctx.events.off(plugin_id)
+        if getattr(self.ctx, "jobs", None) is not None:
+            self.ctx.jobs.cancel(plugin_id)
         self.ctx.generators.unregister_owner(plugin_id)
         for name in [n for n, (owner, _, _) in self.commands.items() if owner == plugin_id]:
             del self.commands[name]
@@ -442,6 +467,12 @@ class PluginManager:
                 self.ctx.secrets.delete(secret_name(plugin_id, field["key"]))
         shutil.rmtree(item.folder)
         shutil.rmtree(self._versions_root(plugin_id), ignore_errors=True)
+        if data:  # the plugin's own tables go with its data
+            schema.drop_all(self.ctx.db, plugin_id)
+        else:  # the tables stay: remember how far they are, so installing the plugin again continues from there
+            kept = int((self.ctx.plugin_repo.get(plugin_id) or {}).get("schema_version", 0))
+            if kept:
+                self.ctx.plugin_repo.data_set(plugin_id, "", SCHEMA_KEY, kept)
         self.ctx.plugin_repo.delete(plugin_id, data=data)
         self.ctx.notices.emit("plugins")
 
@@ -482,9 +513,6 @@ class PluginManager:
 
         async def gate() -> None:
             nonlocal made
-            from tavern.services import spending
-            from tavern.storage.repos.spending import today
-
             row = self.ctx.plugin_repo.get(plugin_id) or {}
             access = {**ACCESS_DEFAULTS, **row.get("access", {})}
             item = self.discover().get(plugin_id)
@@ -495,24 +523,36 @@ class PluginManager:
             if access["per_reply"] and made >= access["per_reply"]:
                 raise PluginRefused(f"Дополнение «{name}»: предел {access['per_reply']} запросов на один ответ",
                                     code="plugin_limit")
-            settings = spending.get_settings(self.ctx)
-            rate = spending.rate(settings)
-            day = today()
-            for period, label in (("day", "день"), ("month", "месяц")):
-                limit = access[period]
-                if not limit:
-                    continue
-                spent = self.ctx.spending.purpose(f"plugin:{plugin_id}", **({"day": day} if period == "day"
-                                                                             else {"month": day[:7]}))
-                if spent["cost"] * rate >= limit:
-                    raise PluginRefused(f"Дополнение «{name}»: лимит расхода за {label} достигнут "
-                                        f"({spent['cost'] * rate:.2f} из {limit:g} "
-                                        f"{settings['currency']['code'] or '$'})", code="plugin_limit")
+            self.check_money(plugin_id, name, access)
             if access["ask"] and not await self.ask(plugin_id, name, chat_id):
                 raise PluginRefused(f"Вы не разрешили запрос дополнения «{name}»", code="plugin_denied")
             made += 1
 
         return gate
+
+    def check_money(self, plugin_id: str, name: str = "", access: dict[str, Any] | None = None) -> None:
+        """The plugin's own day / month spending limits (the money part of the gate). Raises PluginRefused."""
+        from tavern.services import spending
+        from tavern.storage.repos.spending import today
+
+        if access is None:
+            access = {**ACCESS_DEFAULTS, **(self.ctx.plugin_repo.get(plugin_id) or {}).get("access", {})}
+        if not name:
+            item = self.discover().get(plugin_id)
+            name = (item.manifest or {}).get("name", plugin_id) if item else plugin_id
+        settings = spending.get_settings(self.ctx)
+        rate = spending.rate(settings)
+        day = today()
+        for period, label in (("day", "день"), ("month", "месяц")):
+            limit = access[period]
+            if not limit:
+                continue
+            spent = self.ctx.spending.purpose(f"plugin:{plugin_id}", **({"day": day} if period == "day"
+                                                                         else {"month": day[:7]}))
+            if spent["cost"] * rate >= limit:
+                raise PluginRefused(f"Дополнение «{name}»: лимит расхода за {label} достигнут "
+                                    f"({spent['cost'] * rate:.2f} из {limit:g} "
+                                    f"{settings['currency']['code'] or '$'})", code="plugin_limit")
 
     async def ask(self, plugin_id: str, name: str, chat_id: str | None) -> bool:
         """Ask the open page(s) whether the plugin may make one model request. No page = no."""

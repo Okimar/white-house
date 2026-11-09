@@ -11,7 +11,8 @@ connection is recorded, so the caller makes sure nothing else writes meanwhile (
 waits while a reply is being written).
 
 Not watched: the assistant's own tables, spending (money was spent, undo does not unspend it),
-the prompt archive, cached model info and meaning vectors (made again when needed).
+the prompt archive, cached model info and meaning vectors (made again when needed; tables whose name ends
+in `_vectors`, such as a plugin's `p_<id>_vectors`).
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from tavern.storage.snapshot import _generated, _key_columns, _quote
 
 SKIP_PREFIXES = ("sqlite_", "assistant_", "prompt_")
 SKIP_TABLES = frozenset({"spending", "model_info", "block_embeddings"})
+SKIP_SUFFIXES = (snapshot.VECTOR_SUFFIX,)  # a plugin's vector table (p_<id>_vectors): made again when needed, never journaled
 OPS = (("i", "INSERT", "NEW"), ("u", "UPDATE", "OLD"), ("d", "DELETE", "OLD"))
 
 
@@ -33,6 +35,7 @@ def _tables(db: Database) -> list[str]:
     rows = db.fetchall("SELECT name, sql FROM sqlite_master WHERE type = 'table'")
     return sorted(r["name"] for r in rows
                   if not r["name"].startswith(SKIP_PREFIXES) and r["name"] not in SKIP_TABLES
+                  and not r["name"].endswith(SKIP_SUFFIXES)
                   and not (r["sql"] or "").upper().startswith("CREATE VIRTUAL"))
 
 

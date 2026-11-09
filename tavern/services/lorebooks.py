@@ -168,15 +168,17 @@ def active_books(ctx: AppContext, chat_id: str, member_ids: list[str]) -> list[s
 
 async def meaning_for_reply(
     ctx: AppContext, chat: dict[str, Any], members: list[Any], history_: list[dict[str, Any]],
-) -> tuple[dict[str, float], str | None]:
-    """Meaning scores for a whole reply: the members' cards and the chat's books together, ONE embedding
-    request. Returns (scores by block id, error text for the page or None). Pass the scores to both
-    select_for_chat functions."""
+    *, wanted: bool = False,
+) -> character_tree.Meaning:
+    """Meaning for a whole reply: the members' cards and the chat's books together, ONE embedding request.
+    Returns a `Meaning` (.scores by block id, .queries the query vectors, .error text for the page or None). Pass
+    `.scores` to both select_for_chat functions. `wanted`: a plugin needs the query vectors even when no block
+    has a vector (the filter event `meaning.wanted`, asked by the chat service)."""
     owners = [m.character_id for m in members] + active_books(ctx, chat["id"], [m.character_id for m in members])
     pool = ctx.blocks.for_owners(list(dict.fromkeys(owners)))
     every = [b for blocks in pool.values() for b in blocks]
     return await character_tree.meaning_search(
-        ctx, every, character_tree.meaning_texts(character_tree.retrieval_settings(ctx), history_))
+        ctx, every, character_tree.meaning_texts(character_tree.retrieval_settings(ctx), history_), wanted=wanted)
 
 
 async def select_for_chat(
@@ -205,7 +207,7 @@ async def select_for_chat(
     hits, missed = ctx.blocks.hits(chat["id"])
     if meaning is None:
         meaning = (await character_tree.meaning_search(
-            ctx, blocks, character_tree.meaning_texts(retrieval, history_)))[0]
+            ctx, blocks, character_tree.meaning_texts(retrieval, history_))).scores
     selection = select_blocks(
         blocks, owner_name="", scan_text=scan_text, scan_messages=messages, hits=hits,
         generation=generation, budget_tokens=budget,

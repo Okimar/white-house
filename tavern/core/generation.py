@@ -11,7 +11,9 @@ to report progress to the UI (its web part gets them as the page event "trace").
 `job.think(text)`: it is shown folded above the reply and kept with it, never mixed into the text.
 
 Events fired around a run (see core/events.py):
-  chat.before_generate  action  job
+  meaning.wanted        filter  False -> True when a plugin needs the query vectors of this reply (chat=...)
+  chat.before_generate  action  job   (job.meaning: the reply's meaning request; job.prompt_input.extras: a
+                                       plugin's pieces of the prompt, see core/assembly.py Extra)
   prompt.built          filter  messages -> messages   (job=...)
   message.received      action  message, chat
   generation.failed     action  chat_id, error
@@ -56,6 +58,9 @@ class GenerationJob:
     message_id: str = ""  # the reply being written
     meta: dict[str, Any] = field(default_factory=dict)  # kept with this version of the reply (swipe_meta)
     on_reasoning: Any = None  # callable(text) set by the chat service to stream thinking to the UI
+    # The reply's ONE meaning request (services/character_tree.Meaning: block scores and the query vectors), for
+    # plugins in chat.before_generate. None when the job was not made by the chat service.
+    meaning: Any = None
 
     def think(self, text: str) -> None:
         self.reasoning.append(text)

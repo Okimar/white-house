@@ -116,6 +116,11 @@ def _plugins(ctx: AppContext) -> list[dict[str, Any]]:
         elif item["error"]:
             out.append(_finding(f"plugin:{item['id']}", "warn", f"Дополнение «{item['name']}» не работает",
                                 item["error"]))
+        elif item["active"] and item.get("schema_latest") and item["schema_version"] != item["schema_latest"]:
+            out.append(_finding(f"plugin-schema:{item['id']}", "warn",
+                                f"Таблицы дополнения «{item['name']}» не той версии",
+                                f"Версия схемы {item['schema_version']}, в папке дополнения {item['schema_latest']}. "
+                                "Выключите и снова включите дополнение: недостающие миграции применятся."))
     return out
 
 

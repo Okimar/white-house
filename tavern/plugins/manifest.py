@@ -5,6 +5,8 @@ A plugin is a folder:
                    "server": "server.py",   Python file with `def setup(api)` (optional)
                    "web": "web.js",         ES module, `export default function setup(t)` (optional)
                    "style": "style.css",    added to the page while the plugin is on (optional)
+                   "migrations": "migrations",   folder of NNNN_name.sql files: the plugin's own tables, every name
+                                            starting with p_<id>_ (plugins/schema.py); applied before setup(api)
                    "uses": ["commands", "models", ...],   what it says it does, shown before enabling
                    "settings": [{"key", "label", "type": bool|number|text|choice|connection|list,
                                  "default", "choices": [[value, label]], "min", "max", "help",
@@ -41,11 +43,11 @@ FIELD_TYPES = ("bool", "number", "text", "choice", "connection", "list", "secret
 ROW_TYPES = ("bool", "number", "text", "choice")
 MAX_ROWS = 100
 EXTENSIONS = frozenset({
-    ".py", ".js", ".mjs", ".css", ".json", ".md", ".txt", ".toml",
+    ".py", ".js", ".mjs", ".css", ".json", ".md", ".txt", ".toml", ".sql",
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".woff", ".woff2", ".ttf",
 })
 # Served to the browser at /plugins/{id}/...: never the Python part.
-WEB_EXTENSIONS = EXTENSIONS - {".py", ".toml", ".md", ".txt"}
+WEB_EXTENSIONS = EXTENSIONS - {".py", ".toml", ".md", ".txt", ".sql"}
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_PLUGIN_BYTES = 20 * 1024 * 1024
 MAX_FILES = 500
@@ -230,6 +232,13 @@ def normalize(raw: Any, *, folder_id: str | None = None) -> dict[str, Any]:
         if not isinstance(value, str) or not value.lower().endswith(suffixes):
             raise PluginError(f"plugin.json: {key} — путь к файлу {'/'.join(suffixes)}")
         out[key] = safe_relpath(value)
+    migrations = raw.get("migrations", "")
+    if migrations in (None, ""):
+        out["migrations"] = ""
+    elif isinstance(migrations, str) and len(migrations) <= 100 and re.fullmatch(r"[a-z0-9_-]+(/[a-z0-9_-]+)*", migrations):
+        out["migrations"] = migrations
+    else:
+        raise PluginError("plugin.json: migrations — имя папки (латинские буквы, цифры, «-» и «_»)")
     uses = raw.get("uses", [])
     out["uses"] = [u for u in USES if isinstance(uses, list) and u in uses]
     fields = raw.get("settings", [])
@@ -252,6 +261,8 @@ def read_manifest(folder: Path) -> dict[str, Any]:
     for key in ("server", "web", "style"):
         if manifest[key] and not (folder / manifest[key]).is_file():
             raise PluginError(f"plugin.json называет {key} {manifest[key]!r}, но файла нет")
+    if manifest["migrations"] and not (folder / manifest["migrations"]).is_dir():
+        raise PluginError(f"plugin.json называет папку миграций {manifest['migrations']!r}, но её нет")
     return manifest
 
 

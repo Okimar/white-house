@@ -187,6 +187,8 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
             continue  # a behaviour block: ST keeps these as separate texts (below)
         elif kind == "text":
             add(block["id"], block, marker=False, content=block["text"])
+        elif kind == "memory":
+            continue  # ST has no such kind: it only marks where a plugin's memory goes
         elif kind == "thinking":  # ST has no such kind: the template goes framed, as plain text
             add(block["id"], block, marker=False, content=thinking.frame(block["text"]))
         else:

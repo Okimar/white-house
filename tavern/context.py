@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tavern.config import Config, load_config, with_server_overrides
+from tavern.core.background import Jobs
 from tavern.core.events import EventBus
 from tavern.core.generation import GeneratorRegistry
 from tavern.core.notices import Notices
@@ -77,6 +78,7 @@ class AppContext:
     plugins: PluginManager = None  # type: ignore[assignment]  # set right after construction
     backups: BackupService = None  # type: ignore[assignment]  # set right after construction
     gdrive: DriveService = None  # type: ignore[assignment]  # set right after construction
+    jobs: Jobs = None  # type: ignore[assignment]  # set right after construction
     sandbox: bool = False
 
     @property
@@ -84,6 +86,8 @@ class AppContext:
         return self.runs.foreground
 
     def close(self) -> None:
+        if self.jobs is not None:
+            self.jobs.cancel_all()
         if self.backups is not None:
             self.backups.stop_scheduler()
         if self.gdrive is not None:
@@ -156,6 +160,7 @@ def open_context(
     ctx.plugins = PluginManager(ctx, BUILTIN_PLUGINS_DIR, paths.plugins, load_server=load_plugins)
     ctx.backups = BackupService(ctx)
     ctx.gdrive = DriveService(ctx)
+    ctx.jobs = Jobs(ctx)
 
     def resolve_template(template_id: str, model: str) -> dict:
         from tavern.services.templates import resolve  # services import the context module

@@ -18,6 +18,7 @@ from typing import Any
 
 from tavern.storage.db import Database
 
+VECTOR_SUFFIX = "_vectors"
 Snapshot = dict[str, list[dict[str, Any]]]  # {"rows": [{table, key, row}], "created": [{table, key}]}
 
 
@@ -54,6 +55,8 @@ def _children(conn: sqlite3.Connection) -> dict[str, list[tuple[str, list[str], 
     tables = [r["name"] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
     for table in tables:
+        if table.endswith(VECTOR_SUFFIX):
+            continue  # a plugin's vectors are never kept for undo: its job makes them again
         groups: dict[int, list[Any]] = {}
         for fk in conn.execute(f"PRAGMA foreign_key_list({_quote(table)})"):
             groups.setdefault(fk["id"], []).append(fk)

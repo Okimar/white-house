@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -102,6 +102,34 @@ class PluginAPI:
 
     def storage(self, chat_id: str = "") -> PluginStorage:
         return PluginStorage(self.ctx, self.id, chat_id)
+
+    def job(self, key: str, work: Callable[[Any], Awaitable[None]], *, delay: float = 2.0) -> None:
+        """A background job of this plugin (core/background.py): one per `key`, `work(job)` runs after `delay`
+        seconds, each step through `await job.step(factory)` gives way to the user's requests. Scheduling the same
+        key again only asks for one more pass. Stopped when the plugin is switched off."""
+        self.ctx.jobs.schedule(self.id, key, work, delay=delay)
+
+    def job_status(self, key: str) -> dict[str, Any]:
+        """{running, queued, paused, done, total, note, error} of this plugin's job `key`."""
+        return self.ctx.jobs.status(self.id, key)
+
+    async def embed(self, texts: list[str], *, chat_id: str | None = None) -> list[list[float]]:
+        """Vectors for `texts` on the global embedding connection (Settings → «Промпт»), one request. Counted as
+        this plugin's spending and held to its day / month limits (not to the «may use models» permission: the
+        connection is the user's own choice for vectors). Raises `no_embedding_connection` when none is chosen,
+        ProviderError for a failing service (a 429 has `upstream_status` 429: the job's `rate_wait` sleeps)."""
+        from tavern.services import embeddings
+
+        self._manager.check_money(self.id)
+        vectors, _ = await embeddings.embed(self.ctx, texts, purpose=f"plugin:{self.id}", chat_id=chat_id)
+        return vectors
+
+    def vectors_model(self) -> str:
+        """The embedding model now chosen ('' when none): stored vectors are keyed by it."""
+        from tavern.services import embeddings
+
+        connection = embeddings.embedding_connection(self.ctx)
+        return connection["model"] if connection else ""
 
     def llm(self, *, connection_id: str = "", model: str = "", chat_id: str | None = None,
             budget: RunBudget | None = None) -> LLMClient:

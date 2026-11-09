@@ -386,7 +386,7 @@ async def try_phrase(env: Env, args: dict[str, Any]) -> Outcome:
     selection = select_blocks(
         blocks, owner_name=owner["name"], scan_text=text, scan_messages=[text],
         budget_tokens=lore["budget_tokens"] if is_book else int(settings["budget_tokens"]),
-        meaning=(await character_tree.meaning_search(env.ctx, blocks, [text]))[0], threshold=float(settings["threshold"]),
+        meaning=(await character_tree.meaning_search(env.ctx, blocks, [text])).scores, threshold=float(settings["threshold"]),
         links=env.ctx.blocks.links([owner_id]), rng=_Lucky(), recursion=lore["recursion"] if is_book else 0,
         owner_names={owner_id: owner["name"]} if is_book else None, by_order=is_book,
     )

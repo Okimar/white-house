@@ -1,12 +1,12 @@
 # 0019. Memory++: chapters, summaries, character development and threads, as a built-in plugin
 
-Status: proposed (stage M0, architecture only, 2026-11-09). Builds on 0004 (character tree, vectors), 0006
+Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 done 2026-11-09 (see «M1 done» at the end of
+section 7). Builds on 0004 (character tree, vectors), 0006
 (lorebooks), 0009 (plugins), 0010 / 0013 (assistant), 0011 (tree of thoughts: an agentic built-in plugin),
 and the foreground rule being built now (`tavern/core/foreground.py`).
 
-Nothing here is implemented yet. Sections 2 and 3 name the code to add; section 7 splits it into stages
-M1–M8; section 8 lists risks and the owner's answers to the open questions (all decided 2026-11-09). The
-status stays "proposed" until the owner approves the whole document.
+Only stage M1 is implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
+M1–M8; section 8 lists risks and the owner's answers to the open questions (all decided 2026-11-09).
 
 ## 1. Context
 
@@ -691,6 +691,32 @@ ROADMAP updated. Vectors in tests and browser checks use the fake server's `/v1/
   (35 %, at least 10 messages) is never cut before older messages.
 - Browser: switch the plugin on; send 10 messages; the chip shows vectorizing, then done; sending during
   vectorizing pauses it (chip «пауза») and the reply is not delayed; «Что видела модель» shows a found piece.
+
+**M1 done (2026-11-09).** Built: `core/background.py` (`ctx.jobs`, `api.job`, `api.job_status`); plugin tables
+(core migration `0024_plugin_schema.sql`, `plugin.json` key `migrations`, `plugins/schema.py`: prefix check and
+sqlite_master comparison per file, `schema_version`, drop with data, a plugin deleted without its data remembers
+its version, `.sql` is a plugin file type and part of the approved hash, never served to the browser, doctor check
+`plugin-schema:<id>`, a copy via `backups.before("plugin-migration")` before a migration on existing data);
+`services/messages.py` and the events `message.added / edited / excluded / deleted / swipe_selected`,
+`chat.branch_selected` (the routes of `api/chats.py` and so the assistant's `app_call` go through it; `message.added`
+and the swipe of a regenerate are fired from the chat service with `messages.announce`), plus `chat.created`
+(not in the ADR table: the global «Включать в новых чатах» needs it); `Extra` / `tail_from` / `memory_reserve` /
+`values` / `extras_dropped` in `core/assembly.py` and the preset block kind `memory` (in the default preset right
+before the history; not exported to SillyTavern presets); `Meaning` (scores, query vectors, texts, model, error) and
+`meaning_search(..., wanted=)`, the filter `meaning.wanted`, `GenerationJob.meaning`; `services/embeddings.py`
+(embedding connection, batching, one metered request) and `api.embed`, `api.vectors_model`, with
+`PluginManager.check_money` split out of the gate; the changelog and snapshot skip tables ending in `_vectors`
+(`storage/changelog.py`, `storage/snapshot.py`); the plugin `builtin_plugins/memory` (pieces, store, search, inject,
+work, server, web.js, migration 0001 with chats / pieces / vectors).
+Choices where the ADR left room: (1) one piece = one message or a part of a long one (no merging of short
+messages), so `first_id = last_id`; (2) migration 0001 holds only the M1 tables, chapters etc. come in 0002 and
+later (section 3.2 shows them as one 0001: a shipped file is never edited); (3) a per-chat switch is a composer
+button 🧠 of the plugin (the «Память» window and `t.window` belong to M2); (4) sticky hits, the group filter and
+neighbour pieces (± 1) are not in M1; (5) with no window known (`max_context_tokens` 0) the plugin adds nothing;
+(6) a conditional extra always goes to the memory spot; (7) speed: `math.sumprod` where Python has it, query
+vectors averaged past 3 M multiply-adds, only keyword hits and the newest pieces get a vector score past that
+(5000 pieces x 3 queries x 512 numbers: about 180 ms on the development desktop, not measured on the tablet);
+(8) ADR points H and J (background model access, action descriptions) are not part of M1.
 
 **M2: chapters.** One agent (plugin files plus web/core/plugins.js for K).
 - `borders.py` (scores, TextTiling, rules), job step 3, the chapters table in use as candidates with

@@ -69,3 +69,9 @@ places. This is stated in the warning the user reads.
   example (8в) are built as plugins on this API.
 - New core events or services become available to plugins without changes here; anything a
   plugin registers must carry its owner so switching off can remove it.
+- Stage M1 of ADR 0019 (2026-11-09) adds general points on top of this API, all of them owned by the plugin and removed
+  when it is switched off: background jobs (`api.job`, `api.job_status`; core/background.py), tables of its own
+  (`plugin.json` "migrations", names `p_<id>_*`; plugins/schema.py), chat events from services/messages.py, pieces of
+  the prompt (`Extra`; core/assembly.py), the reply's shared meaning request (`job.meaning`, filter `meaning.wanted`),
+  embeddings (`api.embed`, `api.vectors_model`; held to the plugin's money limits, not to the «may use models»
+  permission). `.sql` files are plugin files (approved with the hash, never served to the browser).

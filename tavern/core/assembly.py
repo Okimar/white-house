@@ -14,11 +14,23 @@ Lorebooks (stage 5): `lore` entries go into the preset's "Лор (до карт�
 depth, as their `rules.place` / `depth` say. A character's bubble with a `place` goes there too.
 Whatever finds no block of its place in the preset goes just before the chat.
 
+Plugin pieces (ADR 0019): `PromptInput.extras` are `Extra`s a plugin adds in `chat.before_generate` (the memory:
+a plot so far, found fragments of old messages, a character's «Развитие»). Where each goes is its `place`; the
+preset block kind `memory` marks the spot of place "memory" (without such a block: just before the chat; a
+switched-off block means no memory). HISTORY FIRST, memory for the rest: an Extra with `covers` (first and last
+message id) or `if_dropped` is *conditional*: it is sent only when the history messages it stands for were really
+left out of the prompt, and only while it fits `memory_reserve` tokens kept for that. When the whole history fits,
+no conditional extra is sent and the prompt is what it was without the plugin. A conditional extra always goes to
+the memory spot.
+
 Budget (when `max_context_tokens` > 0), in this order until the prompt fits:
-  1. drop the oldest chat messages, keeping at least MIN_HISTORY;
-  2. drop member cards from the least important (highest importance number) up; the main
+  1. drop the oldest chat messages, keeping at least MIN_HISTORY and the live tail (`tail_from`: the message the
+     protected tail starts at), and leaving `memory_reserve` tokens free when conditional extras wait;
+  2. drop unconditional extras by `drop_rank` (lowest first);
+  3. drop member cards from the least important (highest importance number) up; the main
      character and the user's own character are never dropped;
-  3. drop more old messages, down to the newest one.
+  4. drop more old messages, down to the newest one;
+  then the conditional extras are added in the plugin's order while they fit.
 """
 
 from __future__ import annotations
@@ -51,6 +63,26 @@ class Member:
 
 
 @dataclass
+class Extra:
+    """A plugin's piece of the prompt (see the module docstring)."""
+
+    text: str
+    source: str  # archive key, "plugin:memory:chapter:<id>"; versions are kept like any source
+    label: str  # shown in «Что видела модель»
+    place: str = "memory"  # "memory" | "after_card" | "card_before" | "card_after" | "depth" | "an_top"
+    owner: str = ""  # character id: for "after_card" (that member's card) and for trimming with that member
+    depth: int = 0  # for place "depth"
+    role: str = "system"
+    kind: str = "memory"  # Entry.kind, for the viewer's grouping
+    drop_rank: int = 50  # unconditional extras go under a short context in this order (lower first)
+    covers: tuple[str, str] | None = None  # first, last message id: sent ONLY if all of them were left out
+    if_dropped: bool = False  # sent only if any history message was left out
+
+
+EXTRA_PLACES = ("memory", "after_card", "card_before", "card_after", "depth", "an_top")
+
+
+@dataclass
 class PromptInput:
     preset: dict[str, Any]
     preset_id: str
@@ -77,6 +109,13 @@ class PromptInput:
     rewritten: dict[str, str] = field(default_factory=dict)
     lore_rewritten: dict[str, str] = field(default_factory=dict)
     thoughts_rewritten: dict[str, str] = field(default_factory=dict)  # old reasoning, by message id
+    # Plugin pieces (ADR 0019): extras, the labels a plugin left out itself (its own budget), the message the
+    # protected live tail starts at, tokens kept free for conditional extras, and macro values ({{summary}}).
+    extras: list[Extra] = field(default_factory=list)
+    extras_dropped: list[str] = field(default_factory=list)
+    tail_from: str | None = None
+    memory_reserve: int = 0
+    values: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -185,8 +224,9 @@ def assemble(data: PromptInput) -> Prompt:
         "scenario": (primary_card.get("scenario") or "").strip(),
         "mesExamples": _examples(primary_card),
         "persona": (me.card.get("description") or "").strip() if me else "",
-        "summary": "",  # filled by summarization (stage 11)
+        "summary": "",  # a plugin sets it (PromptInput.values), e.g. the memory's «Сюжет до сих пор»
     }
+    values.update(data.values)
     variables: dict[str, str] = {}
 
     def sub(text: str) -> str:
@@ -215,6 +255,18 @@ def assemble(data: PromptInput) -> Prompt:
             (after if history_seen else before).append(entry)
 
     blocks_placed: set[str] = set()
+    slot = Entry("system", "", "", "", "_slot")  # where the preset's «memory» block stands
+    slot_list: list[Entry] | None = None
+    slot_run: list[Entry] = []  # what was put at the slot so far
+    memory_off = False
+    uncond = [e for e in data.extras if not (e.covers or e.if_dropped)]
+    cond = [e for e in data.extras if e.covers or e.if_dropped]
+    ranked: list[tuple[int, Entry]] = []  # unconditional extras that may be dropped, with their rank
+    memory_unconditional: list[Entry] = []
+    after_card: dict[str, list[Entry]] = {}
+
+    def extra_entry(extra: Extra) -> Entry:
+        return Entry(extra.role, sub(extra.text), extra.source, extra.label, extra.kind, owner=extra.owner)
 
     def found_entry(found: Any, kind: str, owner: str = "") -> Entry:
         item = found.block
@@ -240,6 +292,20 @@ def assemble(data: PromptInput) -> Prompt:
         else:
             placed_at.setdefault(own_place(found) or "card_before", []).append(entry)
 
+    for extra in uncond:
+        entry = extra_entry(extra)
+        if not entry.text.strip():
+            continue
+        ranked.append((extra.drop_rank, entry))
+        if extra.place == "depth":
+            injections.append(_Injection(extra.depth, entry))
+        elif extra.place == "after_card":
+            after_card.setdefault(extra.owner, []).append(entry)
+        elif extra.place in ("card_before", "card_after", "an_top"):
+            placed_at.setdefault(extra.place, []).append(entry)
+        else:
+            memory_unconditional.append(entry)
+
     def place_lore(where: str, block: dict[str, Any]) -> None:
         for entry in placed_at.pop(where, []):
             place(entry, block)
@@ -258,6 +324,8 @@ def assemble(data: PromptInput) -> Prompt:
                     injections.append(_Injection(item["depth"], entry))
             else:
                 place(entry, block, member.depth)
+        for entry in after_card.pop(member.character_id, []):  # a plugin's text right after this member's card
+            place(entry, block, member.depth)
 
     def card_with_override(block: dict[str, Any], key: str) -> tuple[str, str]:
         own = (primary.card.get(key) or "").strip() if primary else ""
@@ -269,9 +337,14 @@ def assemble(data: PromptInput) -> Prompt:
         if not block["enabled"]:
             if block["kind"] == "history":
                 history_seen = True
+            elif block["kind"] == "memory":
+                memory_off = True
             continue
         kind, role = block["kind"], block["role"]
-        if kind == "history":
+        if kind == "memory":
+            slot_list = after if history_seen else before
+            slot_list.append(slot)
+        elif kind == "history":
             history_seen = True
         elif kind in ("main", "post_history"):
             text, source = card_with_override(block, "system_prompt" if kind == "main" else
@@ -331,6 +404,23 @@ def assemble(data: PromptInput) -> Prompt:
     for left in placed_at.values():  # their block is not in the preset, or it is switched off
         before.extend(e for e in left if e.text.strip())
     placed_at.clear()
+
+    if slot_list is None and not memory_off:  # no «memory» block in the preset: just before the chat
+        slot_list = before
+        before.append(slot)
+
+    def put_at_slot(entries: list[Entry]) -> None:
+        """Entries go in order right after the slot (after what was put there before)."""
+        if slot_list is None:
+            return
+        entries = [e for e in entries if e.text.strip()]
+        index = slot_list.index(slot) + 1 + sum(1 for e in slot_run if any(e is x for x in slot_list))
+        slot_list[index:index] = entries
+        slot_run.extend(entries)
+
+    put_at_slot(memory_unconditional)
+    if slot_list is None:  # memory is switched off in this preset: its must-have pieces are not sent either
+        ranked[:] = [r for r in ranked if not any(r[1] is e for e in memory_unconditional)]
 
     history_block = next(b for b in preset["blocks"] if b["kind"] == "history")
     history = [m for m in data.history if not m.get("exclude_from_prompt")] if history_block["enabled"] else []
@@ -407,18 +497,34 @@ def assemble(data: PromptInput) -> Prompt:
         tail.append(Entry("assistant", sub(preset["prompts"]["prefill"]), "prompt:prefill",
                           "Начало ответа (prefill)", "prompt"))
 
-    dropped: dict[str, Any] = {"messages": 0, "members": [], "lore": list(data.lore_dropped)}
-    if data.max_context_tokens:
-        def total() -> int:
-            return (_tokens(before) + _tokens(after) + _tokens(messages) + _tokens(tail)
-                    + sum(_cost(i.entry) for i in injections))
+    dropped: dict[str, Any] = {"messages": 0, "members": [], "lore": list(data.lore_dropped),
+                               "extras": list(data.extras_dropped), "memory": []}
+    history_ids = [m["id"] for m in data.history]  # the whole branch, in order
 
-        def drop_oldest(keep: int) -> None:
-            while len(messages) > keep and total() > data.max_context_tokens:
+    def total() -> int:
+        return (_tokens(before) + _tokens(after) + _tokens(messages) + _tokens(tail)
+                + sum(_cost(i.entry) for i in injections))
+
+    if data.max_context_tokens:
+        def drop_oldest(keep: int, limit: int) -> None:
+            while len(messages) > keep and total() > limit:
                 messages.pop(0)
                 dropped["messages"] += 1
 
-        drop_oldest(MIN_HISTORY)
+        keep = MIN_HISTORY
+        if data.tail_from and data.tail_from in history_ids:  # the live tail is not cut before older messages
+            sent_now = {e.source for e in messages}
+            tail_ids = history_ids[history_ids.index(data.tail_from):]
+            keep = max(keep, sum(1 for i in tail_ids if f"message:{i}" in sent_now))
+        reserve = data.memory_reserve if cond else 0
+        drop_oldest(keep, data.max_context_tokens - reserve)
+        for _, entry in sorted(ranked, key=lambda r: r[0]):  # a plugin's text that is not a must goes before cards
+            if total() <= data.max_context_tokens:
+                break
+            for lst in (before, after):
+                lst[:] = [e for e in lst if e is not entry]
+            injections[:] = [i for i in injections if i.entry is not entry]
+            dropped["extras"].append(entry.label)
         protected = {m.character_id for m in data.members if m.is_me or m is primary}
         for member in sorted(others, key=lambda m: -m.importance):
             if total() <= data.max_context_tokens:
@@ -429,7 +535,41 @@ def assemble(data: PromptInput) -> Prompt:
             after[:] = [e for e in after if e.owner != member.character_id]
             injections[:] = [i for i in injections if i.entry.owner != member.character_id]
             dropped["members"].append(member.name)
-        drop_oldest(1)
+        drop_oldest(1, data.max_context_tokens)
+
+    # Conditional extras (the memory): only for history messages that were really left out, while they fit.
+    if cond:
+        sent_ids = {e.source.removeprefix("message:") for e in messages}
+        left_out = {i for i in history_ids if i not in sent_ids}
+        reserve_left = data.memory_reserve or None
+        used = 0
+        for extra in cond:
+            if extra.covers:
+                first, last = extra.covers
+                if first not in history_ids or last not in history_ids:
+                    continue
+                low, high = sorted((history_ids.index(first), history_ids.index(last)))
+                if not all(i in left_out for i in history_ids[low:high + 1]):
+                    continue
+            elif not left_out:
+                continue
+            entry = extra_entry(extra)
+            if not entry.text.strip():
+                continue
+            cost = _cost(entry)
+            over_reserve = reserve_left is not None and used + cost > reserve_left
+            over_window = bool(data.max_context_tokens) and total() + cost > data.max_context_tokens
+            if over_reserve or over_window:
+                dropped["extras"].append(extra.label)
+                continue
+            put_at_slot([entry])
+            used += cost
+            dropped["memory"].append(extra.label)
+    if slot_list is not None and slot in slot_list:
+        slot_list.remove(slot)
+    for key in ("extras", "memory"):  # without a plugin the record is what it always was
+        if not dropped[key]:
+            del dropped[key]
 
     # Depth d goes before the last d messages; several at one place keep their block order.
     # A fired note lands after a message; a saved note already attached there (the reply is being

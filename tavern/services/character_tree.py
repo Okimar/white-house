@@ -21,6 +21,8 @@ import json
 import logging
 import re
 import time
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 from typing import Any
 
 from tavern.context import AppContext
@@ -29,7 +31,7 @@ from tavern.core.prompt import estimate_tokens
 from tavern.core.retrieval import LOGICS, PATH_SEPARATOR, FoundBlock, cosine, select_blocks, stem
 from tavern.errors import AppError, NotFound
 from tavern.formats.st_lorebook import LOGIC_FROM_ST, LOGIC_TO_ST
-from tavern.services import history, spending
+from tavern.services import embeddings, history, spending
 from tavern.providers import catalog
 from tavern.providers.base import ChatMessage, ProviderError
 
@@ -546,14 +548,7 @@ def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
 
 
-def embedding_connection(ctx: AppContext) -> dict[str, Any] | None:
-    connection_id = ctx.settings.get("embedding_connection")
-    if not connection_id:
-        return None
-    try:
-        return ctx.connections.get(connection_id)
-    except NotFound:
-        return None
+embedding_connection = embeddings.embedding_connection  # the shared function: see services/embeddings.py
 
 
 _RATE_RU = ("Лимит Voyage: без карты в Voyage 3 запроса и 10 000 токенов в минуту. "
@@ -735,27 +730,16 @@ def schedule_auto_vectors(ctx: AppContext, owner_id: str) -> None:
     _auto_tasks[key] = loop.create_task(run())
 
 
-BATCH_ITEMS = 64
-BATCH_TOKENS = 3000  # estimated; a free Voyage account takes only 10K tokens a minute and 3 requests a minute
+BATCH_ITEMS = embeddings.BATCH_ITEMS
+BATCH_TOKENS = embeddings.BATCH_TOKENS
 MAX_WAIT = 300.0  # seconds a vectorization may spend waiting out rate limits before it gives up (progress is kept)
 FREE_TOKENS_PER_MINUTE = 10_000
-RATE_WAIT = 21.0  # seconds to wait after a 429 (3 requests a minute = one every 20 s)
+RATE_WAIT = embeddings.RATE_WAIT
 
 
 def _batches(todo: list[tuple[str, str, str]]) -> list[list[tuple[str, str, str]]]:
     """Requests of at most BATCH_ITEMS texts and about BATCH_TOKENS tokens, so one request never exceeds a small limit."""
-    out: list[list[tuple[str, str, str]]] = []
-    size = 0
-    for item in todo:
-        tokens = estimate_tokens(item[1])
-        if out and (len(out[-1]) >= BATCH_ITEMS or size + tokens > BATCH_TOKENS):
-            out.append([])
-            size = 0
-        elif not out:
-            out.append([])
-        out[-1].append(item)
-        size += tokens
-    return out
+    return embeddings.batches(todo, BATCH_ITEMS, BATCH_TOKENS)  # type: ignore[return-value]
 
 
 class _Waited:
@@ -832,32 +816,54 @@ def _failure_text(exc: ProviderError) -> str:
     return f"Поиск по смыслу не сработал: {reason} Ответ без него."
 
 
+@dataclass
+class Meaning:
+    """What one reply's meaning request gave (ADR 0019 section 2.2-F): the scores of blocks AND the query vectors,
+    so a plugin (the memory) scores its own items with the same request instead of asking again.
+
+    `scores` block id -> best cosine; `queries` one vector per meaning text; `texts` those texts; `model` the
+    embedding model; `error` plain Russian for the page (the reply goes on without meaning). A Meaning still
+    unpacks as `(scores, error)`, the shape older callers use."""
+
+    scores: dict[str, float] = field(default_factory=dict)
+    queries: list[Any] = field(default_factory=list)
+    texts: list[str] = field(default_factory=list)
+    model: str = ""
+    error: str | None = None
+
+    def __iter__(self) -> Iterator[Any]:
+        yield self.scores
+        yield self.error
+
+
 async def meaning_search(ctx: AppContext, blocks: list[dict[str, Any]],
-                         texts: list[str]) -> tuple[dict[str, float], str | None]:
+                         texts: list[str], *, wanted: bool = False) -> Meaning:
     """Meaning of the recent chat against every green block that has a current vector: ONE embedding request
-    for all `texts` (one input each); a block's score is its best cosine over the texts. Returns (scores, error);
-    the error is plain Russian for the page and the reply goes on without meaning. No request at all when search
-    is off, there is no connection, no text, or no block with a current vector. Never re-embeds bubbles."""
+    for all `texts` (one input each); a block's score is its best cosine over the texts. The error is plain
+    Russian for the page and the reply goes on without meaning. No request at all when search is off, there is no
+    connection, no text, or no block with a current vector, unless `wanted`: a plugin needs the query vectors
+    anyway (the filter event `meaning.wanted`). Never re-embeds bubbles."""
     texts = [t for t in texts if t.strip()]
     connection = embedding_connection(ctx)
     if connection is None or not texts or not retrieval_settings(ctx)["meaning_on"]:
-        return {}, None
+        return Meaning()
     model = connection["model"]
     fresh = _fresh_vectors(ctx, blocks, model)
-    if not fresh:
-        return {}, None
+    if not fresh and not wanted:
+        return Meaning()
     provider = ctx.providers.create(connection)
     try:
         query_vectors = await provider.embed(texts, model=model)
         spending.record_call(ctx, connection, "vectors", model=model, tokens=sum(estimate_tokens(t) for t in texts))
     except ProviderError as exc:
         log.warning("Meaning search skipped: the embedding connection failed", exc_info=True)
-        return {}, _failure_text(exc)
+        return Meaning(error=_failure_text(exc))
     finally:
         await provider.aclose()
     if len(query_vectors) != len(texts):
-        return {}, "Поиск по смыслу не сработал: сервис вернул не все векторы. Ответ без него."
-    return {block_id: max(cosine(q, vector) for q in query_vectors) for block_id, vector in fresh.items()}, None
+        return Meaning(error="Поиск по смыслу не сработал: сервис вернул не все векторы. Ответ без него.")
+    return Meaning({block_id: max(cosine(q, vector) for q in query_vectors) for block_id, vector in fresh.items()},
+                   list(query_vectors), texts, model)
 
 
 # --- choosing blocks for a reply --------------------------------------------------------------
@@ -882,7 +888,7 @@ async def select_for_chat(
     links = ctx.blocks.links([m.character_id for m in members])
     if meaning is None:
         every = [b for blocks in all_blocks.values() for b in blocks]
-        meaning = (await meaning_search(ctx, every, meaning_texts(settings, history)))[0]
+        meaning = (await meaning_search(ctx, every, meaning_texts(settings, history))).scores
     result: dict[str, list[FoundBlock]] = {}
     fresh: list[str] = []
     misses: list[str] = []

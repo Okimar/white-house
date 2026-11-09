@@ -44,7 +44,7 @@ from tavern.errors import AppError
 
 ROLES = ("system", "user", "assistant")
 KINDS = ("main", "persona", "cast", "examples", "lore_before", "lore_after", "history",
-         "post_history", "text", "thinking")
+         "post_history", "text", "thinking", "memory")
 # Kinds that have text of their own in the preset (the others are filled from chat data).
 TEXT_KINDS = ("main", "post_history", "text", "thinking")
 MAX_GROUP = 40
@@ -123,6 +123,7 @@ DEFAULT_BLOCK_NAMES = {
     "post_history": "После истории",
     "text": "Свой блок",
     "thinking": "Размышление",
+    "memory": "Память (дополнение)",  # where a plugin's memory goes (ADR 0019): no text of its own
 }
 
 
@@ -148,6 +149,7 @@ DEFAULT_PRESET: dict[str, Any] = {
         _block("cast"),
         _block("lore_after"),
         _block("examples"),
+        _block("memory"),
         _block("history", history={"mode": "all", "count": 50, "max_tokens": 0, "thoughts": 0}),
         _block("post_history"),
         *(when_block(key) for key in WHEN),
