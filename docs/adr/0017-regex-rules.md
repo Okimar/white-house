@@ -114,3 +114,13 @@ characters/lorebooks/chats are unrelated to rules; deleting a character removes 
 - Two copies of the tag whitelist (server, page) must stay in step; the server's is the authority.
 - Reasoning (ST placement 6) is applied to old reasoning sent to the model and by `POST /api/regex/display` with role `reasoning`; the page's 💭 does not ask yet. Not covered: slash commands, the narrator, per-message rules on greetings, SillyTavern's
   `\p{…}` and variable lookbehind patterns.
+
+## 2026-11-09: the global list is folded away
+
+Old rules in the global list worked in every chat next to the preset's rules, and the owner did not know they were
+global. The «Регекс» tab now shows preset and character rules first and the global list last, inside a closed section
+«Общие правила (во всех чатах): N, включено M» with a warning line. The section has «Удалить все общие правила»:
+`POST /regex/clear {scope: "global"}` makes a whole-data copy first (`copy_before`, reason `clear-global-regex`),
+deletes the global rules, returns `{deleted}` and fires the usual `regex` notice; other scopes answer 400. The route is
+closed to the assistant (`CLOSED_WRITES`). The preset window shows a hint when global rules exist. How rules apply
+(global, preset, character) did not change.

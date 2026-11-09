@@ -611,3 +611,30 @@ async def test_a_rule_the_assistant_makes_is_journalled_and_can_be_taken_back(ct
     tried = await assistant_app.app_call(env, {"method": "POST", "path": "/regex/try",
                                                "body": {"rule": {"find": "/a/", "replace": "b"}, "text": "a"}})
     assert tried.result["data"]["result"] == "b" and tried.what == ""
+
+
+async def test_clear_global_deletes_only_global_rules_after_a_copy(client, ctx):
+    ann, _chat = await setup(client)
+    await add(client, "a")
+    await add(client, "b")
+    mine = await add(client, "c", scope="character", owner=ann["id"])
+    before = len(ctx.backups.archives())
+    response = await client.post("/api/regex/clear", json={"scope": "global"})
+    assert response.status_code == 200 and response.json() == {"deleted": 2}
+    assert any(a.kind == "risky" and a.reason == "clear-global-regex" for a in ctx.backups.archives())
+    assert len(ctx.backups.archives()) == before + 1
+    overview = (await client.get("/api/regex")).json()
+    assert overview["global"] == []
+    assert [r["id"] for r in overview["characters"][0]["rules"]] == [mine["id"]]
+    for scope in ("character", "preset", ""):
+        bad = await client.post("/api/regex/clear", json={"scope": scope})
+        assert bad.status_code == 400
+    assert (await client.post("/api/regex/clear", json={})).status_code == 400
+
+
+async def test_the_assistant_cannot_clear_the_global_rules(ctx):
+    from tavern.services import assistant_app
+    from tavern.services.assistant_tools import ToolError
+
+    with pytest.raises(ToolError, match="только человек"):
+        assistant_app._check("POST", "/regex/clear", {"scope": "global"})

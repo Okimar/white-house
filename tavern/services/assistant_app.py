@@ -46,6 +46,7 @@ CLOSED_WRITES = (
     (re.compile(r"^/assets"), "pictures are files: the assistant cannot add or delete them"),
     (re.compile(r"^/regex/approve"),
      "allowing the rules that came with a card or preset is the user's own decision (they change what the model gets)"),
+    (re.compile(r"^/regex/clear"), "удалить все общие правила может только человек"),
     (re.compile(r"^/skills"), "the assistant reads skills (read_skill) but never changes its own instructions"),
 )
 ASK_FIRST = re.compile(r"/(delete-by-numbers)$")

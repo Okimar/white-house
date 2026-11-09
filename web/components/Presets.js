@@ -10,7 +10,7 @@ import { getChoice, setChoice } from "../core/choice.js";
 import { backdrop, useEscape } from "../core/keys.js";
 import { ROLES } from "./roles.js";
 import { NoteList } from "./Notes.js";
-import { RegexOwner } from "./Regex.js";
+import { RegexOwner, GlobalRulesHint } from "./Regex.js";
 import { Icon, IconButton } from "./Icon.js";
 import { ask, askText } from "./Dialogs.js";
 
@@ -418,6 +418,7 @@ export function Presets({ settings, onChanged, onError }) {
 
       ${!current.builtin && html`<details class="preset-regex"><summary><strong>Регекс-правила пресета</strong></summary>
         <p class="hint">Работают в чатах с этим пресетом, после общих правил. Правила, пришедшие с файлом пресета, ждут вашего разрешения.</p>
+        <${GlobalRulesHint} />
         <${RegexOwner} scope="preset" owner=${current.id} onError=${onError} /></details>`}
 
       <p class="hint">Настройки модели (температура, длина ответа, размер памяти и др.) теперь только в подключении:

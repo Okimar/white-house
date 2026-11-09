@@ -147,6 +147,11 @@ class RegexRepo:
                                "AND approved = 0", (scope, owner_id))
         return row["n"]
 
+    def delete_scope(self, scope: str) -> int:
+        """Every rule of one scope (all owners). Returns how many were deleted."""
+        RegexRepo.changes += 1
+        return self.db.execute("DELETE FROM regex_scripts WHERE scope = ?", (scope,)).rowcount
+
     def delete_owner(self, scope: str, owner_id: str) -> None:
         RegexRepo.changes += 1
         self.db.execute("DELETE FROM regex_scripts WHERE scope = ? AND owner_id = ?", (scope, owner_id))

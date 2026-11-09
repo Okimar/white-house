@@ -161,6 +161,15 @@ def delete_rule(ctx: AppContext, rule_id: str) -> None:
     _slow.pop(rule_id, None)
 
 
+def clear_global(ctx: AppContext) -> int:
+    """Delete every global rule; returns how many were deleted. The caller makes the copy first."""
+    ids = [r["id"] for r in repo(ctx).all() if r["scope"] == "global"]
+    count = repo(ctx).delete_scope("global")
+    for rule_id in ids:
+        _slow.pop(rule_id, None)
+    return count
+
+
 def copy_rule(ctx: AppContext, rule_id: str, scope: str | None = None, owner_id: str = "") -> dict[str, Any]:
     """A copy of a rule, in the same list or in another (a character's, a preset's, the global one)."""
     store = repo(ctx)

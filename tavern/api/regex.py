@@ -8,7 +8,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from tavern.api.util import BadRequest, attachment, ctx_of, field, json_body
+from tavern.api.util import BadRequest, attachment, copy_before, ctx_of, field, json_body
 from tavern.services import regex
 
 
@@ -55,6 +55,18 @@ async def delete_rule(request: Request) -> JSONResponse:
     regex.delete_rule(ctx_of(request), request.path_params["id"])
     _changed(request)
     return JSONResponse({"ok": True})
+
+
+async def clear(request: Request) -> JSONResponse:
+    """Body: {scope: "global"}: delete every global rule, after a whole-data copy. Only the global list for now."""
+    body = await json_body(request)
+    if body.get("scope") != "global":
+        raise BadRequest("scope: пока только «global»")
+    ctx = ctx_of(request)
+    await copy_before(request, "clear-global-regex")
+    count = regex.clear_global(ctx)
+    _changed(request)
+    return JSONResponse({"deleted": count})
 
 
 async def copy_rule(request: Request) -> JSONResponse:
@@ -142,6 +154,7 @@ routes = [
     Route("/regex/rules/{id}", update_rule, methods=["PUT"]),
     Route("/regex/rules/{id}", delete_rule, methods=["DELETE"]),
     Route("/regex/rules/{id}/copy", copy_rule, methods=["POST"]),
+    Route("/regex/clear", clear, methods=["POST"]),
     Route("/regex/order", reorder, methods=["PUT"]),
     Route("/regex/approve", approve, methods=["POST"]),
     Route("/regex/try", try_out, methods=["POST"]),

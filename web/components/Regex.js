@@ -321,6 +321,15 @@ export function RegexTab({ onError }) {
   if (!loaded.data) return html`<${Pending} error=${loaded.error} onRetry=${loaded.reload} />`;
   const { global, characters, presets } = loaded.data;
   const reload = () => loaded.reload();
+  const clearGlobal = async () => {
+    if (!await ask(`Удалить все общие правила (${global.length})? Перед удалением будет сделана копия данных.`,
+      { ok: "Удалить", danger: true })) return;
+    try {
+      const done = await api.post("/regex/clear", { scope: "global" });
+      notify(`Удалено общих правил: ${done.deleted}`, "ok");
+      reload();
+    } catch (e) { onError(e.message); }
+  };
   const group = (title, items, scope) => items.length > 0 && html`<div class="regex-group">
     <strong>${title}</strong>
     ${items.map((o) => html`<details key=${o.id} open=${o.pending > 0 || undefined}>
@@ -330,11 +339,28 @@ export function RegexTab({ onError }) {
   return html`<div class="regex-tab" data-slot="regex-tab">
     <p class="hint">Регекс-правило находит в тексте нужное и заменяет его. Так прячут блоки состояния, чистят ответы модели,
       оформляют панели. Одно правило может менять то, что вы видите, то, что получает модель, или сам сохранённый текст.
-      Порядок: сначала правила для всех, потом правила пресета чата, потом правила персонажей чата. Внутри списка — сверху вниз.
-      Правила персонажа и пресета удобнее открывать из их карточки; правила из ST-файлов импортируются здесь же.</p>
-    <h3>Для всех</h3>
-    <${RuleList} scope="global" owner="" rules=${global} pending=${0} onError=${onError} changed=${reload} />
+      Порядок работы: сначала общие правила, потом правила пресета чата, потом правила персонажей чата. Внутри списка — сверху вниз.
+      Правила персонажа и пресета удобнее открывать из их карточки. Общие правила спрятаны внизу: они действуют во всех чатах.</p>
     ${group("Правила персонажей", characters, "character")}
     ${group("Правила пресетов", presets, "preset")}
+    <div class="regex-group" data-slot="regex-global">
+      <details>
+        <summary><span class="regex-owner">Общие правила (во всех чатах)</span>
+          <small class="muted">${global.length}${global.length ? `, включено ${global.filter((r) => r.enabled).length}` : ""}</small></summary>
+        <p class="hint regex-warning">Работают во всех чатах вместе с правилами пресета и персонажей.</p>
+        ${global.length === 0 && html`<p class="muted">Пусто</p>`}
+        <${RuleList} scope="global" owner="" rules=${global} pending=${0} onError=${onError} changed=${reload} />
+        ${global.length > 0 && html`<div class="row regex-actions"><button type="button" class="danger" onClick=${clearGlobal}>
+          <${Icon} name="trash-2" /> Удалить все общие правила</button></div>`}
+      </details>
+    </div>
   </div>`;
+}
+
+// One line for the preset window: global rules also work in every chat.
+export function GlobalRulesHint() {
+  const loaded = useLoad(() => api.get("/regex/rules?scope=global").then((d) => d.rules), []);
+  const n = loaded.data ? loaded.data.length : 0;
+  if (!n) return null;
+  return html`<p class="hint" data-slot="regex-global-hint">Ещё ${n} общих правил работают во всех чатах — вкладка «Регекс».</p>`;
 }
