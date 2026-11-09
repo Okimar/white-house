@@ -13,6 +13,7 @@ from tavern.config import Config, load_config, with_server_overrides
 from tavern.core.events import EventBus
 from tavern.core.generation import GeneratorRegistry
 from tavern.core.notices import Notices
+from tavern.core.foreground import Foreground
 from tavern.core.runs import RunManager
 from tavern.paths import BUILTIN_PLUGINS_DIR, BUILTIN_THEMES_DIR, DataPaths
 from tavern.plugins.manager import PluginManager
@@ -78,6 +79,10 @@ class AppContext:
     gdrive: DriveService = None  # type: ignore[assignment]  # set right after construction
     sandbox: bool = False
 
+    @property
+    def foreground(self) -> Foreground:
+        return self.runs.foreground
+
     def close(self) -> None:
         if self.backups is not None:
             self.backups.stop_scheduler()
@@ -117,6 +122,7 @@ def open_context(
     except BaseException:
         db.close()
         raise
+    settings = SettingsRepo(db)
     ctx = AppContext(
         paths=paths,
         config=config,
@@ -125,13 +131,13 @@ def open_context(
         events=EventBus(),
         providers=ProviderRegistry(secrets),
         generators=GeneratorRegistry(),
-        runs=RunManager(),
+        runs=RunManager(Foreground(lambda: bool(settings.get("background_yield", True)))),
         characters=CharacterRepo(db),
         chats=ChatRepo(db),
         connections=ConnectionRepo(db),
         templates=TemplateRepo(db),
         skills=SkillRepo(db),
-        settings=SettingsRepo(db),
+        settings=settings,
         themes=ThemeStore(BUILTIN_THEMES_DIR, paths.themes),
         assets=AssetStore(paths.assets),
         members=MemberRepo(db),

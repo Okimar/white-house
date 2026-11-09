@@ -148,6 +148,7 @@ SETTING_TYPES = {
     "retrieval": dict,  # finding character blocks: scan_messages, budget_tokens, threshold
     "embedding_connection": str,  # connection used for meaning vectors
     "auto_vectors": bool,  # vectorize changed green bubbles by itself (needs embedding_connection); default off
+    "background_yield": bool,  # background work (vectorization) stops while a reply runs, then resumes; default on
     "notes_display": str,  # notes beside a message: "few" (2 + "ещё N", default) or "all"
     "thinking_display": str,  # a reply's «Размышление»: "folded" (default), "open" or "hidden"
     "message_actions": str,  # a message's buttons: "menu" (a "…" list, default) or "always" (all on its panel)

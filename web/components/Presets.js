@@ -223,6 +223,10 @@ function RetrievalSettings({ settings, onChanged, onError }) {
       onChange=${(e) => save({ auto_vectors: e.target.checked })} />
       Автовекторизация: после правки пузыря векторы обновляются сами</label>
     <p class="hint">Выключено: ничего не тратится, а в дереве видно, сколько пузырей без векторов, и есть кнопка «Векторизовать».</p>
+    <label class="check"><input type="checkbox" checked=${settings.background_yield !== false}
+      onChange=${(e) => save({ background_yield: e.target.checked })} />
+      Прерывать фоновую работу при запросе</label>
+    <p class="hint">Векторизация и другая фоновая работа ждут, пока идёт ответ, и не занимают лимит запросов.</p>
     <div class="row">
       <button disabled=${!settings.embedding_connection || vecCheck?.busy} onClick=${checkVectors}>Проверить векторы</button>
     </div>

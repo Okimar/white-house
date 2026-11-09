@@ -1094,7 +1094,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         const s = d.vector_status;
         if (!(s.job && s.job.running)) finishVec(s);
         const same = (o) => o && ["connected", "auto", "total", "current", "stale", "missing"].every((k) => o[k] === s[k])
-          && !!(o.job && o.job.running) === !!(s.job && s.job.running) && ((o.job && o.job.error) || "") === ((s.job && s.job.error) || "");
+          && !!(o.job && o.job.running) === !!(s.job && s.job.running) && !!(o.job && o.job.paused) === !!(s.job && s.job.paused) && ((o.job && o.job.error) || "") === ((s.job && s.job.error) || "");
         setVecStatus((old) => (same(old) ? old : s));
         setVectorized((old) => (old.size === d.vectorized.length && d.vectorized.every((i) => old.has(i)) ? old : new Set(d.vectorized)));
       } catch (e) { /* the next tick or a manual reload shows it */ }
@@ -1280,7 +1280,8 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         ${!settings.embedding_connection ? html`<span class="muted">Нет подключения для векторов (Настройки → Промпт)</span>`
           : vecStatus ? html`<span class="muted">Векторы: ${vecStatus.current} из ${vecStatus.total}</span>
             ${vecPending > 0 && html`<span class="tree-vec-warn"><${Icon} name="triangle-alert" size=${14} />
-              ${vecPending} без векторов или устарели${vecStatus.auto ? " (обновляются сами)" : ""}</span>`}` : null}
+              ${vecPending} без векторов или устарели${vecStatus.auto ? " (обновляются сами)" : ""}</span>`}
+            ${vecRunning && vecStatus.job.paused && html`<span class="muted">Пауза: идёт ответ</span>`}` : null}
       </div>
       ${linking ? html`<div key="linking" class="tree-hint" role="status"><${Icon} name="link" /> Нажмите на пузырь, с которым связать
         «${byId.get(linking)?.title}» <button onClick=${() => setLinking(null)}>Отмена</button></div>` : null}

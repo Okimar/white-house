@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from tavern.core.budget import RunBudget
+from tavern.core.foreground import Foreground
 from tavern.errors import Conflict
 from tavern.util.ids import new_id
 
@@ -95,7 +96,9 @@ class Run:
 
 
 class RunManager:
-    def __init__(self) -> None:
+    def __init__(self, foreground: Foreground | None = None) -> None:
+        # every run is user work: background model work gives way while one is going on (core/foreground.py)
+        self.foreground = foreground or Foreground()
         self._active: dict[str, Run] = {}
         self._recent: OrderedDict[str, Run] = OrderedDict()
 
@@ -106,6 +109,7 @@ class RunManager:
             raise Conflict("A generation is already running in this chat", code="busy")
         run = Run(chat_id, budget)
         self._active[chat_id] = run
+        self.foreground.enter()
         run.task = asyncio.create_task(self._guard(run, body), name=f"run-{run.id}")
         run.task.add_done_callback(lambda _t: self._cleanup(run))
         return run
@@ -122,6 +126,7 @@ class RunManager:
     def _cleanup(self, run: Run) -> None:
         # Done callback (not `finally`): it also runs when the task was cancelled before starting.
         self._active.pop(run.chat_id, None)
+        self.foreground.leave()
         run.finish()
         self._recent[run.id] = run
         while len(self._recent) > KEEP_FINISHED:

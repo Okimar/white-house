@@ -154,6 +154,9 @@ tavern/                 Python package (backend)
   services/groups.py    groups in the left panel; storage/repos/groups.py (migration 0020), api/groups.py,
                         web/components/Groups.js
   services/search.py    search across all chats; api/search.py, web/components/Search.js
+  core/foreground.py    user work first: RunManager marks every run (replies, assistant) busy; background model work
+                        (vectorization, later jobs) runs its steps through ctx.foreground.run_background: waits while busy,
+                        cancelled at once when a run starts, redone after; setting `background_yield` (default on)
   core/regex.py         regex rules (stage 11): JS patterns translated to Python re, applied to text / display /
                         prompt; core/regex_worker.py + core/regex_runner.py run them in a separate process with a
                         time limit; core/safe_html.py cleans the HTML a rule makes; services/regex.py,

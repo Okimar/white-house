@@ -635,9 +635,12 @@ def _todo(ctx: AppContext, connection: dict[str, Any], owner_ids: list[str]) -> 
             for i, t, d, have in _vector_plan(ctx, owner_id, connection["model"]) if have != d]
 
 
-async def vectorize(ctx: AppContext, owner_ids: list[str], job: dict[str, Any] | None = None) -> int:
+async def vectorize(ctx: AppContext, owner_ids: list[str], job: dict[str, Any] | None = None, *,
+                    background: bool = False) -> int:
     """Make vectors for green blocks that have none or changed since. Returns how many were made.
-    Each batch is kept as soon as it is made; a rate limit is waited out (see _embed_and_save)."""
+    Each batch is kept as soon as it is made; a rate limit is waited out (see _embed_and_save).
+    `background` True (the button's job, auto vectors): gives way to user work. An awaited call (fill_layers, the
+    doctor, possibly inside an assistant run that is itself busy) is never gated, or it would wait on itself."""
     connection = embedding_connection(ctx)
     if connection is None:
         raise AppError("Choose a connection for meaning search in Settings → Промпт", code="no_embedding_connection")
@@ -653,7 +656,7 @@ async def vectorize(ctx: AppContext, owner_ids: list[str], job: dict[str, Any] |
 
     try:
         for batch in _batches(todo):
-            await _embed_and_save(ctx, provider, connection, batch, waited=waited, minutes=minutes)
+            await _embed_and_save(ctx, provider, connection, batch, waited=waited, minutes=minutes, background=background)
             remaining[0] -= sum(estimate_tokens(t) for _, t, _ in batch)
             if job is not None:
                 job["note"] = ""
@@ -682,7 +685,7 @@ def start_vectorize(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
 
     async def run() -> None:
         try:
-            await vectorize(ctx, owner_ids, job)
+            await vectorize(ctx, owner_ids, job, background=True)
         except AppError as exc:
             job["error"] = str(exc)
             log.warning("Vectorization stopped: %s", exc)
@@ -698,7 +701,8 @@ def start_vectorize(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
 
 def vector_job(ctx: AppContext, owner_ids: list[str]) -> dict[str, Any]:
     job = _jobs.get((id(ctx), ",".join(sorted(owner_ids))))
-    return {"running": bool(job and job["running"]), "error": job["error"] if job else ""}
+    running = bool(job and job["running"])
+    return {"running": running, "error": job["error"] if job else "", "paused": running and ctx.foreground.active}
 
 
 AUTO_VECTOR_DELAY = 1.5  # seconds: edits that come one after another are vectorized together
@@ -722,7 +726,7 @@ def schedule_auto_vectors(ctx: AppContext, owner_id: str) -> None:
         try:
             await asyncio.sleep(AUTO_VECTOR_DELAY)
             _auto_tasks.pop(key, None)
-            await vectorize(ctx, [owner_id])
+            await vectorize(ctx, [owner_id], background=True)
         except Exception:  # noqa: BLE001 - background work must not die loudly; the stale mark tells the user
             log.warning("Auto vectorization of %s failed", owner_id, exc_info=True)
         finally:
@@ -761,13 +765,17 @@ class _Waited:
 
 async def _embed_and_save(ctx: AppContext, provider: Any, connection: dict[str, Any],
                           batch: list[tuple[str, str, str]], *, waited: _Waited | None = None,
-                          minutes: Any = None) -> None:
+                          minutes: Any = None, background: bool = False) -> None:
     """Embed one batch and keep it. With `waited` (a vectorization job), a 429 is waited out and the same batch
-    asked again, up to MAX_WAIT in all; without it (a reply is waiting) the first failure is raised."""
+    asked again, up to MAX_WAIT in all (time paused for a reply is not counted: only the 429 sleeps are); without it (a reply is waiting) the first failure is raised."""
     model = connection["model"]
     while True:
         try:
-            vectors = await provider.embed([text for _, text, _ in batch], model=model)
+            texts = [text for _, text, _ in batch]
+            if not background:  # a reply or an awaited caller: never paused
+                vectors = await provider.embed(texts, model=model)
+            else:  # background: waits while a reply runs and is cancelled at once when one starts (core/foreground.py)
+                vectors = await ctx.foreground.run_background(lambda: provider.embed(texts, model=model))
             break
         except ProviderError as exc:
             if exc.upstream_status != 429 or waited is None:
