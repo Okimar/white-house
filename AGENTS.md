@@ -84,7 +84,7 @@ tavern/                 Python package (backend)
                         who wrote a reply. Agents add characters via cast.add_member + speaker=.
                         Turns of several replies live in services/chat.py (_start_turn, _round,
                         _narrate): «пусть поговорят», everyone at once, the narrator
-  services/presets.py   prompt presets: built-in default, user presets, per-chat choice, import/export
+  services/presets.py   prompt presets (no model settings: those live in the connection; `move_model_settings` moves old ones once at startup after a copy; an import returns `model_params` for the page's question): built-in default, user presets, per-chat choice, import/export
                         (our full .tavern-preset.json or SillyTavern)
   services/character_tree.py  the block tree of an owner (a card or a lorebook): edit (fires
                         character.blocks_changed / lorebook.blocks_changed), finer `rules` checked,
@@ -107,7 +107,7 @@ tavern/                 Python package (backend)
                         never, groups with paths, token budget; finer rules (second keywords, whole
                         words, pause, delay, one-per-group, filter), chains, lorebook pools by order
   storage/repos/blocks.py  character_blocks, block_embeddings, chat_block_hits
-  core/presets.py       preset JSON shape and validation (block kinds, model params, groups «один из»,
+  core/presets.py       preset JSON shape and validation (block kinds, old `params` read but unused, groups «один из»,
                         behaviour blocks = kind text + `when`: no_write_for_me, speaker_reply, impersonate, narrator,
                         sent only while that behaviour is on; older presets' `prompts` texts migrate into them;
                         the «Размышление» block, how many past thinkings the history sends)

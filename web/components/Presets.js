@@ -31,13 +31,6 @@ const TEXT_KINDS = ["main", "post_history", "text", "thinking"];
 const REMOVABLE = ["text", "thinking"];
 const THINKING_HINT = ["Например:", "Сцена: [где, кто рядом]", "Чего хочет {{char}} сейчас: [...]",
   "План ответа: [...]"].join("\n");
-// [key, label, step, the English name people search for]
-const PARAMS = [
-  ["temperature", "Температура", 0.05, ""], ["top_p", "Ядро выборки", 0.01, "Top P"],
-  ["top_k", "Число кандидатов", 1, "Top K"], ["max_tokens", "Длина ответа (токены)", 1, ""],
-  ["presence_penalty", "Штраф за повторение тем", 0.05, "Presence penalty"],
-  ["frequency_penalty", "Штраф за повторение слов", 0.05, "Frequency penalty"],
-];
 // [key, label, rows, explanation]
 const SERVICE_TEXTS = [
   ["prefill", "Начало ответа модели", 3, "По-английски prefill: отправляется как начало её ответа. Пусто — нет."],
@@ -324,7 +317,21 @@ export function Presets({ settings, onChanged, onError }) {
         "application/json");
       await reload();
       open(created.id);
+      await offerModelParams(created);
     } catch (err) { onError(err.message); }
+  };
+  // A file may carry model settings (temperature ...): they are applied only if the person agrees.
+  const offerModelParams = async (created) => {
+    const found = created.model_params, target = created.model_params_target;
+    if (!found || !Object.keys(found).length || !target) return;
+    const yes = await ask(`В пресете есть настройки модели (температура и др.). Применить их к подключению «${target.name}»?`,
+      { ok: "Да", cancel: "Нет" });
+    if (!yes) return;
+    const list = await api.get("/connections");
+    const conn = (list.connections || []).find((c) => c.id === target.id);
+    if (!conn) { onError("Подключение не найдено"); return; }
+    await api.put(`/connections/${target.id}`, { params: { ...(conn.params || {}), ...found } });
+    onChanged();
   };
   const save = async () => {
     try {
@@ -359,12 +366,6 @@ export function Presets({ settings, onChanged, onError }) {
   const addBlock = () => edit({ ...current.data, blocks: [...blocks, {
     id: "text-" + Date.now().toString(36), kind: "text", name: "Свой блок", enabled: true, role: "system",
     text: "", position: "top", depth: 4, group: "" }] });
-  const setParam = (key, raw) => {
-    const params = { ...current.data.params };
-    if (raw === "") delete params[key];
-    else params[key] = Number(raw);
-    edit({ ...current.data, params });
-  };
   const readOnly = !current || current.builtin;
 
   if (!ready) return html`<div class="settings-pending" aria-busy="true"></div>`;
@@ -377,7 +378,7 @@ export function Presets({ settings, onChanged, onError }) {
           Понятно</button>
       </div>`}
     <h2>Пресеты промпта</h2>
-    <p class="hint">Пресет — это порядок блоков промпта и настройки модели. Пресет с пометкой «Общий»
+    <p class="hint">Пресет — это порядок блоков промпта и его тексты. Пресет с пометкой «Общий»
       используется во всех чатах, где не выбран свой (меню «Участники» в чате).</p>
     <ul class="list">
       ${presets.map((p) => html`<li key=${p.id} class=${current && current.id === p.id ? "active" : ""}>
@@ -419,27 +420,8 @@ export function Presets({ settings, onChanged, onError }) {
         <p class="hint">Работают в чатах с этим пресетом, после общих правил. Правила, пришедшие с файлом пресета, ждут вашего разрешения.</p>
         <${RegexOwner} scope="preset" owner=${current.id} onError=${onError} /></details>`}
 
-      <h3>Модель</h3>
-      <div class="param-grid">
-        ${PARAMS.map(([key, label, step, english]) => html`<label key=${key} class="stack">${label}
-          <input type="number" step=${step} disabled=${readOnly} placeholder="как у модели"
-            value=${current.data.params[key] ?? ""} onInput=${(e) => setParam(key, e.target.value)} />
-          ${english && html`<span class="hint">${english}</span>`}</label>`)}
-        <label class="stack">Уровень размышлений
-          <${Select} disabled=${readOnly} value=${current.data.params.reasoning_effort || ""}
-            onChange=${(e) => { const params = { ...current.data.params };
-              if (e.target.value) params.reasoning_effort = e.target.value; else delete params.reasoning_effort;
-              edit({ ...current.data, params }); }}>
-            <option value="">как у модели</option>
-            <option value="minimal">минимальный</option><option value="low">низкий</option>
-            <option value="medium">средний</option><option value="high">высокий</option>
-          </${Select}>
-          <span class="hint">Сколько модель думает перед ответом (Gemini 3 и другие думающие модели).</span></label>
-        <label class="stack">Размер памяти (токены)
-          <input type="number" min="0" disabled=${readOnly} value=${current.data.max_context_tokens}
-            onInput=${(e) => edit({ ...current.data, max_context_tokens: Number(e.target.value) || 0 })} />
-          <span class="hint">0 — как в подключении.</span></label>
-      </div>
+      <p class="hint">Настройки модели (температура, длина ответа, размер памяти и др.) теперь только в подключении:
+        «Подключения» → настройки подключения.</p>
       <label><input type="checkbox" checked=${current.data.prefer_card_prompts} disabled=${readOnly}
         onChange=${(e) => edit({ ...current.data, prefer_card_prompts: e.target.checked })} />
         Свой промпт карточки заменяет главный промпт пресета</label>

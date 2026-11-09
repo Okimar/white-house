@@ -87,9 +87,9 @@ HINTS = {
     "PUT /settings": "{key: value, ...} — user_name, active_connection, active_preset, default_me, "
                      "notes_display, retrieval, lorebooks, ...",
     "GET /connections": "connections (no keys): name, base_url, model, params",
-    "PUT /connections/{id}": "{name?, model?, params?} — keys are not here",
+    "PUT /connections/{id}": "{name?, model?, params?} — keys are not here. params are ALL the model settings (temperature, top_p, max_tokens, reasoning_effort, max_context_tokens ...): they live only here, not in presets; send the whole object",
     "GET /presets": "prompt presets (the built-in one cannot be changed: copy it with POST /presets {name, from})",
-    "GET /presets/{id}": "a preset: its blocks (order, enabled, text) and model params",
+    "GET /presets/{id}": "a preset: its blocks (order, enabled, text) and prompt texts (no model settings: those are on the connection)",
     "PUT /presets/{id}": "{name?, data?} — data as GET returns it",
     "DELETE /presets/{id}": "delete a preset",
     "GET /lorebooks/{id}": "a lorebook", "PUT /lorebooks/{id}": "{name?, description?, settings?}",

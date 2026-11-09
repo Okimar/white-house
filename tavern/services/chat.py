@@ -483,10 +483,9 @@ def _writer(
     chat_id = chat["id"]
     params = dict(connection["params"])
     preset = preset_service.resolve(ctx, chat)
-    max_context = preset["data"]["max_context_tokens"] or int(params.pop("max_context_tokens", 0) or 0)
-    # The preset's model settings win over the connection's.
+    max_context = int(params.pop("max_context_tokens", 0) or 0)
+    # Model settings live only in the connection; the preset's old `params` are not used.
     model_defaults = request_params(connection["kind"], params)
-    model_defaults.update(preset["data"]["params"])
     generator_id = chat["meta"].get("generator") or ctx.settings.get("generator")
     me = user_name(ctx, chat_id)
 
@@ -659,7 +658,7 @@ def _writer(
             plan = parallel.get_settings(ctx)
             results: list[parallel.Result] = []
             if allow and plan["enabled"] and isinstance(generator, DefaultGenerator):
-                extras = parallel.extra_targets(ctx, connection, plan, overrides=preset["data"]["params"])
+                extras = parallel.extra_targets(ctx, connection, plan)
                 for target in extras:
                     tallies[target.label] = spending.Tally()
                     target.meter = spending.meter(ctx, target.connection or connection, chat_id=chat_id,

@@ -159,6 +159,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         from tavern.services import look
         from tavern.services import presets as preset_service
 
+        preset_service.move_model_settings(ctx)  # model settings live in the connection now (once, after a copy)
         preset_service.migrate_behaviour_blocks(ctx)  # texts of older presets become blocks (once)
 
         if look.check_upgrade(ctx):  # the interface changed: the custom look is off, the page says so

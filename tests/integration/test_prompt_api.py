@@ -73,12 +73,15 @@ async def test_members_can_be_added_changed_and_removed(client, ctx, fake_llm):
     assert seen == [chat_id] * 3
 
 
-async def test_preset_parameters_and_blocks_reach_the_model(client, ctx, fake_llm):
+async def test_blocks_reach_the_model_and_model_settings_come_from_the_connection(client, ctx, fake_llm):
     _, chat_id = await setup(client)
+    active = (await client.get("/api/connections")).json()["active"]
+    assert (await client.put(f"/api/connections/{active}",
+                             json={"params": {"temperature": 0.3, "max_tokens": 77}})).status_code == 200
     created = await client.post("/api/presets", json={"name": "Brief", "from": "default"})
     preset = created.json()
     data = preset["data"]
-    data["params"] = {"temperature": 0.3, "max_tokens": 77}
+    data["params"] = {"temperature": 0.9, "max_tokens": 5}  # an old preset's settings: read, never used
     data["blocks"].append({"id": "style", "kind": "text", "name": "Style", "text": "Be brief.", "role": "system"})
     assert (await client.put(f"/api/presets/{preset['id']}", json={"name": "Brief", "data": data})).status_code == 200
     await client.put(f"/api/chats/{chat_id}/meta", json={"preset_id": preset["id"]})
@@ -87,6 +90,7 @@ async def test_preset_parameters_and_blocks_reach_the_model(client, ctx, fake_ll
     request = fake_llm.requests[-1]
     assert request["temperature"] == 0.3 and request["max_tokens"] == 77
     assert request["messages"][-1]["content"] == "Be brief."
+    assert (await client.get(f"/api/presets/{preset['id']}")).json()["data"]["params"] == {}  # saving drops them
 
     builtin = await client.put("/api/presets/default", json={"name": "x", "data": data})
     assert builtin.json()["error"]["code"] == "builtin_preset"
@@ -103,9 +107,20 @@ async def test_st_preset_import_and_export(client):
     response = await client.post("/api/presets/import/st?name=Cool.json", content=json.dumps(st).encode())
     assert response.status_code == 201, response.text
     preset = response.json()
-    assert preset["name"] == "Cool" and preset["data"]["params"] == {"temperature": 0.9}
-    exported = await client.get(f"/api/presets/{preset['id']}/export/st")
-    assert exported.json()["openai_max_context"] == 5000
+    assert preset["name"] == "Cool" and preset["data"]["params"] == {} and preset["data"]["max_context_tokens"] == 0
+    assert preset["model_params"] == {"temperature": 0.9, "max_context_tokens": 5000}  # offered, not applied
+    assert "model_params_target" not in preset  # no connection yet
+    conn = (await client.post("/api/connections", json={"name": "fake", "base_url": "http://llm/v1", "model": "m"})).json()
+    assert (await client.get("/api/connections")).json()["connections"][0]["params"] == {}
+    # "Yes" in the page's question: the existing connection route takes the settings
+    assert (await client.put(f"/api/connections/{conn['id']}", json={"params": preset["model_params"]})).status_code == 200
+    assert (await client.get("/api/connections")).json()["connections"][0]["params"]["temperature"] == 0.9
+    exported = await client.get(f"/api/presets/{preset['id']}/export/st")  # ST export carries the connection's
+    assert exported.json()["openai_max_context"] == 5000 and exported.json()["temperature"] == 0.9
+    native = (await client.get(f"/api/presets/{preset['id']}/export?format=tavern")).json()
+    assert native["data"]["params"] == {} and native["data"]["max_context_tokens"] == 0
+    again = (await client.post("/api/presets/import/st?name=Cool2.json", content=json.dumps(st).encode())).json()
+    assert again["model_params_target"]["id"] == conn["id"]
     assert "Cool.json" in exported.headers["content-disposition"]
     text_completion = await client.post("/api/presets/import/st", content=b'{"temp": 1, "rep_pen": 1.1}')
     assert text_completion.json()["error"]["code"] == "bad_preset"
