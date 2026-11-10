@@ -1,0 +1,125 @@
+"""Texts for the small-model tasks of the memory (pure: no database, no network). ADR 0019 sections 4.2 and 8 (R4).
+
+Two tasks, both answered as JSON through `LLMClient.generate_json` (core/structured.py checks the shape):
+  * a chapter's summary: `{"title": str, "summary": str}`. In the language most of the chapter is written in (Q11),
+    past tense, plain narration, no meta talk, about `summary_tokens` tokens;
+  * «Сюжет до сих пор»: `{"plot": str}`, 300-500 tokens, built from the previous plot and the summaries after it
+    (or from the summaries alone), in story order.
+
+The prompts themselves are English (small models follow them best); the answer's language is decided by the text
+it retells, and `problem()` checks it (R4: a summary in the wrong script is refused, asked once more, and then the
+chapter is marked as failed).
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from tavern.core.prompt import CHARS_PER_TOKEN, estimate_tokens
+from tavern.providers.base import ChatMessage
+
+SUMMARY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"title": {"type": "string"}, "summary": {"type": "string"}},
+    "required": ["title", "summary"],
+    "additionalProperties": False,
+}
+PLOT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"plot": {"type": "string"}},
+    "required": ["plot"],
+    "additionalProperties": False,
+}
+
+PLOT_MIN_TOKENS, PLOT_MAX_TOKENS = 300, 500
+MAX_INPUT_TOKENS = 16000  # a chapter longer than this is shortened message by message (start and end are kept)
+MIN_SUMMARY_CHARS = 40
+_LETTER = re.compile(r"[^\W\d_]", re.UNICODE)
+_CYRILLIC = re.compile(r"[Ѐ-ӿ]")
+
+RULES = """Rules:
+- Write in the language most of the text below is written in{hint}.
+- Past tense, plain narration in the third person. Name the characters by name.
+- No meta talk: never mention "the chapter", "the summary", "the user", "the AI", "the roleplay", the model or \
+out-of-character remarks, and give no advice or evaluation.
+- Keep what matters later: who did what and to whom, names, places, numbers, objects, injuries, promises, secrets, \
+debts, agreements, and who knows what. Leave out filler and repeated descriptions.
+- Do not invent anything that is not in the text. No markdown, no headings, no lists: running prose."""
+
+
+def cyrillic_share(text: str) -> float:
+    """The share of Cyrillic among the letters of `text` (0 for a text with no letters)."""
+    letters = _LETTER.findall(text)
+    return len(_CYRILLIC.findall(text)) / len(letters) if letters else 0.0
+
+
+def language_hint(text: str) -> str:
+    """What to add to the language rule: «(here: Russian)» for a mostly Cyrillic text, else nothing."""
+    return " (here: Russian)" if cyrillic_share(text) > 0.5 else ""
+
+
+def problem(summary: str, source: str, target_tokens: int) -> str:
+    """Why a model's text is not usable ('' when it is): empty or tiny, far too long, or in the wrong script."""
+    summary = summary.strip()
+    if len(summary) < MIN_SUMMARY_CHARS:
+        return "the text is too short"
+    if estimate_tokens(summary) > max(3 * target_tokens, 200):
+        return "the text is much longer than asked"
+    if cyrillic_share(source) > 0.5 and cyrillic_share(summary) < 0.5:
+        return "the text must be in Russian, the language of the source"
+    if cyrillic_share(source) < 0.1 and cyrillic_share(summary) > 0.5:
+        return "the text must be in the language of the source, not in Russian"
+    return ""
+
+
+def shorten(text: str, tokens: int) -> str:
+    """`text` cut to about `tokens` tokens, keeping its start and end."""
+    size = tokens * CHARS_PER_TOKEN
+    if len(text) <= size:
+        return text
+    head = size * 2 // 3
+    return text[:head].rstrip() + " [...] " + text[len(text) - (size - head):].lstrip()
+
+
+def chapter_lines(messages: list[dict[str, Any]]) -> list[str]:
+    """«Name: text» for each message, shortened evenly when the whole would pass MAX_INPUT_TOKENS."""
+    lines = [(m.get("name") or m["role"], " ".join((m.get("content") or "").split())) for m in messages]
+    total = sum(estimate_tokens(text) for _, text in lines)
+    if total > MAX_INPUT_TOKENS and lines:
+        each = max(40, MAX_INPUT_TOKENS // len(lines))
+        lines = [(name, shorten(text, each)) for name, text in lines]
+    return [f"{name}: {text}" for name, text in lines]
+
+
+def summary_messages(messages: list[dict[str, Any]], previous: str, target_tokens: int, note: str = "",
+                     ) -> tuple[list[ChatMessage], str]:
+    """The request for one chapter's summary, and the text it retells (for `problem`)."""
+    lines = chapter_lines(messages)
+    source = "\n".join(lines)
+    system = (f"You write the memory of a long roleplay chat. Retell the scene below as a summary of about "
+              f"{target_tokens} tokens that a reader will use later instead of the full text. Give the chapter a "
+              f"short title of two to six words in the same language.\n{RULES.format(hint=language_hint(source))}")
+    context = f"The story just before this scene (for context only, do not retell it):\n{previous}\n\n" if previous else ""
+    user = f"{context}The scene:\n{source}"
+    if note:
+        user += f"\n\nYour previous answer was refused: {note}. Answer again."
+    return [ChatMessage("system", system), ChatMessage("user", user)], source
+
+
+def plot_messages(old: str, summaries: list[tuple[str, str]], note: str = "") -> tuple[list[ChatMessage], str]:
+    """The request for «Сюжет до сих пор»: the old plot (may be empty) and the chapter summaries after it, as
+    (heading, text) in story order. Returns the request and the text it is built from (for `problem`)."""
+    source = "\n\n".join(f"{head}\n{text}" for head, text in summaries)
+    system = (f"You keep the running plot of a long roleplay chat. Write \"the story so far\" of {PLOT_MIN_TOKENS} to "
+              f"{PLOT_MAX_TOKENS} tokens: the main line of events in story order, who the main characters are and "
+              f"where things stand now (relationships, open goals and promises). Compress older parts more than "
+              f"newer ones.\n{RULES.format(hint=language_hint(source or old))}")
+    parts = []
+    if old:
+        parts.append(f"The story so far, as it was written before:\n{old}")
+    parts.append("New chapters to work in, in story order:\n" + source)
+    user = "\n\n".join(parts)
+    if note:
+        user += f"\n\nYour previous answer was refused: {note}. Answer again."
+    return [ChatMessage("system", system), ChatMessage("user", user)], source + old

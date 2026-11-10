@@ -217,7 +217,7 @@ async def test_nothing_is_cut_with_the_chat_switch_off_and_the_table_follows_the
     await switch(client, chat_id)
     await idle(ctx, chat_id)
     assert "p_memory_chapters" in objects(ctx)
-    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] == 2
+    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] == 3
     await client.delete(f"/api/chats/{chat_id}")
     assert ctx.db.fetchone("SELECT COUNT(*) AS n FROM p_memory_chapters")["n"] == 0
 

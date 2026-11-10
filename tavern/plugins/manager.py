@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 ASK_TIMEOUT = 120.0
+WAIT_POLL = 2.0  # seconds between looks for an open page while a background job waits to ask «may it?»
 VERSIONS_KEEP = 3
 VERSIONS_DIR = ".versions"
 SCHEMA_KEY = "__schema_version"  # plugin_data key: where a plugin deleted without data left its tables
@@ -507,12 +508,19 @@ class PluginManager:
 
     # -- model access --------------------------------------------------------------------------
 
-    def gate_for(self, plugin_id: str, *, chat_id: str | None = None) -> GateFn:
-        """Checked before each model request of one client (one reply, one `api.llm()` client)."""
+    def gate_for(self, plugin_id: str, *, chat_id: str | None = None, background: bool = False,
+                 on_wait: Callable[[bool], None] | None = None) -> GateFn:
+        """Checked before each model request of one client (one reply, one `api.llm()` client).
+
+        `background=True` is for unattended work (a job, ADR 0019 point H): the per-reply count does not apply (it
+        is no reply), «спрашивать каждый раз» asks ONCE for the client (one job), and with no page open the request
+        waits for one instead of failing, telling `on_wait(True)` when it starts waiting and `on_wait(False)`
+        when a page came."""
         made = 0
+        granted = False
 
         async def gate() -> None:
-            nonlocal made
+            nonlocal made, granted
             row = self.ctx.plugin_repo.get(plugin_id) or {}
             access = {**ACCESS_DEFAULTS, **row.get("access", {})}
             item = self.discover().get(plugin_id)
@@ -520,12 +528,21 @@ class PluginManager:
             if not access["models"]:
                 raise PluginRefused(f"Дополнению «{name}» не разрешено обращаться к моделям. "
                                     "Разрешите в настройках → «Дополнения».", code="plugin_no_models")
-            if access["per_reply"] and made >= access["per_reply"]:
+            if access["per_reply"] and not background and made >= access["per_reply"]:
                 raise PluginRefused(f"Дополнение «{name}»: предел {access['per_reply']} запросов на один ответ",
                                     code="plugin_limit")
             self.check_money(plugin_id, name, access)
-            if access["ask"] and not await self.ask(plugin_id, name, chat_id):
-                raise PluginRefused(f"Вы не разрешили запрос дополнения «{name}»", code="plugin_denied")
+            if access["ask"] and not granted:
+                if background and not self.ctx.notices.listeners:
+                    if on_wait is not None:
+                        on_wait(True)
+                    while not self.ctx.notices.listeners:
+                        await asyncio.sleep(WAIT_POLL)
+                    if on_wait is not None:
+                        on_wait(False)
+                if not await self.ask(plugin_id, name, chat_id):
+                    raise PluginRefused(f"Вы не разрешили запрос дополнения «{name}»", code="plugin_denied")
+                granted = background
             made += 1
 
         return gate

@@ -151,6 +151,10 @@ export function PromptView({ message, onClose, onError }) {
               ${(dropped.members || []).length ? ` карточки: ${dropped.members.join(", ")}` : ""}</div>`}
             ${(dropped.lore || []).length > 0 && html`<div class="notice">
               Не влезло в лимит лорбуков: ${dropped.lore.join(", ")}</div>`}
+            ${(dropped.memory || []).length > 0 && html`<div class="notice">
+              Память вместо оставленного за окном: ${dropped.memory.join(", ")}</div>`}
+            ${(dropped.extras || []).length > 0 && html`<div class="notice">
+              Не влезло в бюджет памяти: ${dropped.extras.join(", ")}</div>`}
             <div class="row">
               <button onClick=${count} disabled=${counting}>${counting ? "Считаю…" : "Посчитать точно"}</button>
               <button onClick=${() => copy(whole, onError)}>Копировать всё</button>

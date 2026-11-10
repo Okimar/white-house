@@ -47,7 +47,7 @@ the error shown. Everything registered is removed when the plugin is switched of
 | `api.on(event, fn, priority=)` | core events: `message.received` (message, chat), `chat.members_changed`, `prompt.built` (filter: messages, job), `chat.before_generate` (job), `generation.failed` … |
 | `api.storage(chat_id="")` | `.get/.set/.delete/.all` — JSON values, per chat (gone with the chat) or app-wide |
 | `api.add_message(chat_id, text, role="system", name=, hidden=False, to_model=True, extra=)` | a message at the end of the chat, owner = the plugin |
-| `api.llm(connection_id=, model=, chat_id=, budget=)` | an `LLMClient` (`generate`, `stream`, `generate_json(schema=)`) |
+| `api.llm(connection_id=, model=, chat_id=, budget=, background=, on_wait=)` | an `LLMClient` (`generate`, `stream`, `generate_json(schema=)`); `background=True` for a job: «спрашивать каждый раз» asks once per client, no per-reply limit, with no page open it waits (`on_wait(True/False)`) |
 | `api.add_generator(gen, name)` | a reply writer; the user picks it per chat in 👥 «Ответ пишет». `gen.id`, `async def generate(job)` yielding text; reuse `job.build_messages()`, `job.llm`, `job.run.trace(kind, ...)`, `job.think(text)`, `job.meta` (kept with the version), `job.message_id`; see the `agentic-plugin` skill |
 | `api.notify(name, **data)` | to the web part on every open page: `t.onNotice(name, fn)` |
 | `api.job(key, work, delay=2.0)` | a background job: `async def work(job)`; each small step through `await job.step(factory)` (a user's request cancels it at once and it is redone later: a step must be safe to redo), `job.progress(done, total, note)`, `await job.rate_wait(seconds)` after a 429 (capped), `job.stopped`. One job per key: scheduling again only asks for one more pass. Cancelled when the plugin is switched off. Make the job todo-driven (each pass asks the tables "what is next?") |
@@ -92,7 +92,9 @@ In `chat.before_generate` add `core.assembly.Extra`s to `job.prompt_input.extras
 `plugin:<id>:...`), `label`, `place` ("memory" | "after_card" | "card_before" | "card_after" | "depth" | "an_top"),
 `owner` (character id), `drop_rank`. History first: an Extra with `covers=(first_id, last_id)` or `if_dropped=True` is
 sent only when those history messages were really left out of the window, and only within `prompt_input.memory_reserve`
-tokens. Set `prompt_input.tail_from` (the live tail is not cut before older messages), `prompt_input.values["summary"]`
+tokens. Conditional extras are CONSIDERED in list order (rank them: the best first gets the reserve) and PLACED
+by `order` (story position) when given; extras with the same `group` are alternatives (only the first that qualifies
+and fits goes; a group none of which fits is named once as dropped). Set `prompt_input.tail_from` (the live tail is not cut before older messages), `prompt_input.values["summary"]`
 for `{{summary}}`. `job.meaning` is the reply's meaning request (`.queries` vectors, `.texts`, `.model`, `.error`).
 
 ## Web part: `setup(t)` (web/core/plugins.js)

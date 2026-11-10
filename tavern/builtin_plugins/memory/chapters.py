@@ -27,7 +27,7 @@ from tavern.util.ids import now_iso
 from . import pieces, store
 
 UNDO_KEEP = 50
-STATES = ("raw", "stale", "deleted")
+STATES = ("raw", "summarized", "stale", "failed", "deleted")
 
 
 class ChapterError(AppError):
@@ -98,19 +98,33 @@ def open_start(rows: list[Placed]) -> int:
 
 
 def refresh(db: Database, chat_id: str, path: list[dict[str, Any]]) -> dict[str, int]:
-    """One cheap pass: drop chapters whose ends are really gone, mark `stale` / `raw` by the hash. No model."""
+    """One cheap pass: drop chapters whose ends are really gone, set each chapter's state from the hash and its
+    summary. No model.
+
+    `stale`: the text under the chapter changed (its hash is not the one stored), or its summary tells another
+    text than the chapter has now (a split, a merge, a moved border). Otherwise `summarized` when it has a summary,
+    `failed` when the last attempt to summarize it failed, else `raw`. It goes back by itself when the text is the
+    same again."""
     rows = store.chapter_rows(db, chat_id)
     ends = [r[k] for r in rows for k in ("first_id", "last_id")]
     alive = store.existing_messages(db, list(set(ends)))
     gone = [r["id"] for r in rows if r["first_id"] not in alive or r["last_id"] not in alive]
     if gone:
+        store.drop_texts_of(db, gone)
         store.delete_chapters(db, gone)
+    summaries = store.current_summaries(db, chat_id)
     changed = []
     for p in placed([r for r in rows if r["id"] not in gone], path):
         if p.row["state"] == "deleted":
             continue
+        summary = summaries.get(p.row["id"])
         same = content_hash(path[p.lo:p.hi + 1]) == p.row["content_hash"]
-        want = "raw" if same else "stale"
+        if not same or (summary is not None and summary["made_from"] != p.row["content_hash"]):
+            want = "stale"
+        elif summary is not None:
+            want = "summarized"
+        else:
+            want = "failed" if p.row.get("error") else "raw"
         if p.row["state"] != want:
             changed.append({**p.row, "state": want, "updated_at": now_iso()})
     if changed:
@@ -157,10 +171,18 @@ def on_message_deleted(db: Database, chat_id: str, message: dict[str, Any], chil
 # -- the log for undo ------------------------------------------------------------------------------
 
 
-def _log(storage: Any, op: str, before: list[dict[str, Any]], created: list[str]) -> None:
+def _log(storage: Any, op: str, before: list[dict[str, Any]], created: list[str], **texts: Any) -> None:
     steps = storage.get("undo", [])
-    steps.append({"op": op, "before": before, "created": created, "at": now_iso()})
+    steps.append({"op": op, "before": before, "created": created, "at": now_iso(), **texts})
     storage.set("undo", steps[-UNDO_KEEP:])
+
+
+def log_text(storage: Any, op: str, made: str, *, summary_of: str = "", previous: str | None = None,
+             lock_was: bool | None = None) -> None:
+    """A hand edit of a summary or of the plot, in the same undo log as the chapter edits: `made` is the text row
+    it wrote (removed on undo); for a summary, `previous` is the version that was current (made current again)."""
+    _log(storage, op, [], [], text={"made": made, "summary_of": summary_of, "previous": previous,
+                                    "lock_was": lock_was})
 
 
 def undo_label(storage: Any) -> str:
@@ -174,12 +196,30 @@ def undo(db: Database, storage: Any) -> str:
     if not steps:
         raise ChapterError("Отменять нечего")
     step = steps.pop()
+    text = step.get("text")
+    if text:
+        _undo_text(db, text)
     if step["created"]:
         store.delete_chapters(db, step["created"])
     if step["before"]:
         store.put_chapters(db, step["before"])
     storage.set("undo", steps)
     return step["op"]
+
+
+def _undo_text(db: Database, text: dict[str, Any]) -> None:
+    if text.get("made"):
+        store.delete_text(db, text["made"])
+    chapter_id = text.get("summary_of")
+    if not chapter_id:
+        return  # the plot: the newest version left on the branch is the current one again
+    if text.get("previous"):
+        try:
+            store.restore_summary(db, text["previous"])
+        except KeyError:
+            pass  # that version was pruned meanwhile: the chapter just has no current summary
+    elif text.get("lock_was") is not None:
+        store.set_summary_lock(db, chapter_id, bool(text["lock_was"]))
 
 
 # -- hand edits ------------------------------------------------------------------------------------
@@ -319,6 +359,7 @@ def accept(db: Database, storage: Any, chat_id: str, path: list[dict[str, Any]],
     row = _rehash(this.row, path, this.lo, this.hi, me_id)
     _log(storage, "Принять изменения", [this.row], [])
     store.put_chapters(db, [row])
+    store.restamp_summary(db, chapter_id, row["content_hash"])  # its summary stands for the text as it is now
     return row
 
 

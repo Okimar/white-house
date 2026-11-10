@@ -170,3 +170,50 @@ def test_summary_macro_gets_the_plugins_value():
 def test_the_memory_kind_has_no_text_and_survives_normalize():
     block = next(b for b in normalize_preset(default_preset())["blocks"] if b["kind"] == "memory")
     assert block["text"] == "" and block["enabled"] is True
+
+
+def test_a_switched_off_memory_block_keeps_no_reserve_and_names_nothing_as_sent():
+    """Regression (M3 review): with the block off, conditional extras were still listed as sent and their reserve
+    still pushed old messages out."""
+    preset = default_preset()
+    next(b for b in preset["blocks"] if b["kind"] == "memory")["enabled"] = False
+    msgs = history(30)
+    plain = build(msgs, preset=preset, max_context_tokens=500)
+    prompt = build(msgs, [fragment(0)], preset=preset, max_context_tokens=500, memory_reserve=200)
+    assert "memory" not in prompt.dropped
+    assert prompt.dropped["messages"] == plain.dropped["messages"]
+
+
+def test_conditional_extras_are_considered_in_list_order_and_placed_in_story_order():
+    """The plugin ranks (the best first gets the reserve), the prompt tells them in story order."""
+    msgs = history(30)
+    best_late = Extra("отрывок про 5", "plugin:memory:piece:5", "Отрывок 5", covers=("m5", "m5"), order=5)
+    early = Extra("отрывок про 1", "plugin:memory:piece:1", "Отрывок 1", covers=("m1", "m1"), order=1)
+    prompt = build(msgs, [best_late, early], max_context_tokens=500, memory_reserve=200)
+    text = sent(prompt)
+    assert text.index("отрывок про 1") < text.index("отрывок про 5")
+    assert prompt.dropped["memory"] == ["Отрывок 5", "Отрывок 1"]  # considered best first
+    # a reserve with room for one only: the first in the list wins, not the earliest in the story
+    tight = build(msgs, [best_late, early], max_context_tokens=500, memory_reserve=5)
+    assert "отрывок про 5" in sent(tight) and "отрывок про 1" not in sent(tight)
+
+
+def test_alternatives_of_one_group_send_only_the_first_that_qualifies():
+    msgs = history(30)
+    summary = Extra("пересказ главы", "plugin:memory:summary:c", "Пересказ", covers=("m0", "m28"), group="c")
+    pieces = Extra("отрывки главы", "plugin:memory:chapter:c", "Отрывки", covers=("m0", "m1"), group="c")
+    # m28 is still in the window: the summary does not qualify, its pieces do
+    text = sent(build(msgs, [summary, pieces], max_context_tokens=500, memory_reserve=200))
+    assert "отрывки главы" in text and "пересказ главы" not in text
+    # the whole chapter left out: the summary goes, its pieces do not
+    whole = Extra("пересказ главы", "plugin:memory:summary:c", "Пересказ", covers=("m0", "m1"), group="c")
+    text = sent(build(msgs, [whole, pieces], max_context_tokens=500, memory_reserve=200))
+    assert "пересказ главы" in text and "отрывки главы" not in text
+
+
+def test_a_group_none_of_whose_alternatives_fit_is_named_once_as_dropped():
+    msgs = history(30)
+    big = Extra("пересказ " * 200, "plugin:memory:summary:c", "Глава 1 (пересказ)", covers=("m0", "m1"), group="c")
+    also_big = Extra("отрывки " * 200, "plugin:memory:chapter:c", "Глава 1 (отрывки)", covers=("m0", "m1"), group="c")
+    prompt = build(msgs, [big, also_big], max_context_tokens=500, memory_reserve=50)
+    assert prompt.dropped["extras"] == ["Глава 1 (пересказ)"] and "memory" not in prompt.dropped

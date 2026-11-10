@@ -132,8 +132,14 @@ class PluginAPI:
         return connection["model"] if connection else ""
 
     def llm(self, *, connection_id: str = "", model: str = "", chat_id: str | None = None,
-            budget: RunBudget | None = None) -> LLMClient:
-        """A model client on the given connection (default: the chat's, else the active one)."""
+            budget: RunBudget | None = None, background: bool = False,
+            on_wait: Callable[[bool], None] | None = None) -> LLMClient:
+        """A model client on the given connection (default: the chat's, else the active one).
+
+        `background=True` for a job's unattended requests (ADR 0019 point H): «спрашивать каждый раз» asks once for
+        this client (make one client per job run and reuse it), the «запросов на ответ» limit does not apply, and
+        with no page open the request waits for one; `on_wait(True/False)` tells when it starts and stops waiting
+        (the job shows «ждёт разрешения»). The money limits and the «may use models» permission always apply."""
         connection = self._connection(connection_id, chat_id)
         from tavern.services import spending  # services import the context module
 
@@ -141,7 +147,7 @@ class PluginAPI:
             self.ctx.providers.create(connection), model=model or connection.get("model", ""),
             budget=budget or RunBudget(max_steps=0),
             meter=spending.meter(self.ctx, connection, chat_id=chat_id, purpose=f"plugin:{self.id}"),
-            gate=self._manager.gate_for(self.id, chat_id=chat_id))
+            gate=self._manager.gate_for(self.id, chat_id=chat_id, background=background, on_wait=on_wait))
 
     def add_message(self, chat_id: str, text: str, *, role: str = "system", name: str = "",
                     hidden: bool = False, to_model: bool = True, extra: dict[str, Any] | None = None,

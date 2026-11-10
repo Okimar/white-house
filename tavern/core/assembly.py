@@ -30,7 +30,10 @@ Budget (when `max_context_tokens` > 0), in this order until the prompt fits:
   3. drop member cards from the least important (highest importance number) up; the main
      character and the user's own character are never dropped;
   4. drop more old messages, down to the newest one;
-  then the conditional extras are added in the plugin's order while they fit.
+  then the conditional extras are added while they fit: they are CONSIDERED in the plugin's order (its ranking: the
+  best first, so the reserve goes to them), and PLACED by `order` when given (story order), else in that order.
+  Extras sharing a non-empty `group` are alternatives: only the first one that qualifies and fits is sent (a
+  chapter's summary when the whole chapter was left out, else its pieces).
 """
 
 from __future__ import annotations
@@ -77,6 +80,8 @@ class Extra:
     drop_rank: int = 50  # unconditional extras go under a short context in this order (lower first)
     covers: tuple[str, str] | None = None  # first, last message id: sent ONLY if all of them were left out
     if_dropped: bool = False  # sent only if any history message was left out
+    order: int | None = None  # conditional extras: their place among the others (story order); None = list order
+    group: str = ""  # conditional extras: alternatives of one thing; only the first that qualifies and fits goes
 
 
 EXTRA_PLACES = ("memory", "after_card", "card_before", "card_after", "depth", "an_top")
@@ -421,6 +426,7 @@ def assemble(data: PromptInput) -> Prompt:
     put_at_slot(memory_unconditional)
     if slot_list is None:  # memory is switched off in this preset: its must-have pieces are not sent either
         ranked[:] = [r for r in ranked if not any(r[1] is e for e in memory_unconditional)]
+        cond = []  # nor its conditional ones: no reserve is kept for them and none is named as sent
 
     history_block = next(b for b in preset["blocks"] if b["kind"] == "history")
     history = [m for m in data.history if not m.get("exclude_from_prompt")] if history_block["enabled"] else []
@@ -543,7 +549,12 @@ def assemble(data: PromptInput) -> Prompt:
         left_out = {i for i in history_ids if i not in sent_ids}
         reserve_left = data.memory_reserve or None
         used = 0
-        for extra in cond:
+        chosen: list[tuple[int, int, Entry]] = []  # (story order, list order, entry)
+        groups_sent: set[str] = set()
+        groups_missed: dict[str, str] = {}  # group -> the label of its first alternative that did not fit
+        for position, extra in enumerate(cond):
+            if extra.group and extra.group in groups_sent:
+                continue
             if extra.covers:
                 first, last = extra.covers
                 if first not in history_ids or last not in history_ids:
@@ -558,13 +569,20 @@ def assemble(data: PromptInput) -> Prompt:
                 continue
             cost = _cost(entry)
             over_reserve = reserve_left is not None and used + cost > reserve_left
-            over_window = bool(data.max_context_tokens) and total() + cost > data.max_context_tokens
+            over_window = bool(data.max_context_tokens) and total() + used + cost > data.max_context_tokens
             if over_reserve or over_window:
-                dropped["extras"].append(extra.label)
+                if extra.group:  # an alternative that does not fit leaves the place to the next one
+                    groups_missed.setdefault(extra.group, extra.label)
+                else:
+                    dropped["extras"].append(extra.label)
                 continue
-            put_at_slot([entry])
+            chosen.append((position if extra.order is None else extra.order, position, entry))
             used += cost
+            if extra.group:
+                groups_sent.add(extra.group)
             dropped["memory"].append(extra.label)
+        dropped["extras"].extend(label for group, label in groups_missed.items() if group not in groups_sent)
+        put_at_slot([entry for _, _, entry in sorted(chosen, key=lambda c: (c[0], c[1]))])
     if slot_list is not None and slot in slot_list:
         slot_list.remove(slot)
     for key in ("extras", "memory"):  # without a plugin the record is what it always was

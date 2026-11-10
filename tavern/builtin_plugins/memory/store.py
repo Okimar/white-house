@@ -143,7 +143,7 @@ class VectorCache:
 
 CHAPTERS = "p_memory_chapters"
 CHAPTER_FIELDS = ("id", "chat_id", "first_id", "last_id", "title", "state", "content_hash", "participants", "whole",
-                  "border_by", "reason", "tries", "created_at", "updated_at")
+                  "border_by", "reason", "tries", "created_at", "updated_at", "error", "failed_at")
 
 
 def _chapter(row: Any) -> dict[str, Any]:
@@ -166,14 +166,17 @@ def get_chapter(db: Database, chapter_id: str) -> dict[str, Any] | None:
 
 
 def put_chapters(db: Database, rows: list[dict[str, Any]]) -> None:
-    """Insert or replace whole chapter rows (a new chapter, an edit, an undo): one transaction."""
+    """Insert or update whole chapter rows (a new chapter, an edit, an undo): one transaction. An upsert, not
+    REPLACE: replacing would delete the row and cascade away its sticky hits."""
+    sets = ", ".join(f"{k} = excluded.{k}" for k in CHAPTER_FIELDS if k != "id")
     with db.transaction() as conn:
         for row in rows:
             values = [json.dumps(row[k], ensure_ascii=False) if k == "participants" else
-                      (int(row[k]) if k == "whole" else row[k]) for k in CHAPTER_FIELDS]
+                      (int(row[k]) if k == "whole" else row.get(k, "" if k in ("error", "failed_at") else None))
+                      for k in CHAPTER_FIELDS]
             conn.execute(
-                f"INSERT OR REPLACE INTO {CHAPTERS} ({', '.join(CHAPTER_FIELDS)}) "
-                f"VALUES ({', '.join('?' * len(CHAPTER_FIELDS))})", values)
+                f"INSERT INTO {CHAPTERS} ({', '.join(CHAPTER_FIELDS)}) VALUES ({', '.join('?' * len(CHAPTER_FIELDS))}) "
+                f"ON CONFLICT(id) DO UPDATE SET {sets}", values)
 
 
 def delete_chapters(db: Database, ids: list[str]) -> None:
@@ -187,7 +190,8 @@ def new_chapter(chat_id: str, first_id: str, last_id: str, content_hash: str, pa
     now = now_iso()
     return {"id": new_id(), "chat_id": chat_id, "first_id": first_id, "last_id": last_id, "title": title,
             "state": "raw", "content_hash": content_hash, "participants": participants, "whole": False,
-            "border_by": by, "reason": reason, "tries": 0, "created_at": now, "updated_at": now}
+            "border_by": by, "reason": reason, "tries": 0, "created_at": now, "updated_at": now,
+            "error": "", "failed_at": ""}
 
 
 def existing_messages(db: Database, ids: list[str]) -> set[str]:
@@ -196,3 +200,170 @@ def existing_messages(db: Database, ids: list[str]) -> set[str]:
         return set()
     marks = ", ".join("?" * len(ids))
     return {r["id"] for r in db.fetchall(f"SELECT id FROM messages WHERE id IN ({marks})", tuple(ids))}
+
+
+# -- summaries and the plot (migrations/0003_summaries.sql) -----------------------------------------
+
+TEXTS, HITS, MEMBERS = "p_memory_texts", "p_memory_hits", "p_memory_members"
+TEXT_FIELDS = "id, kind, target, anchor_id, made_from, text, made_by, locked, is_current, created_at"
+KEEP_VERSIONS = 20  # older versions of one summary (or one chat's plot) are dropped past this
+
+
+def _text(row: Any) -> dict[str, Any]:
+    return {"id": row["id"], "kind": row["kind"], "target": row["target"], "anchor_id": row["anchor_id"],
+            "made_from": row["made_from"], "text": row["text"], "by": row["made_by"], "locked": bool(row["locked"]),
+            "current": bool(row["is_current"]), "created_at": row["created_at"]}
+
+
+def current_summaries(db: Database, chat_id: str) -> dict[str, dict[str, Any]]:
+    """chapter id -> its current summary row (text, made_from hash, locked, by)."""
+    rows = db.fetchall(f"SELECT {TEXT_FIELDS} FROM {TEXTS} WHERE chat_id = ? AND kind = 'summary' AND is_current = 1",
+                       (chat_id,))
+    return {r["target"]: _text(r) for r in rows}
+
+
+def summary_versions(db: Database, chapter_id: str) -> list[dict[str, Any]]:
+    """Every version of a chapter's summary, newest first."""
+    rows = db.fetchall(f"SELECT {TEXT_FIELDS} FROM {TEXTS} WHERE kind = 'summary' AND target = ? "
+                       "ORDER BY created_at DESC, rowid DESC", (chapter_id,))
+    return [_text(r) for r in rows]
+
+
+def get_text(db: Database, text_id: str) -> dict[str, Any] | None:
+    row = db.fetchone(f"SELECT {TEXT_FIELDS}, chat_id FROM {TEXTS} WHERE id = ?", (text_id,))
+    return None if row is None else {**_text(row), "chat_id": row["chat_id"]}
+
+
+def put_summary(db: Database, chat_id: str, chapter_id: str, text: str, made_from: str, *, by: str,
+                locked: bool = False, title: str | None = None) -> str:
+    """A new current version of a chapter's summary (the old one stays as a version). Clears the chapter's failure
+    mark; `title` (the model's) is set only when the chapter has none yet."""
+    text_id = new_id()
+    with db.transaction() as conn:
+        conn.execute(f"UPDATE {TEXTS} SET is_current = 0 WHERE kind = 'summary' AND target = ?", (chapter_id,))
+        conn.execute(f"INSERT INTO {TEXTS} (id, chat_id, kind, target, anchor_id, made_from, text, made_by, locked, "
+                     "is_current, created_at) VALUES (?, ?, 'summary', ?, NULL, ?, ?, ?, ?, 1, ?)",
+                     (text_id, chat_id, chapter_id, made_from, text, by, int(locked), now_iso()))
+        conn.execute(f"UPDATE {CHAPTERS} SET tries = 0, error = '', failed_at = '' WHERE id = ?", (chapter_id,))
+        if title:
+            conn.execute(f"UPDATE {CHAPTERS} SET title = ? WHERE id = ? AND title = ''", (title[:120], chapter_id))
+        conn.execute(f"DELETE FROM {TEXTS} WHERE kind = 'summary' AND target = ? AND is_current = 0 AND id NOT IN "
+                     f"(SELECT id FROM {TEXTS} WHERE kind = 'summary' AND target = ? "
+                     f"ORDER BY created_at DESC, rowid DESC LIMIT {KEEP_VERSIONS})", (chapter_id, chapter_id))
+    return text_id
+
+
+def restore_summary(db: Database, text_id: str) -> dict[str, Any]:
+    """«Вернуть эту версию»: the version becomes the current one (it keeps its own lock flag)."""
+    row = get_text(db, text_id)
+    if row is None or row["kind"] != "summary":
+        raise KeyError(text_id)
+    with db.transaction() as conn:
+        conn.execute(f"UPDATE {TEXTS} SET is_current = 0 WHERE kind = 'summary' AND target = ?", (row["target"],))
+        conn.execute(f"UPDATE {TEXTS} SET is_current = 1 WHERE id = ?", (text_id,))
+    return row
+
+
+def set_summary_lock(db: Database, chapter_id: str, locked: bool) -> None:
+    db.execute(f"UPDATE {TEXTS} SET locked = ? WHERE kind = 'summary' AND target = ? AND is_current = 1",
+               (int(locked), chapter_id))
+
+
+def restamp_summary(db: Database, chapter_id: str, made_from: str) -> None:
+    """«Принять изменения»: the current summary now stands for the chapter's text as it is."""
+    db.execute(f"UPDATE {TEXTS} SET made_from = ? WHERE kind = 'summary' AND target = ? AND is_current = 1",
+               (made_from, chapter_id))
+
+
+def delete_text(db: Database, text_id: str) -> None:
+    db.execute(f"DELETE FROM {TEXTS} WHERE id = ?", (text_id,))
+
+
+def plot_versions(db: Database, chat_id: str, path_ids: set[str]) -> list[dict[str, Any]]:
+    """The plot versions of a branch (anchored on it), newest first: the first one is the branch's plot."""
+    return [r for r in plot_rows(db, chat_id) if r["anchor_id"] in path_ids]
+
+
+def drop_texts_of(db: Database, chapter_ids: list[str]) -> None:
+    with db.transaction() as conn:
+        for chapter_id in chapter_ids:
+            conn.execute(f"DELETE FROM {TEXTS} WHERE kind = 'summary' AND target = ?", (chapter_id,))
+
+
+def mark_failed(db: Database, chapter_id: str, error: str) -> None:
+    db.execute(f"UPDATE {CHAPTERS} SET tries = tries + 1, error = ?, failed_at = ?, state = 'failed' WHERE id = ?",
+               ((error or "ошибка")[:300], now_iso(), chapter_id))
+
+
+def plot_rows(db: Database, chat_id: str) -> list[dict[str, Any]]:
+    """Every version of the chat's plot (all branches), newest first."""
+    rows = db.fetchall(f"SELECT {TEXT_FIELDS} FROM {TEXTS} WHERE chat_id = ? AND kind = 'plot' "
+                       "ORDER BY created_at DESC, rowid DESC", (chat_id,))
+    return [_text(r) for r in rows]
+
+
+def plot_for_path(db: Database, chat_id: str, path_ids: set[str]) -> dict[str, Any] | None:
+    """The plot of a branch: the newest version anchored at a message of the branch."""
+    return next((r for r in plot_rows(db, chat_id) if r["anchor_id"] in path_ids), None)
+
+
+def put_plot(db: Database, chat_id: str, text: str, anchor_id: str, made_from: str, *, by: str,
+             locked: bool = False) -> str:
+    text_id = new_id()
+    with db.transaction() as conn:
+        conn.execute(f"INSERT INTO {TEXTS} (id, chat_id, kind, target, anchor_id, made_from, text, made_by, locked, "
+                     "is_current, created_at) VALUES (?, ?, 'plot', '', ?, ?, ?, ?, ?, 1, ?)",
+                     (text_id, chat_id, anchor_id, made_from, text, by, int(locked), now_iso()))
+        conn.execute(f"DELETE FROM {TEXTS} WHERE chat_id = ? AND kind = 'plot' AND id NOT IN "
+                     f"(SELECT id FROM {TEXTS} WHERE chat_id = ? AND kind = 'plot' "
+                     f"ORDER BY created_at DESC, rowid DESC LIMIT {KEEP_VERSIONS * 2})", (chat_id, chat_id))
+    return text_id
+
+
+def set_plot_lock(db: Database, text_id: str, locked: bool) -> None:
+    db.execute(f"UPDATE {TEXTS} SET locked = ? WHERE id = ? AND kind = 'plot'", (int(locked), text_id))
+
+
+# -- sticky hits -----------------------------------------------------------------------------------
+
+
+def hits(db: Database, chat_id: str) -> dict[str, tuple[int, str]]:
+    rows = db.fetchall(f"SELECT chapter_id, hit_gen, what FROM {HITS} WHERE chat_id = ?", (chat_id,))
+    return {r["chapter_id"]: (int(r["hit_gen"]), r["what"]) for r in rows}
+
+
+def put_hits(db: Database, chat_id: str, items: list[tuple[str, int, str]]) -> None:
+    with db.transaction() as conn:
+        for chapter_id, gen, what in items:
+            conn.execute(f"INSERT INTO {HITS} (chat_id, chapter_id, hit_gen, what) VALUES (?, ?, ?, ?) "
+                         "ON CONFLICT(chat_id, chapter_id) DO UPDATE SET hit_gen = excluded.hit_gen, "
+                         "what = excluded.what", (chat_id, chapter_id, gen, what))
+
+
+def next_generation(db: Database, chat_id: str) -> int:
+    """The memory's own reply counter of the chat (kept in the chat row's settings): one more reply."""
+    row = chat_row(db, chat_id)
+    settings = dict(row["settings"]) if row else {}
+    settings["gen"] = int(settings.get("gen", 0)) + 1
+    db.execute(f"UPDATE {CHATS} SET settings = ? WHERE chat_id = ?", (json.dumps(settings), chat_id))
+    return int(settings["gen"])
+
+
+# -- members ---------------------------------------------------------------------------------------
+
+
+def member_flags(db: Database, chat_id: str) -> dict[str, dict[str, bool]]:
+    rows = db.fetchall(f"SELECT character_id, remembers_all, no_layer FROM {MEMBERS} WHERE chat_id = ?", (chat_id,))
+    return {r["character_id"]: {"remembers_all": bool(r["remembers_all"]), "no_layer": bool(r["no_layer"])}
+            for r in rows}
+
+
+def set_member(db: Database, chat_id: str, character_id: str, *, remembers_all: bool | None = None,
+               no_layer: bool | None = None) -> None:
+    now = member_flags(db, chat_id).get(character_id, {"remembers_all": False, "no_layer": False})
+    flags = {"remembers_all": now["remembers_all"] if remembers_all is None else remembers_all,
+             "no_layer": now["no_layer"] if no_layer is None else no_layer}
+    db.execute(f"INSERT INTO {MEMBERS} (chat_id, character_id, remembers_all, no_layer) VALUES (?, ?, ?, ?) "
+               "ON CONFLICT(chat_id, character_id) DO UPDATE SET remembers_all = excluded.remembers_all, "
+               "no_layer = excluded.no_layer",
+               (chat_id, character_id, int(flags["remembers_all"]), int(flags["no_layer"])))

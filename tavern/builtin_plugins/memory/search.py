@@ -142,3 +142,31 @@ def score(candidates: list[Candidate], vectors: dict[str, tuple[str, array]], qu
             out.append(Scored(candidate, total, vec, kw))
     out.sort(key=lambda s: (-s.score, s.candidate.index))
     return out
+
+
+# -- two levels: a chapter's summary or its pieces (M3) -----------------------------------------------
+
+MARGIN = 0.1  # a piece must beat the summary by this much to go instead of it (ADR 0019 4.1, step 3)
+
+
+def choose_form(summary: float | None, piece: float, margin: float = MARGIN) -> str:
+    """"summary" or "pieces" for a found chapter. `summary`: the summary's score (None: the chapter has no summary
+    to send); `piece`: its best piece's score (0: none was found). A piece goes instead of the summary only when it
+    beats it by more than `margin`, so a vague match does not replace the retelling."""
+    if summary is None:
+        return "pieces"
+    return "pieces" if piece > summary + margin else "summary"
+
+
+def sticky_live(hit_gen: int, generation: int, sticky: int) -> bool:
+    """A chapter found in reply `hit_gen` is kept for the next `sticky` replies (not for the reply it was found in:
+    that one found it anew)."""
+    return 0 < generation - hit_gen <= sticky
+
+
+def member_allowed(participants: list[str], speaker: str, *, several: bool, remembers_all: bool = False) -> bool:
+    """May the speaking member get a chapter word for word? In a chat of one character: always. In a group: only a
+    member who was in the chapter, or one with «Помнит всё». No known speaker (the user's own turn): yes."""
+    if not several or not speaker or remembers_all:
+        return True
+    return speaker in participants

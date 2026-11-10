@@ -1,11 +1,11 @@
 # 0019. Memory++: chapters, summaries, character development and threads, as a built-in plugin
 
-Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09 (see «M1 done» and «M2 done» in
+Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3 done 2026-11-10 (see «M1 done», «M2 done» and «M3 done» in
 section 7). Builds on 0004 (character tree, vectors), 0006
 (lorebooks), 0009 (plugins), 0010 / 0013 (assistant), 0011 (tree of thoughts: an agentic built-in plugin),
 and the foreground rule being built now (`tavern/core/foreground.py`).
 
-Stages M1 and M2 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
+Stages M1, M2 and M3 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
 M1–M8; section 8 lists risks and the owner's answers to the open questions (all decided 2026-11-09).
 
 ## 1. Context
@@ -765,6 +765,47 @@ browser was not used (owner's decision of 2026-11-09): nothing here is seen on s
   `generate_json`.
 - Browser: summaries appear in the window; edit one → lock; «Пересказать заново» while sending a message →
   the job pauses; the prompt view shows «Сюжет до сих пор» and «Ранее в истории».
+
+**M3 done (2026-11-10).** Review of M1 + M2 first; found and fixed (each with a regression test):
+(1) `inject.py` cut its offers to the memory budget by score BEFORE the window was known: recent messages still in the
+window share the query's words, took the whole budget, and the old messages really left out were never offered (memory
+was nearly silent exactly when needed). Now every offer goes to the assembler ranked, and the assembler takes those
+left out while `memory_reserve` lasts; new `Extra.order` (placed in story order, considered in list order) and
+`Extra.group` (alternatives: a chapter's summary or else its pieces; a group none of which fits is named once as
+dropped). (2) `pieces.keywords` looked back over the whole text for every word (quadratic), and the job cut every
+message of the branch again on every pass, on the event loop: a linear look-back, the cut memoized per message text,
+and the job's cut done in a thread. (3) With the preset's memory block switched off, conditional extras still kept
+their reserve (old messages pushed out for nothing) and were named as sent.
+Built: job steps 4–5 (`summaries.py`, `prompts.py`): one request per chapter through `job.step` (cancelled at once by a
+user request, redone after), JSON `{"title", "summary"}` via `generate_json`, the language of most of the chapter
+(R4: the Cyrillic share is checked, one more try with the reason, then «ошибка»), past tense, no meta, about
+`summary_tokens` (1000); the previous summary as context; a failed chapter keeps its mark (`error`, `tries`), backoff
+2 min doubling up to 6 h, and the plugin wakes the job by a timer. «Сюжет до сих пор»: the old plot + the new summaries
+(or from scratch in batches when a middle summary changed), 300–500 tokens, a version anchored at the last summarized
+chapter (the newest version anchored on the branch wins: per branch), sent `if_dropped` and set as `{{summary}}`.
+Summaries get vectors (`s:<chapter id>`) in step 2. Two-level search: a chapter's summary and pieces are scored in
+the same pass with the reply's one meaning request; pieces go only when P > S + 0.1, else the summary (covers the whole
+chapter), its pieces as the alternative; «Вся глава» sends the full text. Sticky: a found chapter (as really sent,
+learned in `prompt.built`) is kept for `sticky` (3) replies in the same form; a reply that only keeps it does not
+renew it. Group filter: in a chat with several characters a chapter goes only to a speaker in its participants or with
+«Помнит всё»; the plot goes to everyone; the user's own turn sees everything. Model access (point H):
+`api.llm(background=True, on_wait=)`: «спрашивать каждый раз» asks once per job run, no per-reply limit, and with no
+page open the request waits («ждёт разрешения»); a refusal or no access leaves chapters raw and the job note says why.
+Settings (all off by default): «Пересказы глав», «Пересказывать устаревшие сами», «Сюжет до сих пор», length of a
+summary, «Держать найденную главу, ответов» (3), «Модель для памяти» (one small model) and own models for summaries,
+the plot and borders (role → memory model → the chat's). The window: «Сюжет до сих пор» card, a summary per chapter
+(edit = lock, lock toggle, «Пересказать заново», versions with «Вернуть эту»; all in the one «↶»), state chips,
+«Участники» with «Помнит всё» / «Не наслаивать»; «Что видела модель» shows «Память вместо оставленного за окном» and
+«Не влезло в бюджет памяти». Migration 0003_summaries.sql: `p_memory_texts` (columns `made_by`, `is_current`,
+`made_from` instead of the sketch's `by` / `current`), `p_memory_hits`, `p_memory_members`, chapter columns `error`,
+`failed_at`, a trigger that drops a summary's vector with its chapter.
+Choices where the ADR left room: (1) a stale summary still goes when found (it is mostly right) until redone; (2) a
+locked summary is not redone by the button either (the window asks to take the lock off first); (3) the memory's own
+reply counter for sticky (in `p_memory_chats.settings`), not `meta.generation`; (4) loose pieces (in no chapter) are
+not group-filtered; (5) a denied «may it?» is asked again on the next job run (each reply wakes the job); (6) with the
+default budget (1500) one ~1000-token summary plus the plot fit: raise «Бюджет памяти» for more; (7) a sticky chapter
+ranks after the ones found now; (8) a hand edit of the plot is anchored where the branch's plot was. Not seen on
+screen (no browser, owner's rule 9).
 
 **M4: development and «Сейчас:» lines.** One agent.
 - Job step 6, `after_card` extras, versions anchored per branch, hand edit and lock, «Перенести в другой чат»,

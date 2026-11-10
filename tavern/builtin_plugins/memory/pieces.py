@@ -24,6 +24,7 @@ import hashlib
 import re
 from collections import Counter
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from tavern.core.prompt import CHARS_PER_TOKEN, estimate_tokens
@@ -34,6 +35,7 @@ MAX_TOKENS = 400
 MAX_KEYWORDS = 40
 MIN_WORD = 3
 ROLES = ("user", "assistant")
+SPEC_CACHE = 20000  # messages whose pieces stay in memory (the job's every pass would cut them all again)
 
 STOP = frozenset("""
 the and for are but not you your with that this have has had was were will would can could from they them their what
@@ -125,12 +127,15 @@ def keywords(text: str) -> list[str]:
     """Stems of the text's words, most frequent first; `*stem` marks a name or a number (see the docstring)."""
     counts: Counter[str] = Counter()
     starred: set[str] = set()
-    sentence_start = True
     for match in _WORD.finditer(text):
         word = match.group()
-        between = text[:match.start()]
-        # the first word of a sentence is capitalised anyway: only a capital inside a sentence marks a name
-        previous = between.rstrip()[-1:] if between.strip() else ""
+        # the first word of a sentence is capitalised anyway: only a capital inside a sentence marks a name.
+        # The character before the word, spaces skipped: a short walk back, never the whole text again (that
+        # made every message quadratic, and the job looks at every message of the branch on each pass).
+        at = match.start() - 1
+        while at >= 0 and text[at].isspace():
+            at -= 1
+        previous = text[at] if at >= 0 else ""
         sentence_start = not previous or previous in ".!?…\n\"«—-:"
         low = word.lower()
         if len(low) < MIN_WORD and not any(ch.isdigit() for ch in low):
@@ -149,10 +154,14 @@ def specs_for(message: dict[str, Any]) -> list[Spec]:
     """The pieces of one message as they should be now ([] for a message that does not count)."""
     if not eligible(message):
         return []
-    out = []
-    for part, text in enumerate(cut(message["content"])):
-        out.append(Spec(message["id"], part, text, text_hash(text), estimate_tokens(text), tuple(keywords(text))))
-    return out
+    return list(_specs(message["id"], message["content"]))
+
+
+@lru_cache(maxsize=SPEC_CACHE)
+def _specs(message_id: str, content: str) -> tuple[Spec, ...]:
+    """Cutting and keywords are the job's hot path (each pass looks at the whole branch): kept per message text."""
+    return tuple(Spec(message_id, part, text, text_hash(text), estimate_tokens(text), tuple(keywords(text)))
+                 for part, text in enumerate(cut(content)))
 
 
 def specs(messages: list[dict[str, Any]]) -> list[Spec]:

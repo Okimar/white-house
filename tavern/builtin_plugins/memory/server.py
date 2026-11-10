@@ -1,19 +1,22 @@
-"""🧠 Память++ (stage M1: chat vectors). Everything is off until the plugin is switched on AND the chat's memory is.
+"""🧠 Память++ (stages M1-M3). Everything is off until the plugin is switched on AND the chat's memory is.
 
 Registers: chat events that wake the chat's background job (`work.py`), `chat.created` (the global «Включать
 память в новых чатах»), the filter `meaning.wanted` and the `chat.before_generate` handler (`inject.py`), and the
-actions the web part calls. Nothing happens in a chat whose switch is off: no tables written, no job, no request.
+actions the web part calls (chapters; M3: summaries, the plot, members' flags), and `prompt.built` (which chapters
+really went: the sticky rule). A failed summary asks for a later pass after its backoff (a timer per chat, dropped
+when the plugin is switched off). Nothing happens in a chat whose switch is off: no tables written, no job, no request.
 ADR 0019 holds the whole design; this file only wires it.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from tavern.errors import AppError
 from tavern.services import cast
 
-from . import chapters, inject, pieces, store, work
+from . import actions, chapters, inject, pieces, store, work
 
 WAKE_DELAY = 2.0  # seconds a chat's job waits after an event, so edits that follow each other are worked together
 WAKE_EVENTS = ("message.received", "message.added", "message.edited", "message.excluded", "message.deleted",
@@ -23,7 +26,16 @@ WAKE_EVENTS = ("message.received", "message.added", "message.edited", "message.e
 def setup(api: Any) -> None:
     db = api.ctx.db
     cache = store.VectorCache()
+    pending: dict[str, Any] = {}  # reply id -> chapters offered to it (inject.record_hits)
+    timers: dict[str, asyncio.TimerHandle] = {}  # chat id -> the next pass after a failed summary's backoff
+
+    def stop_timers() -> None:
+        for handle in timers.values():
+            handle.cancel()
+        timers.clear()
+
     api.on_unload(cache.clear)
+    api.on_unload(stop_timers)
 
     def wake(chat_id: str | None, delay: float | None = None) -> None:
         """Start or re-run the chat's job. Nothing at all while the chat's memory is off."""
@@ -31,9 +43,22 @@ def setup(api: Any) -> None:
             return
 
         async def job(ctx: Any) -> None:
-            await work.run(api, chat_id, ctx, cache)
+            retry = await work.run(api, chat_id, ctx, cache)
+            if retry is not None:
+                later(chat_id, retry)
 
         api.job(f"chat:{chat_id}", job, delay=WAKE_DELAY if delay is None else delay)
+
+    def later(chat_id: str, seconds: float) -> None:
+        old = timers.pop(chat_id, None)
+        if old is not None:
+            old.cancel()
+
+        def fire() -> None:
+            timers.pop(chat_id, None)
+            wake(chat_id, 0.1)
+
+        timers[chat_id] = asyncio.get_running_loop().call_later(max(1.0, seconds), fire)
 
     def on_event(**payload: Any) -> None:
         chat_id = payload.get("chat_id") or (payload.get("chat") or {}).get("id")
@@ -67,9 +92,16 @@ def setup(api: Any) -> None:
     api.on("meaning.wanted", lambda value=False, chat=None, **_: inject.wants_meaning(api, value, chat))
 
     async def before_generate(job: Any) -> None:
-        await inject.contribute(api, cache, job)
+        await inject.contribute(api, cache, job, pending)
 
     api.on("chat.before_generate", before_generate, priority=50)
+
+    def built(messages: Any, job: Any = None, **_: Any) -> Any:
+        if job is not None and pending:
+            inject.record_hits(api, job, pending)
+        return messages
+
+    api.on("prompt.built", built)
 
     def state(payload: dict[str, Any]) -> dict[str, Any]:
         chat_id = _chat_id(payload)
@@ -87,6 +119,7 @@ def setup(api: Any) -> None:
         path = api.ctx.chats.active_path(chat_id)
         chapters.refresh(db, chat_id, path)
         rows = chapters.placed(store.chapter_rows(db, chat_id), path)
+        sums = store.current_summaries(db, chat_id)
         out, number = [], 0
         for p in rows:
             span = chapters.eligible_in(path, p.lo, p.hi)
@@ -98,11 +131,34 @@ def setup(api: Any) -> None:
                         "first_no": chapters.number_of(path[p.lo]), "last_no": chapters.number_of(path[p.hi]),
                         "count": len(span), "state": p.row["state"], "title": p.row["title"],
                         "reason": p.row["reason"], "by": p.row["border_by"], "whole": p.row["whole"],
-                        "preview": " ".join((first.get("content") or "").split())[:100]})
+                        "preview": " ".join((first.get("content") or "").split())[:100],
+                        "summary": (sums.get(p.row["id"]) or {}).get("text", ""),
+                        "summary_by": (sums.get(p.row["id"]) or {}).get("by", ""),
+                        "locked": bool((sums.get(p.row["id"]) or {}).get("locked")),
+                        "error": p.row.get("error") or "", "tries": p.row.get("tries") or 0})
         open_part = [m for m in path[chapters.open_start(rows):] if pieces.eligible(m)]
         return {"chapters": out, "open": {"count": len(open_part), "first_id": open_part[0]["id"] if open_part else ""},
                 "size": int(api.settings["chapter_size"]), "undo": chapters.undo_label(api.storage(chat_id)),
-                "enabled": store.is_enabled(db, chat_id), "job": api.job_status(f"chat:{chat_id}")}
+                "enabled": store.is_enabled(db, chat_id), "job": api.job_status(f"chat:{chat_id}"),
+                "plot": plot_view(chat_id, path), "summaries_on": bool(api.settings.get("summaries")),
+                "plot_on": bool(api.settings.get("plot")), "members": members_of(chat_id)}
+
+    def plot_view(chat_id: str, path: list[dict[str, Any]]) -> dict[str, Any] | None:
+        plot = store.plot_for_path(db, chat_id, {m["id"] for m in path})
+        return None if plot is None else {"id": plot["id"], "text": plot["text"], "locked": plot["locked"],
+                                          "by": plot["by"]}
+
+    def members_of(chat_id: str) -> list[dict[str, Any]]:
+        """The chat's characters with their memory flags (the user's persona is left out: it sees everything)."""
+        flags = store.member_flags(db, chat_id)
+        out = []
+        for m in api.ctx.members.list(chat_id):
+            if m.get("is_me"):
+                continue
+            mine = flags.get(m["character_id"], {})
+            out.append({"character_id": m["character_id"], "name": m["name"],
+                        "remembers_all": bool(mine.get("remembers_all")), "no_layer": bool(mine.get("no_layer"))})
+        return out
 
     def hand(op: Any) -> Any:
         """A hand edit of chapters: refuse in a chat with memory off, run it, tell the pages, give the new view."""
@@ -167,6 +223,51 @@ def setup(api: Any) -> None:
         db, st, c, path, _text(p, "chapter_id"), title=p.get("title"),
         whole=p.get("whole") if "whole" in p else None)))
     api.action("undo", hand(lambda c, path, p, st, me: chapters.undo(db, st)))
+
+    # M3: summaries, the plot, members (actions.py)
+    def text_hand(fn: Any) -> Any:
+        return hand(lambda c, path, p, st, me: fn(db, c, path, p, st))
+
+    for name in ("summary_edit", "summary_lock", "summary_restore", "plot_edit", "plot_lock", "plot_restore"):
+        api.action(name, text_hand(getattr(actions, name)))
+
+    def on_chat(payload: dict[str, Any]) -> str:
+        chat_id = _chat_id(payload)
+        if not store.is_enabled(db, chat_id):
+            raise AppError("Память в этом чате выключена", code="memory_off")
+        return chat_id
+
+    def resummarize(payload: dict[str, Any]) -> dict[str, Any]:
+        chat_id = on_chat(payload)
+        actions.ask_resummarize(db, chat_id, api.ctx.chats.active_path(chat_id), _text(payload, "chapter_id"),
+                                api.storage(chat_id))
+        wake(chat_id, delay=0.2)
+        return view(payload)
+
+    def plot_rebuild(payload: dict[str, Any]) -> dict[str, Any]:
+        """«Пересобрать сюжет» from the summaries (with «Сюжет до сих пор» off too; never over a lock)."""
+        chat_id = on_chat(payload)
+        api.storage(chat_id).set("plot_force", True)
+        wake(chat_id, delay=0.2)
+        return view(payload)
+
+    def member_set(payload: dict[str, Any]) -> dict[str, Any]:
+        """«Помнит всё» / «Не наслаивать» of one member of the chat."""
+        chat_id = on_chat(payload)
+        character_id = _text(payload, "character_id")
+        if not any(m["character_id"] == character_id for m in api.ctx.members.list(chat_id)):
+            raise AppError("Такого участника в чате нет", code="not_found", status=404)
+        values = {k: bool(payload[k]) for k in ("remembers_all", "no_layer") if k in payload}
+        store.set_member(db, chat_id, character_id, **values)
+        return {"members": members_of(chat_id)}
+
+    api.action("resummarize", resummarize)
+    api.action("plot_rebuild", plot_rebuild)
+    api.action("member_set", member_set)
+    api.action("summary_versions", lambda p: {"versions": actions.summary_versions(
+        db, _chat_id(p), _text(p, "chapter_id"))})
+    api.action("plot_versions", lambda p: {"versions": actions.plot_versions(
+        db, _chat_id(p), api.ctx.chats.active_path(_chat_id(p)))})
     api.action("state", state)
     api.action("set_enabled", set_enabled)
     api.action("vectorize", vectorize)
