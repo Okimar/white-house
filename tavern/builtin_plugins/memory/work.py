@@ -22,7 +22,11 @@ rate limit or a user's request that cancelled a step loses nothing.
   6. «Развитие» and «Сейчас:» lines (M4, `layers.step`): the next closed chapter of the branch in story order (after
      its summary, when summaries are on) gets one request through `job.step`: each participant's layer «how they are
      now» and a line for the lorebook bubbles the chapter mentions. A failure is retried after a backoff.
-  Summaries get their own vectors (`s:<chapter id>`) in step 2, so a summary is found by meaning too.
+  7. «Слово и нити» (M5, `threads.step`): the next closed chapter of the branch in story order gets one request
+     through `job.step`: new records (promises, vows, claims, debts, secrets, quests with their toggle) with exact
+     quotes, and status changes of the records still open. A failure is retried after a backoff.
+  Summaries get their own vectors (`s:<chapter id>`) in step 2, so a summary is found by meaning too; so do the
+  quotes of «Слово и нити» (`t:<record id>`).
 Model requests go through ONE client per (connection, model) per run, made with `background=True` (ADR 0019 point H):
 «спрашивать каждый раз» asks once for the run, and with no page open the run waits («ждёт разрешения»).
 """
@@ -43,7 +47,7 @@ from tavern.providers.base import ProviderError
 from tavern.services import cast, embeddings, lorebooks
 from tavern.util.ids import now_iso
 
-from . import borders, chapters, layers, pieces, store, summaries
+from . import borders, chapters, layers, pieces, store, summaries, threads
 
 log = logging.getLogger(__name__)
 
@@ -58,9 +62,11 @@ def summary_items(db: Any, chat_id: str, path: list[dict[str, Any]]) -> list[tup
             for p in rows if p.row["state"] != "deleted" and p.row["id"] in sums]
 
 
-def todo_list(db: Any, chat_id: str, path: list[dict[str, Any]], model: str) -> tuple[list[tuple[str, str, str]], int]:
+def todo_list(db: Any, chat_id: str, path: list[dict[str, Any]], model: str,
+              extra: list[tuple[str, str, str]] | None = None) -> tuple[list[tuple[str, str, str]], int]:
     """(items needing a vector as (id, text, hash), how many items are to be vectorized in all): the pieces of the
-    branch, except each speaker's latest message, and the summaries of its chapters."""
+    branch, except each speaker's latest message, the summaries of its chapters, and `extra` items (M5: the quotes
+    of «Слово и нити»)."""
     latest = pieces.latest_ids(path)
     rows = {(p["message_id"], p["part"]): p for p in store.pieces(db, chat_id)}
     stored = store.current_vector_ids(db, chat_id, model)
@@ -73,7 +79,7 @@ def todo_list(db: Any, chat_id: str, path: list[dict[str, Any]], model: str) -> 
         total += 1
         if stored.get(piece["id"]) != spec.hash:
             todo.append((piece["id"], spec.text, spec.hash))
-    for item_id, text, digest in summary_items(db, chat_id, path):
+    for item_id, text, digest in [*summary_items(db, chat_id, path), *(extra or [])]:
         total += 1
         if stored.get(item_id) != digest:
             todo.append((item_id, text, digest))
@@ -337,7 +343,7 @@ async def run(api: Any, chat_id: str, job: Any, cache: store.VectorCache | None 
         model = api.vectors_model()
         total, todo = 0, []
         if model:
-            todo, total = todo_list(ctx.db, chat_id, path, model)
+            todo, total = todo_list(ctx.db, chat_id, path, model, threads.vector_items(api, chat_id, path))
         if todo:
             batch = embeddings.batches(todo)[0]
             texts = [text for _, text, _ in batch]
@@ -372,6 +378,12 @@ async def run(api: Any, chat_id: str, job: Any, cache: store.VectorCache | None 
                 continue
             note = step_note or note
             outcome, wait, step_note = await layers.step(api, chat_id, path, job, clients)
+            if wait is not None:
+                retry = wait if retry is None else min(retry, wait)
+            if outcome in ("done", "rate"):
+                continue
+            note = step_note or note
+            outcome, wait, step_note = await threads.step(api, chat_id, path, job, clients)
             if wait is not None:
                 retry = wait if retry is None else min(retry, wait)
             if outcome in ("done", "rate"):

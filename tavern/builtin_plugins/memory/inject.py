@@ -22,7 +22,9 @@ What is offered, in this ranking (ADR 0019 4.1):
   3. chapters found in one of the last `sticky` replies and not found now, in the form they went then;
   4. pieces of old messages that are in no chapter yet (the job lags, e.g. right after an import).
 Unconditional (M4, `layers.contribute`, whatever the window): each member's «Развитие» right after its card, and the
-«Сейчас:» line of each chosen lorebook bubble appended to its text for this reply (`lore_rewritten`).
+«Сейчас:» line of each chosen lorebook bubble appended to its text for this reply (`lore_rewritten`); M5,
+`threads.contribute`: the speaker's vows after their card, and the «Слово и нити» records relevant to this reply
+that the speaker may know (scored with the same one meaning request).
 The budget (`budget`): `memory_percent` of the window (15 %), never less than `memory_tokens` (1500).
 Group chats: a chapter goes only to a speaking member who was in it, or one with «Помнит всё»; the plot goes to
 everyone; the user's own turn (impersonation) sees everything.
@@ -40,7 +42,7 @@ from tavern.core.assembly import Extra
 from tavern.core.prompt import estimate_tokens
 from tavern.services import character_tree
 
-from . import chapters, layers, pieces, search, store
+from . import chapters, layers, pieces, search, store, threads
 
 MAX_OFFERS = 40  # chapter / piece offers per reply at most (the assembler sends only what was left out and fits)
 SCAN_CHARS = 4000
@@ -116,6 +118,8 @@ async def contribute(api: Any, cache: store.VectorCache, job: Any, pending: dict
     if plot is not None and plot["text"].strip():
         prompt.values["summary"] = plot["text"]  # {{summary}} in a preset, whatever the window
     layers.contribute(api, job, history)  # M4: development after the cards, «Сейчас:» lines; whatever the window
+    meaning_messages = int(character_tree.retrieval_settings(ctx).get("meaning_messages") or 3)
+    threads.contribute(api, cache, job, history, scan_texts(history, meaning_messages))  # M5: the speaker's word
     if not job.max_context_tokens:
         return
     tail_from, tail_ids = tail(history, job.max_context_tokens, float(settings["tail_percent"]),

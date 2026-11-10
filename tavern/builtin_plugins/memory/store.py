@@ -1,4 +1,4 @@
-"""SQL over the memory plugin's own tables (migrations/0001_memory.sql). Nothing else touches them.
+"""SQL over the memory plugin's own tables (migrations/0001_memory.sql ... 0005_threads.sql). Nothing else touches them.
 
 `db` is the app's `Database` (`api.ctx.db`). Vectors are stored normalized as `array('f')` bytes (a dot product is
 then the cosine) next to the hash of the text they were made from and the model's name: a vector counts only when
@@ -436,5 +436,125 @@ def put_layer_run(db: Database, chat_id: str, chapter_id: str, state: str, error
         f"INSERT INTO {LAYER_RUNS} (chapter_id, chat_id, state, error, tries, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(chapter_id) DO UPDATE SET state = excluded.state, error = excluded.error, "
         f"tries = CASE WHEN excluded.state = 'failed' THEN {LAYER_RUNS}.tries + 1 ELSE 0 END, "
+        "updated_at = excluded.updated_at",
+        (chapter_id, chat_id, state, (error or "")[:300], 1 if state == "failed" else 0, now_iso()))
+
+
+# -- «Слово и нити» (migrations/0005_threads.sql) ------------------------------------------------------
+
+THREADS, THREAD_STATES, THREAD_RUNS = "p_memory_threads", "p_memory_thread_states", "p_memory_thread_runs"
+THREAD_FIELDS = ("id", "chat_id", "kind", "who", "to_whom", "knows", "quote", "message_id", "anchor_id", "chapter_id",
+                 "importance", "keywords", "made_by", "locked", "deleted", "created_at", "updated_at")
+STATE_FIELDS = "id, thread_id, anchor_id, status, knows, note, message_id, made_by, created_at"
+
+
+def _thread(row: Any) -> dict[str, Any]:
+    out = {key: row[key] for key in THREAD_FIELDS}
+    out["knows"] = json.loads(out["knows"])
+    out["keywords"] = json.loads(out["keywords"])
+    out["locked"] = bool(out["locked"])
+    out["deleted"] = bool(out["deleted"])
+    return out
+
+
+def thread_rows(db: Database, chat_id: str) -> list[dict[str, Any]]:
+    """Every record of the chat (all branches, deleted ones too), oldest first."""
+    rows = db.fetchall(f"SELECT {', '.join(THREAD_FIELDS)} FROM {THREADS} WHERE chat_id = ? ORDER BY created_at, rowid",
+                       (chat_id,))
+    return [_thread(r) for r in rows]
+
+
+def get_thread(db: Database, thread_id: str) -> dict[str, Any] | None:
+    row = db.fetchone(f"SELECT {', '.join(THREAD_FIELDS)} FROM {THREADS} WHERE id = ?", (thread_id,))
+    return None if row is None else _thread(row)
+
+
+def put_thread(db: Database, row: dict[str, Any]) -> None:
+    """Insert or update a whole record row (new, hand edit, undo). An upsert: replacing would cascade its states."""
+    sets = ", ".join(f"{k} = excluded.{k}" for k in THREAD_FIELDS if k != "id")
+    values = [json.dumps(row[k], ensure_ascii=False) if k in ("knows", "keywords") else
+              (int(row[k]) if k in ("locked", "deleted", "importance") else row[k]) for k in THREAD_FIELDS]
+    db.execute(f"INSERT INTO {THREADS} ({', '.join(THREAD_FIELDS)}) VALUES ({', '.join('?' * len(THREAD_FIELDS))}) "
+               f"ON CONFLICT(id) DO UPDATE SET {sets}", values)
+
+
+def delete_thread(db: Database, thread_id: str) -> None:
+    db.execute(f"DELETE FROM {THREADS} WHERE id = ?", (thread_id,))
+
+
+def new_thread(chat_id: str, kind: str, who: str, quote: str, anchor_id: str, *, to_whom: str = "",
+               knows: list[str] | None = None, message_id: str | None = None, chapter_id: str = "", importance: int = 2,
+               keywords: list[str] | None = None, by: str = "auto", locked: bool = False) -> dict[str, Any]:
+    now = now_iso()
+    return {"id": new_id(), "chat_id": chat_id, "kind": kind, "who": who, "to_whom": to_whom, "knows": knows or [],
+            "quote": quote, "message_id": message_id, "anchor_id": anchor_id, "chapter_id": chapter_id,
+            "importance": importance, "keywords": keywords or [], "made_by": by, "locked": locked, "deleted": False,
+            "created_at": now, "updated_at": now}
+
+
+def _state(row: Any) -> dict[str, Any]:
+    return {"id": row["id"], "thread_id": row["thread_id"], "anchor_id": row["anchor_id"], "status": row["status"],
+            "knows": json.loads(row["knows"]), "note": row["note"], "message_id": row["message_id"],
+            "by": row["made_by"], "created_at": row["created_at"]}
+
+
+def thread_states(db: Database, chat_id: str) -> list[dict[str, Any]]:
+    """Every status row of the chat (all branches), newest first."""
+    rows = db.fetchall(f"SELECT {STATE_FIELDS} FROM {THREAD_STATES} WHERE chat_id = ? "
+                       "ORDER BY created_at DESC, rowid DESC", (chat_id,))
+    return [_state(r) for r in rows]
+
+
+def states_for_path(db: Database, chat_id: str, path_ids: set[str]) -> dict[str, list[dict[str, Any]]]:
+    """thread id -> its status rows anchored on the branch, newest first (the first one is the branch's status)."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    for row in thread_states(db, chat_id):
+        if row["anchor_id"] in path_ids:
+            out.setdefault(row["thread_id"], []).append(row)
+    return out
+
+
+def put_state(db: Database, chat_id: str, thread_id: str, anchor_id: str, status: str, knows: list[str], *,
+              by: str, note: str = "", message_id: str | None = None) -> str:
+    state_id = new_id()
+    db.execute(f"INSERT INTO {THREAD_STATES} (id, thread_id, chat_id, anchor_id, status, knows, note, message_id, "
+               "made_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+               (state_id, thread_id, chat_id, anchor_id, status, json.dumps(knows, ensure_ascii=False), note[:300],
+                message_id, by, now_iso()))
+    return state_id
+
+
+def delete_state(db: Database, state_id: str) -> None:
+    db.execute(f"DELETE FROM {THREAD_STATES} WHERE id = ?", (state_id,))
+
+
+def undo_thread(db: Database, step: dict[str, Any]) -> None:
+    """Reverse one hand edit of a record (chapters.undo): the status row it made, the record it created, the record
+    as it was before."""
+    if step.get("made_state"):
+        delete_state(db, step["made_state"])
+    if step.get("created"):
+        delete_thread(db, step["created"])
+    if step.get("before"):
+        put_thread(db, step["before"])
+
+
+def runs(db: Database, table: str, chat_id: str) -> dict[str, dict[str, Any]]:
+    """chapter id -> {state, error, tries, failed_at} of a per-chapter step (`LAYER_RUNS` or `THREAD_RUNS`)."""
+    if table not in (LAYER_RUNS, THREAD_RUNS):
+        raise ValueError(table)
+    rows = db.fetchall(f"SELECT chapter_id, state, error, tries, updated_at FROM {table} WHERE chat_id = ?", (chat_id,))
+    return {r["chapter_id"]: {"state": r["state"], "error": r["error"], "tries": int(r["tries"]),
+                              "failed_at": r["updated_at"] if r["state"] == "failed" else ""} for r in rows}
+
+
+def put_run(db: Database, table: str, chat_id: str, chapter_id: str, state: str, error: str = "") -> None:
+    """A per-chapter step of a chapter is done, or failed once more (tries + 1)."""
+    if table not in (LAYER_RUNS, THREAD_RUNS):
+        raise ValueError(table)
+    db.execute(
+        f"INSERT INTO {table} (chapter_id, chat_id, state, error, tries, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(chapter_id) DO UPDATE SET state = excluded.state, error = excluded.error, "
+        f"tries = CASE WHEN excluded.state = 'failed' THEN {table}.tries + 1 ELSE 0 END, "
         "updated_at = excluded.updated_at",
         (chapter_id, chat_id, state, (error or "")[:300], 1 if state == "failed" else 0, now_iso()))

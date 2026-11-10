@@ -116,10 +116,11 @@ def bounded_queries(queries: list[array], pieces: int, size: int) -> list[array]
 
 
 def score(candidates: list[Candidate], vectors: dict[str, tuple[str, array]], queries: list[array],
-          stems: set[str], threshold: float) -> list[Scored]:
+          stems: set[str], threshold: float, *, idf: dict[str, float] | None = None) -> list[Scored]:
     """Every candidate with a score of at least MIN_SCORE, best first. `vectors`: piece id -> (hash, vector);
-    `queries`: normalized query vectors (may be empty: keywords only)."""
-    idf = idf_table(candidates)
+    `queries`: normalized query vectors (may be empty: keywords only); `idf`: the IDF table when the candidates are
+    too few to be their own corpus (M5: the records of «Слово и нити» weigh their words against the chat's pieces)."""
+    idf = idf if idf is not None else idf_table(candidates)
     size = len(queries[0]) if queries else 0
     kws = {c.piece_id: (keyword_part(c, stems, idf) if stems else 0.0) for c in candidates}
     with_vectors = [c for c in candidates if c.piece_id in vectors]

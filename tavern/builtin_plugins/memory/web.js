@@ -1,13 +1,17 @@
-// 🧠 Память++ (stages M1-M4): the composer button opens the «Память» window; its «Главы» tab lists the chapters of
+// 🧠 Память++ (stages M1-M5): the composer button opens the «Память» window; its «Главы» tab lists the chapters of
 // the open branch (split, merge, move the border, delete, restore, undo) with their summaries (edit = lock, lock,
 // «Пересказать заново», versions), «Сюжет до сих пор» on top, and a folded «Участники» list (M3). Chapter borders are thin lines above
 // messages, «Новая глава отсюда» is in a message's «⋯» menu, and a chip in the top bar shows the background work.
 // M4: the «Развитие» tab: a card per character of the chat and «Я» (the layer «how they are now»: edit = lock, lock,
 // versions, «Перенести в другой чат…», «Не наслаивать»), and the branch's «Сейчас:» lines of lorebook bubbles (edit,
 // «Удалить», «Записать в лорбук насовсем»).
+// M5: the «Слово и нити» tab: records of the open branch grouped by who gave the word, with status chips, a filter by
+// status and kind, the record sheet (quote, kind, to whom, importance, who knows a secret: saving locks it; status;
+// lock; «Удалить» / «Вернуть»; «→ к сообщению №N» closes the window and shows the quoted message) and «+ Добавить».
 export default function setup(t) {
   let cache = { chatId: "", view: null, state: null, job: null };
   let layersTick = 0; // bumped by the notice «layers»: the «Развитие» tab loads again
+  let threadsTick = 0; // bumped by the notice «threads»: the «Слово и нити» tab loads again
   let focusId = "";
   let loading = false;
 
@@ -80,11 +84,13 @@ export default function setup(t) {
         <div class="tabs" role="tablist">
           <button role="tab" aria-selected=${tab === "chapters"} onClick=${() => setTab("chapters")}>Главы</button>
           <button role="tab" aria-selected=${tab === "layers"} onClick=${() => setTab("layers")}>Развитие</button>
+          <button role="tab" aria-selected=${tab === "threads"} onClick=${() => setTab("threads")}>Слово и нити</button>
         </div>
         ${cache.error && !view && html`<p class="muted" role="alert">${cache.error}</p>`}
         ${view && tab === "chapters" && html`<${Chapters} ui=${ui} view=${view} open=${open} setOpen=${setOpen} busy=${busy}
           call=${call} />`}
         ${tab === "layers" && html`<${Layers} ui=${ui} chatId=${chatId} tick=${layersTick} />`}
+        ${tab === "threads" && html`<${Threads} ui=${ui} chatId=${chatId} tick=${threadsTick} />`}
       </div>`;
     },
   });
@@ -248,6 +254,186 @@ export default function setup(t) {
         </div>
       </div>`}
     </li>`;
+  }
+
+  // «Слово и нити»: records of the open branch, grouped by who gave the word
+  function Threads({ ui, chatId, tick }) {
+    const { html, useState, useEffect, Select } = ui;
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [status, setStatus] = useState("open");
+    const [kind, setKind] = useState("");
+    const [adding, setAdding] = useState(false);
+    const load = async () => {
+      try {
+        const got = await t.call("threads", { chat_id: chatId });
+        if (t.chatId() === chatId) { setData(got); setError(""); }
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    useEffect(() => { load(); }, [chatId, tick]);
+    const call = async (action, payload = {}) => {
+      setBusy(true);
+      try {
+        const got = await t.call(action, { chat_id: chatId, ...payload });
+        if (got && got.groups) setData(got);
+        return got || {};
+      } catch (e) {
+        ui.toast(e.message, "error");
+        return null;
+      } finally {
+        setBusy(false);
+      }
+    };
+    const undo = async () => {
+      if (await call("undo")) { await load(); reload(); }
+    };
+    if (!data) return html`<p class="muted" role=${error ? "alert" : "status"}>${error || "Загрузка…"}</p>`;
+    const shown = (i) => (status === "deleted" ? i.deleted : !i.deleted && (status === "all"
+      || (status === "open" ? i.status === "active" : i.status === status))) && (!kind || i.kind === kind);
+    const groups = data.groups.map((g) => ({ ...g, items: g.items.filter(shown) })).filter((g) => g.items.length);
+    return html`<div class="memory-chapters" data-slot="memory-threads">
+      <div class="memory-toolbar">
+        <button disabled=${busy || !data.undo} onClick=${undo}
+          title="Отменить последнее ручное изменение">↶ ${data.undo ? "Отменить: " + data.undo : "Отменить"}</button>
+        <button aria-expanded=${adding} onClick=${() => setAdding(!adding)}>+ Добавить</button>
+      </div>
+      <p class="muted memory-hint">${data.on
+        ? "После каждой закрытой главы модель выписывает, кто что обещал, в чём клялся, что сказал о себе или о мире, кто кому должен и какие тайны доверил, и отмечает, что выполнено или нарушено. Персонаж получает свои клятвы всегда, остальное — когда к месту; тайну — только если знает. Своё на каждой ветке."
+        : "«Слово и нити» выключены в настройках дополнения: новые записи не появляются и в промпт не идут."}</p>
+      ${adding && html`<${ThreadAdd} ui=${ui} data=${data} busy=${busy} call=${call} done=${() => setAdding(false)} />`}
+      <div class="memory-filter">
+        <${Select} value=${status} onChange=${(e) => setStatus(e.target.value)} aria-label="Какие записи показать">
+          <option value="open">В силе</option>
+          <option value="all">Все</option>
+          ${data.statuses.filter(([s]) => s !== "active").map(([s, label]) => html`<option value=${s}>${label}</option>`)}
+          <option value="deleted">Удалённые</option>
+        <//>
+        <${Select} value=${kind} onChange=${(e) => setKind(e.target.value)} aria-label="Вид записей">
+          <option value="">Любые</option>
+          ${data.kinds.map(([k, label]) => html`<option value=${k}>${label}</option>`)}
+        <//>
+      </div>
+      ${groups.length === 0 && html`<p class="muted">${data.groups.length ? "Под этот выбор записей нет." : "Записей пока нет."}</p>`}
+      ${groups.map((g) => html`<section key=${g.who}>
+        <h3 class="memory-label">${g.is_me ? "Я · " + g.name : g.name}</h3>
+        <ul class="memory-list">
+          ${g.items.map((i) => html`<${ThreadItem} key=${i.id} ui=${ui} i=${i} data=${data} busy=${busy} call=${call} />`)}
+        </ul>
+      </section>`)}
+    </div>`;
+  }
+
+  const IMPORTANCE = [[1, "мелочь"], [2, "важно"], [3, "ключевое"]];
+
+  function PersonSelect({ ui, people, value, onChange, label, anyone }) {
+    const { html, Select } = ui;
+    return html`<${Select} value=${value} onChange=${(e) => onChange(e.target.value)} aria-label=${label}>
+      ${anyone && html`<option value="">всем / миру</option>`}
+      ${people.map((p) => html`<option value=${p.target}>${p.is_me ? "Я · " + p.name : p.name}</option>`)}
+    <//>`;
+  }
+
+  function ThreadItem({ ui, i, data, busy, call }) {
+    const { html, useState, Select } = ui;
+    const [open, setOpen] = useState(false);
+    const [draft, setDraft] = useState({});
+    const value = (key) => (key in draft ? draft[key] : i[key]);
+    const set = (key, v) => setDraft({ ...draft, [key]: v });
+    const differs = (k) => JSON.stringify(draft[k]) !== JSON.stringify(i[k]);
+    const changed = Object.keys(draft).some(differs);
+    const save = async () => {
+      const payload = {};
+      for (const k of Object.keys(draft)) if (differs(k)) payload[k] = draft[k];
+      if (await call("thread_edit", { thread_id: i.id, ...payload })) setDraft({});
+    };
+    const knows = value("knows");
+    const toggleKnows = (target, on) => set("knows", on ? [...knows, target] : knows.filter((k) => k !== target));
+    const show = () => {
+      win.close();
+      t.showMessage({ id: i.message_id, depth: i.message_no - 1 });
+    };
+    return html`<li class=${"memory-chapter" + (i.deleted ? " deleted" : "")}>
+      <button class="memory-row" aria-expanded=${open} onClick=${() => setOpen(!open)}>
+        <span class="memory-row-main"><strong>${i.kind_label}</strong>${i.to_name ? " → " + i.to_name : ""}
+          <span class="muted"> · «${i.quote}»</span></span>
+        <span class="memory-state">${i.locked ? "🔒 " : ""}${i.deleted ? "удалена" : i.status_label}</span>
+      </button>
+      ${open && html`<div class="memory-sheet">
+        ${i.message_no && i.message_id && html`<button class="memory-link" onClick=${show}>→ к сообщению №${i.message_no}</button>`}
+        <label class="memory-label" for=${"thr-" + i.id}>Цитата</label>
+        <textarea id=${"thr-" + i.id} class="memory-text" rows="3" value=${value("quote")}
+          onInput=${(e) => set("quote", e.target.value)}></textarea>
+        <div class="memory-grid">
+          <label>Вид<${Select} value=${value("kind")} onChange=${(e) => set("kind", e.target.value)} aria-label="Вид записи">
+            ${data.kinds.map(([k, label]) => html`<option value=${k}>${label}</option>`)}
+          <//></label>
+          <label>Кому<${PersonSelect} ui=${ui} people=${data.people} value=${value("to_whom")} anyone=${true}
+            onChange=${(v) => set("to_whom", v)} label="Кому дано слово" /></label>
+          <label>Важность<${Select} value=${String(value("importance"))} aria-label="Важность"
+            onChange=${(e) => set("importance", Number(e.target.value))}>
+            ${IMPORTANCE.map(([n, label]) => html`<option value=${String(n)}>${label}</option>`)}
+          <//></label>
+        </div>
+        ${i.kind === "secret" && html`<fieldset class="memory-knows"><legend>Знают тайну</legend>
+          ${data.people.map((p) => html`<label key=${p.target} class="memory-switch"><input type="checkbox"
+            checked=${knows.includes(p.target)} disabled=${busy} onChange=${(e) => toggleKnows(p.target, e.target.checked)} />
+            ${p.is_me ? "Я · " + p.name : p.name}</label>`)}
+        </fieldset>`}
+        <p class="muted memory-hint">Своя правка ставит замок: модель эту запись больше не меняет.</p>
+        <div class="memory-actions">
+          <button disabled=${busy || !changed} onClick=${save}>Сохранить</button>
+          ${i.deleted
+            ? html`<button disabled=${busy} onClick=${() => call("thread_restore", { thread_id: i.id })}>Вернуть</button>`
+            : html`<button class="danger-text" disabled=${busy} onClick=${() => call("thread_delete", { thread_id: i.id })}>Удалить</button>`}
+        </div>
+        <label class="memory-grid-label">Статус на этой ветке
+          <${Select} value=${i.status} aria-label="Статус на этой ветке"
+            onChange=${(e) => e.target.value !== i.status && call("thread_status", { thread_id: i.id, status: e.target.value })}>
+            ${data.statuses.map(([s, label]) => html`<option value=${s}>${label}</option>`)}
+          <//></label>
+        <label class="memory-switch"><input type="checkbox" checked=${i.locked} disabled=${busy}
+          onChange=${(e) => call("thread_lock", { thread_id: i.id, locked: e.target.checked })} /> 🔒 Под замком</label>
+        ${i.history.length > 0 && html`<ul class="memory-versions">
+          ${i.history.map((h) => html`<li key=${h.created_at + h.status}><p class="muted">
+            ${new Date(h.created_at).toLocaleString()} · ${h.status_label}${h.message_no ? " · №" + h.message_no : ""}
+            · ${h.by === "hand" ? "вручную" : "модель"}${h.note ? " · " + h.note : ""}</p></li>`)}
+        </ul>`}
+      </div>`}
+    </li>`;
+  }
+
+  function ThreadAdd({ ui, data, busy, call, done }) {
+    const { html, useState, Select } = ui;
+    const [kind, setKind] = useState("promise");
+    const [who, setWho] = useState(data.people[0] ? data.people[0].target : "");
+    const [to, setTo] = useState("");
+    const [quote, setQuote] = useState("");
+    const [number, setNumber] = useState("");
+    const add = async () => {
+      const n = parseInt(number, 10);
+      const payload = { kind, who, to_whom: to, quote, ...(Number.isInteger(n) && n > 0 ? { number: n } : {}) };
+      if (await call("thread_add", payload)) done();
+    };
+    return html`<div class="memory-sheet memory-chapter">
+      <div class="memory-grid">
+        <label>Вид<${Select} value=${kind} onChange=${(e) => setKind(e.target.value)} aria-label="Вид записи">
+          ${data.kinds.map(([k, label]) => html`<option value=${k}>${label}</option>`)}
+        <//></label>
+        <label>Кто<${PersonSelect} ui=${ui} people=${data.people} value=${who} onChange=${setWho} label="Кто дал слово" /></label>
+        <label>Кому<${PersonSelect} ui=${ui} people=${data.people} value=${to} onChange=${setTo} anyone=${true}
+          label="Кому дано слово" /></label>
+      </div>
+      <textarea class="memory-text" rows="3" value=${quote} aria-label="Цитата" placeholder="Точные слова из чата"
+        onInput=${(e) => setQuote(e.target.value)}></textarea>
+      <div class="memory-field">
+        <input type="text" inputmode="numeric" value=${number} placeholder="№ сообщения (можно пусто)"
+          aria-label="Номер сообщения" onInput=${(e) => setNumber(e.target.value.replace(/\D/g, ""))} />
+        <button disabled=${busy || !who || quote.trim().length < 3} onClick=${add}>Добавить</button>
+      </div>
+    </div>`;
   }
 
   function describe(state, job) {
@@ -498,6 +684,9 @@ export default function setup(t) {
   t.onNotice("chapters", () => reload());
   t.onNotice("layers", (data) => {
     if (!data || data.chat_id === t.chatId()) { layersTick += 1; t.refresh(); }
+  });
+  t.onNotice("threads", (data) => {
+    if (!data || data.chat_id === t.chatId()) { threadsTick += 1; t.refresh(); }
   });
 
   t.composerButton({

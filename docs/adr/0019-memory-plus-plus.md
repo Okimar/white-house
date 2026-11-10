@@ -1,11 +1,11 @@
 # 0019. Memory++: chapters, summaries, character development and threads, as a built-in plugin
 
-Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3 and M4 done 2026-11-10 (see «M1 done», «M2 done», «M3 done»
-and «M4 done» in section 7). Builds on 0004 (character tree, vectors), 0006
+Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3, M4 and M5 done 2026-11-10 (see «M1 done», «M2 done»,
+«M3 done», «M4 done» and «M5 done» in section 7). Builds on 0004 (character tree, vectors), 0006
 (lorebooks), 0009 (plugins), 0010 / 0013 (assistant), 0011 (tree of thoughts: an agentic built-in plugin),
 and the foreground rule being built now (`tavern/core/foreground.py`).
 
-Stages M1 to M4 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
+Stages M1 to M5 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
 M1–M8; section 8 lists risks and the owner's answers to the open questions (all decided 2026-11-09).
 
 ## 1. Context
@@ -864,6 +864,53 @@ Not seen on screen (no browser, owner's rule 9).
 rest by relevance (keywords + vectors of the quote), status per branch, the tab. Tests: a vow goes only to its
 owner's reply; a status change on one branch only; the persona's promises reach characters («ты же обещал»);
 quests only with their toggle.
+
+**M5 done (2026-11-10).** Built: `threads.py` and migration `0005_threads.sql` (the sketch's «0002_threads»: shipped
+files are never renumbered): `p_memory_threads` (kind, who, to whom, knows, the exact quote, the message, an anchor = the
+quoted message, so a record made before a fork is shared; the chapter it came from, importance 1-3, keywords, made_by,
+locked, deleted), `p_memory_thread_states` (status + who knows, anchored at a message: the newest on the branch wins, none
+= «в силе»; so a status is per branch), `p_memory_thread_runs` (which closed chapter the step read, failures, tries) and
+a trigger dropping a record's vector with it. No foreign keys on the message ids (as with chapters): a deleted message
+takes the record off the branches, and the assistant's undo of that delete brings it back. Job step 7 (`threads.step`,
+after the development step; setting «Слово и нити» off = nothing): the next closed chapter in story order without a run
+(it does not wait for summaries: exact quotes need the text) gets ONE request through `job.step` (cancelled at once by a
+user request, redone after): the scene with the chat's message numbers (the user's messages under the persona's name),
+the people with codes (the chat's characters, the persona, anyone else who wrote in it), and the branch's records still
+open before the chapter's end (active ones, and secrets not «снято»; at most 40, most important first). JSON
+`{"new": [{kind, who, to, quote, message_no, importance, knows}], "changes": [{id, status, message_no, note, told}]}`.
+A new record is kept only when its quote is really in the named message or another message of the scene (case, «ё»,
+quote marks and spaces aside; else it is dropped as invented), not a repeat of a record of the branch (deleted ones
+included), and of a known kind (quests only with «Квесты», off). A change makes a status row anchored at the named
+message of the chapter (else its last); `told` adds listeners to a secret; a locked record is never changed. A failure
+is retried after the summaries' backoff, at most 3 times. The quotes get vectors in step 2 (`t:<id>`, as summaries do).
+In the prompt (`threads.contribute`, whatever the window; nothing with the setting off, hand-written records included):
+only for the one who speaks now (the primary member; the persona on the user's own turn). Their vows and principles in
+force ALWAYS, right after their card (`Extra(place="after_card")`, «Клятвы и принципы: <name>», drop rank 58; the persona
+without a «me» member: the memory spot). Other records only when relevant: scored by `search.score` with the stems of
+the last `meaning_messages` texts (member names left out: they are in nearly every record) and the reply's ONE meaning
+request (no request of its own), with the chat's pieces as the IDF corpus (`search.score(idf=)`: a few records are no
+corpus), at most 8, in story order, as one memory-spot entry «Слово и нити: <name>» (drop rank 45) with kind, who → to
+whom, status (and its note), «№N» and the quote. Who may get a record: their own; one given to them; the persona's given
+to them or to everyone (so a character can say «ты же обещал»); a secret only to those who know it; «Помнит всё»: every
+record (by relevance). «снято» never goes. The «Слово и нити» tab: records grouped by who (the chat's characters, then
+«Я»), a status chip each, a filter by status (в силе / все / выполнено / нарушено / снято / удалённые) and kind, the
+record sheet (quote, kind, to whom, importance, who knows a secret: «Сохранить» locks; the status on this branch;
+«🔒»; «Удалить» / «Вернуть»; the status history; «→ к сообщению №N» closes the window and shows the message through
+the new plugin web call `t.showMessage({id, depth})`), «+ Добавить» by hand (with an optional message number); hand edits
+share the window's one «↶». Settings (off): «Слово и нити (нужна модель)», «Квесты в «Слове и нитях»», own connection /
+model (role `threads` → «Модель для памяти» → the chat's). Fixed M4's known gap of M3: the plot's hand edit in a chat
+with no plot was anchored at the newest message and went missing while that message was regenerated or continued; it
+is now anchored before it (`chapters.fresh_anchor`, moved there from layers.py), with a regression test.
+Choices where the ADR left room: (1) one request per chapter for all kinds and the status changes together; (2) a
+record whose quote is not found in the scene is dropped (small models paraphrase: fewer records, none invented);
+(3) every hand change locks the record, a hand status too (the model never sets it back); the lock toggle itself is not
+in «↶» (as in M4); (4) a hand status is anchored before the newest message, on this branch only; (5) «Удалить» is for
+the whole record (all branches sharing it), not per branch; «снято» is the per-branch way to retire one; (6) kept and
+broken records still go when relevant (with their status), only «снято» never; vows go always only while «в силе»;
+(7) a character's records to everyone go only to that character (only the persona's reach everyone); (8) «Помнит всё»
+also opens secrets (the narrator-like member knows everything); (9) records are per chat, never carried to other chats;
+(10) a chapter changed later is not read again unless it is a new chapter row (as M4). Not built (M6+): mini-cards,
+export of records, assistant tools, bulk. Not seen on screen (no browser, owner's rule 9).
 
 **M6: mini-cards.** One agent. Migration 0003, job step 8, the faces found by name / alias in the scan text,
 «★» reuse in every chat, «Сделать настоящим персонажем», the tab. Tests: never a bubble tree; off by default;

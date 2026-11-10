@@ -103,9 +103,8 @@ def plot_edit(db: Database, chat_id: str, path: list[dict[str, Any]], payload: d
     """«Сюжет до сих пор» by hand: a new version of this branch (at the current one's anchor), locked."""
     text = _body(payload, "сюжет")
     current = store.plot_for_path(db, chat_id, {m["id"] for m in path})
-    anchor = current["anchor_id"] if current else (path[-1]["id"] if path else None)
-    if anchor is None:
-        raise chapters.ChapterError("В чате нет сообщений")
+    # not at the newest message: a regenerated or continued reply leaves it out of its own history (M5 fix of M3)
+    anchor = current["anchor_id"] if current else chapters.fresh_anchor(path)
     made = store.put_plot(db, chat_id, text, anchor, current["made_from"] if current else "[]", by="hand",
                           locked=True)
     chapters.log_text(storage, "Изменить сюжет", made)

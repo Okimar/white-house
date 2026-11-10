@@ -114,7 +114,9 @@ export default function setup(t) {
   return () => { /* undo anything outside the places above */ };
 }
 ```
-Also `t.settings`, `t.chatId()`, `t.toast(text)`, `t.reloadChat()`, `t.url(path)`, `t.signal`.
+Also `t.settings`, `t.chatId()`, `t.toast(text)`, `t.reloadChat()`, `t.url(path)`, `t.signal`, and
+`t.showMessage({id, depth})` (M5): bring a message of the open branch into view and mark it for a moment, as a
+search find does (`depth` = the number the chat shows − 1; close your window first on a phone).
 The page CSP allows scripts and requests only to this server: go to the internet from the server
 part (an action), not from the browser. Message objects: `id`, `role`, `content`, `active_swipe`,
 `name`, `character_id`, `swipe_meta`, `extra`. Restyle through `style.css` and the `data-plugin`

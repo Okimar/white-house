@@ -27,3 +27,10 @@
 .memory-member strong { flex: 1 1 100%; padding-top: 8px; }
 .memory-transfer { display: flex; flex-direction: column; gap: 8px; }
 .memory-transfer button { min-height: var(--tap); }
+/* M5: «Слово и нити» */
+.memory-filter { display: flex; flex-wrap: wrap; gap: 8px; }
+.memory-filter > * { flex: 1 1 140px; min-width: 0; }
+.memory-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.memory-grid label, .memory-grid-label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.memory-knows { border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 0; padding: 0 8px; }
+.memory-link { align-self: flex-start; min-height: var(--tap); }

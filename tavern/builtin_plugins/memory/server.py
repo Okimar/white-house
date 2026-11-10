@@ -1,10 +1,11 @@
-"""🧠 Память++ (stages M1-M4). Everything is off until the plugin is switched on AND the chat's memory is.
+"""🧠 Память++ (stages M1-M5). Everything is off until the plugin is switched on AND the chat's memory is.
 
 Registers: chat events that wake the chat's background job (`work.py`), `chat.created` (the global «Включать
 память в новых чатах»), the filter `meaning.wanted` and the `chat.before_generate` handler (`inject.py`), and the
 actions the web part calls (chapters; M3: summaries, the plot, members' flags), and `prompt.built` (which chapters
 really went: the sticky rule); M4: the «Развитие» tab's actions (layers, hand edit with a lock, versions, transfer to
-another chat, «Сейчас:» lines with «Записать в лорбук насовсем»: layers.py). A failed summary asks for a later pass after its backoff (a timer per chat, dropped
+another chat, «Сейчас:» lines with «Записать в лорбук насовсем»: layers.py); M5: the «Слово и нити» tab's actions (records with
+their status per branch, hand edit with a lock, status, delete / restore, add by hand: threads.py). A failed summary asks for a later pass after its backoff (a timer per chat, dropped
 when the plugin is switched off). Nothing happens in a chat whose switch is off: no tables written, no job, no request.
 ADR 0019 holds the whole design; this file only wires it.
 """
@@ -17,7 +18,7 @@ from typing import Any
 from tavern.errors import AppError
 from tavern.services import cast
 
-from . import actions, chapters, inject, layers, pieces, store, work
+from . import actions, chapters, inject, layers, pieces, store, threads, work
 
 WAKE_DELAY = 2.0  # seconds a chat's job waits after an event, so edits that follow each other are worked together
 WAKE_EVENTS = ("message.received", "message.added", "message.edited", "message.excluded", "message.deleted",
@@ -307,3 +308,23 @@ def setup(api: Any) -> None:
     api.action("layer_chats", lambda p: {"chats": layers.transfer_chats(api, _chat_id(p), p)})
     api.action("layer_transfer", layer_transfer)
     api.action("now_write", now_write)
+
+    # M5: «Слово и нити» (threads.py)
+    def thread_hand(fn: Any) -> Any:
+        """A hand edit of a record: memory must be on in the chat; tell the pages; give the new tab view."""
+        def run(payload: dict[str, Any]) -> dict[str, Any]:
+            chat_id = on_chat(payload)
+            storage = api.storage(chat_id)
+            fn(api, chat_id, api.ctx.chats.active_path(chat_id), payload, storage)
+            api.notify("threads", chat_id=chat_id)
+            return threads.view(api, chat_id, storage)
+        return run
+
+    for name in ("thread_edit", "thread_status", "thread_lock", "thread_delete", "thread_restore", "thread_add"):
+        api.action(name, thread_hand(getattr(threads, name)))
+
+    def threads_view(payload: dict[str, Any]) -> dict[str, Any]:
+        chat_id = _chat_id(payload)
+        return threads.view(api, chat_id, api.storage(chat_id))
+
+    api.action("threads", threads_view)

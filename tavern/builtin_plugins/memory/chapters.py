@@ -11,7 +11,7 @@ goes back to `raw` by itself when the text is the same again. «Принять �
 The event handlers only make this quicker; the job checks the hash on every pass.
 
 Every hand edit writes one step to `undo:<chat>` (plugin storage, the last 50): the chapter rows as they were and
-the ids it created; `undo` puts it back.
+the ids it created (or a text, M3-M4, or a «Слово и нити» record, M5); `undo` puts it back.
 """
 
 from __future__ import annotations
@@ -84,6 +84,15 @@ def eligible_in(path: list[dict[str, Any]], lo: int, hi: int) -> list[dict[str, 
 
 def number_of(m: dict[str, Any]) -> int:
     return int(m["depth"]) + 1
+
+
+def fresh_anchor(path: list[dict[str, Any]]) -> str:
+    """Where a hand-made version with nothing to follow is anchored: the message before the newest one. The newest
+    may be the reply being regenerated or continued, which the reply's own history leaves out, and a version anchored
+    there would be off the branch exactly then (M4; M5 fixed the plot's hand edit with it)."""
+    if not path:
+        raise ChapterError("В чате нет сообщений")
+    return path[-2]["id"] if len(path) > 1 else path[-1]["id"]
 
 
 # -- the open part ---------------------------------------------------------------------------------
@@ -185,6 +194,13 @@ def log_text(storage: Any, op: str, made: str, *, summary_of: str = "", previous
                                     "lock_was": lock_was})
 
 
+def log_thread(storage: Any, op: str, *, before: dict[str, Any] | None = None, created: str = "",
+               made_state: str = "") -> None:
+    """A hand edit of a «Слово и нити» record, in the same undo log: the record as it was, the record it created, the
+    status row it made (store.undo_thread reverses them)."""
+    _log(storage, op, [], [], thread={"before": before, "created": created, "made_state": made_state})
+
+
 def undo_label(storage: Any) -> str:
     steps = storage.get("undo", [])
     return steps[-1]["op"] if steps else ""
@@ -199,6 +215,8 @@ def undo(db: Database, storage: Any) -> str:
     text = step.get("text")
     if text:
         _undo_text(db, text)
+    if step.get("thread"):
+        store.undo_thread(db, step["thread"])
     if step["created"]:
         store.delete_chapters(db, step["created"])
     if step["before"]:

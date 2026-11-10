@@ -1,10 +1,12 @@
 """Texts for the small-model tasks of the memory (pure: no database, no network). ADR 0019 sections 4.2 and 8 (R4).
 
-Two tasks, both answered as JSON through `LLMClient.generate_json` (core/structured.py checks the shape):
+Tasks answered as JSON through `LLMClient.generate_json` (core/structured.py checks the shape):
   * a chapter's summary: `{"title": str, "summary": str}`. In the language most of the chapter is written in (Q11),
     past tense, plain narration, no meta talk, about `summary_tokens` tokens;
   * «Сюжет до сих пор»: `{"plot": str}`, 300-500 tokens, built from the previous plot and the summaries after it
-    (or from the summaries alone), in story order.
+    (or from the summaries alone), in story order;
+  * M4: «Развитие» layers and «Сейчас:» lines (`LAYER_SCHEMA`), and the self-compression of a too long layer;
+  * M5: «Слово и нити» of a closed chapter (`THREAD_SCHEMA`): new records with exact quotes, status changes.
 
 The prompts themselves are English (small models follow them best); the answer's language is decided by the text
 it retells, and `problem()` checks it (R4: a summary in the wrong script is refused, asked once more, and then the
@@ -223,3 +225,83 @@ def cut_to(text: str, tokens: int) -> str:
     head = text[:size]
     end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
     return (head[:end + 1] if end > size // 2 else head.rstrip() + "…").strip()
+
+
+# -- M5: «Слово и нити» ---------------------------------------------------------------------------
+
+THREAD_KINDS = ("promise", "vow", "claim", "debt", "secret", "quest")
+_NUMBER = {"type": ["integer", "string"]}
+THREAD_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "new": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"kind": {"type": "string"}, "who": {"type": "string"}, "to": {"type": "string"},
+                           "quote": {"type": "string"}, "message_no": _NUMBER, "importance": _NUMBER,
+                           "knows": {"type": "array", "items": {"type": "string"}}},
+            "required": ["kind", "who", "quote", "message_no"]}},
+        "changes": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "status": {"type": "string"}, "message_no": _NUMBER,
+                           "note": {"type": "string"}, "told": {"type": "array", "items": {"type": "string"}}},
+            "required": ["id", "status"]}},
+    },
+    "required": ["new", "changes"],
+}
+THREAD_KIND_RULES = {
+    "promise": "promise: someone promised to do (or not to do) something, for someone or in general",
+    "vow": "vow: a vow or a principle about oneself, a line they will never cross or always keep "
+           "(«I will never do that!», «I never leave a friend behind»)",
+    "claim": "claim: something a character stated about themselves or about the world that they or others may later "
+             "be held to (who they are, what they own or can do, what is true)",
+    "debt": "debt: a debt, a deal, a bargain or an agreement between characters (who owes what to whom)",
+    "secret": "secret: a secret a character told someone; `knows` lists everyone who knows it now (the teller too)",
+    "quest": "quest: a task or quest a character took on or was given",
+}
+
+
+def thread_lines(messages: list[dict[str, Any]], user_name: str = "") -> list[str]:
+    """«№N Name: text» for each message (N = the number the chat shows; the user's own messages under the persona's
+    name, as in the list of people), shortened like `chapter_lines`."""
+    lines = [(int(m["depth"]) + 1, m.get("name") or (user_name if m["role"] == "user" and user_name else m["role"]),
+              " ".join((m.get("content") or "").split())) for m in messages]
+    total = sum(estimate_tokens(text) for _, _, text in lines)
+    if total > MAX_INPUT_TOKENS and lines:
+        each = max(40, MAX_INPUT_TOKENS // len(lines))
+        lines = [(n, name, shorten(text, each)) for n, name, text in lines]
+    return [f"№{n} {name}: {text}" for n, name, text in lines]
+
+
+def thread_messages(lines: list[str], people: list[dict[str, str]], open_threads: list[dict[str, str]], *,
+                    quests: bool) -> list[ChatMessage]:
+    """The request of the threads step for one closed chapter.
+
+    `lines`: the scene, numbered (`thread_lines`). `people`: [{code, name}] the characters and the user's persona.
+    `open_threads`: [{code, kind, who, to, quote, status}] the records still open on this branch, so the model can
+    say which of them the scene kept, broke or dropped (and to whom a secret was told)."""
+    kinds = [THREAD_KIND_RULES[k] for k in THREAD_KINDS if k != "quest" or quests]
+    system = "\n".join([
+        "You keep the memory of a long roleplay chat: what the characters gave their word about. Read the scene "
+        "(each message has its number) and answer two things.",
+        "1. New records: what someone in this scene promised, vowed, claimed, agreed or owes, or a secret they told. "
+        "Kinds:\n- " + "\n- ".join(kinds),
+        "For each record: `kind`; `who` gave their word (a code from the list of people); `to` whom (a code, or \"\" "
+        "for everyone or the world); `quote`: the EXACT words from that message, copied character for character, one "
+        "or two sentences, never retold; `message_no`: the number of that message; `importance`: 1 minor, 2 matters, "
+        "3 key to the story; `knows`: for a secret, the codes of everyone who knows it now.",
+        "2. Changes of the open records listed (by their code T1, T2...): `status` kept (it was fulfilled), broken (it "
+        "was broken), dropped (it no longer stands: released, cancelled, made moot), or active (it stands again); "
+        "`message_no` where it happened; `note`: a few words why. A secret told to someone more: its code with "
+        "`told`: the codes of the new listeners, and `status` active.",
+        "Only what the scene really says. Small talk, wishes, threats in the heat of the moment and plans with no "
+        "word given are not records. Do not repeat an open record as new. Empty lists are fine. No meta talk.",
+        'Answer as JSON: {"new": [{"kind": "...", "who": "C1", "to": "C2", "quote": "...", "message_no": 12, '
+        '"importance": 2, "knows": []}], "changes": [{"id": "T1", "status": "kept", "message_no": 15, "note": "..."}]}.',
+    ])
+    user = ["People:\n" + "\n".join(f"{p['code']}: {p['name']}" for p in people)]
+    if open_threads:
+        user.append("Open records:\n" + "\n".join(
+            f"{t['code']}: {t['kind']} of {t['who']}{' to ' + t['to'] if t['to'] else ''} ({t['status']}): "
+            f"«{t['quote']}»" for t in open_threads))
+    user.append("The scene:\n" + "\n".join(lines))
+    return [ChatMessage("system", system), ChatMessage("user", "\n\n".join(user))]

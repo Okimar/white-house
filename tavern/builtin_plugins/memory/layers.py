@@ -410,12 +410,7 @@ def _anchor(current: dict[str, Any] | None, path: list[dict[str, Any]]) -> str:
     return fresh_anchor(path)
 
 
-def fresh_anchor(path: list[dict[str, Any]]) -> str:
-    """The message before the newest one: the newest may be the reply being regenerated or continued, which the reply's
-    own history leaves out, and a version anchored there would be off the branch exactly then."""
-    if not path:
-        raise LayerError("В чате нет сообщений")
-    return path[-2]["id"] if len(path) > 1 else path[-1]["id"]
+fresh_anchor = chapters.fresh_anchor  # kept here too: M4 code and tests call it by this name
 
 
 def layer_edit(api: Any, chat_id: str, path: list[dict[str, Any]], payload: dict[str, Any], storage: Any) -> None:

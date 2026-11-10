@@ -84,7 +84,7 @@ async def test_development_and_now_lines_are_off_by_default_and_migration_0004(c
     result = await layers_view(client, chat_id)
     assert result["development_on"] is False and result["now_on"] is False and result["now_lines"] == []
     assert {"p_memory_layer_runs", "p_memory_layer_runs_chat", "p_memory_texts_anchor"} <= set(objects(ctx))
-    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] == 4
+    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] >= 4
     settings = (await client.get("/api/plugins")).json()
     memory = next(p for p in settings["plugins"] if p["id"] == "memory")
     assert memory["values"]["development"] is False and memory["values"]["now_lines"] is False

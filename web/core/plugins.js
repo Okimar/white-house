@@ -49,7 +49,7 @@ const listeners = new Set();
 const loaded = new Map(); // id -> {hash, controller, cleanup}
 const current = new Map(); // id -> plugin summary from /api/plugins (fresh settings)
 const noticeHandlers = new Map(); // plugin id -> [{name, fn}]
-let env = { toast: () => {}, command: async () => {}, chatId: () => null, reloadChat: () => {} };
+let env = { toast: () => {}, command: async () => {}, chatId: () => null, reloadChat: () => {}, showMessage: async () => {} };
 
 function changed() {
   for (const fn of listeners) fn((n) => n + 1);
@@ -133,6 +133,8 @@ async function load(p) {
     toast: (text) => env.toast(text),
     refresh: changed,
     reloadChat: () => env.reloadChat(),
+    // bring a message of the open chat's branch into view and mark it for a moment ({id, depth}: depth = number - 1)
+    showMessage: (message) => env.showMessage({ on_path: true, ...message }),
     insertText: (text, { target = "chat", send = false } = {}) => {
       const fn = inputs.get(target);
       if (!fn) throw new Error(target === "assistant" ? "Окно помощника закрыто" : "Поле ввода сейчас недоступно");
