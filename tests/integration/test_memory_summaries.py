@@ -64,7 +64,7 @@ async def test_summaries_are_off_by_default_and_make_no_request(client, ctx, fak
     assert {"p_memory_texts", "p_memory_hits", "p_memory_members", "p_memory_chapters_gone"} <= set(objects(ctx))
     columns = {r["name"] for r in ctx.db.fetchall("PRAGMA table_info(p_memory_chapters)")}
     assert {"error", "failed_at"} <= columns
-    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] == 3
+    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] >= 3
 
 
 # -- the job ---------------------------------------------------------------------------------------

@@ -1,9 +1,13 @@
-// 🧠 Память++ (stages M1-M3): the composer button opens the «Память» window; its «Главы» tab lists the chapters of
+// 🧠 Память++ (stages M1-M4): the composer button opens the «Память» window; its «Главы» tab lists the chapters of
 // the open branch (split, merge, move the border, delete, restore, undo) with their summaries (edit = lock, lock,
 // «Пересказать заново», versions), «Сюжет до сих пор» on top, and a folded «Участники» list (M3). Chapter borders are thin lines above
 // messages, «Новая глава отсюда» is in a message's «⋯» menu, and a chip in the top bar shows the background work.
+// M4: the «Развитие» tab: a card per character of the chat and «Я» (the layer «how they are now»: edit = lock, lock,
+// versions, «Перенести в другой чат…», «Не наслаивать»), and the branch's «Сейчас:» lines of lorebook bubbles (edit,
+// «Удалить», «Записать в лорбук насовсем»).
 export default function setup(t) {
   let cache = { chatId: "", view: null, state: null, job: null };
+  let layersTick = 0; // bumped by the notice «layers»: the «Развитие» tab loads again
   let focusId = "";
   let loading = false;
 
@@ -75,13 +79,176 @@ export default function setup(t) {
           : describe(state, job)}</p>
         <div class="tabs" role="tablist">
           <button role="tab" aria-selected=${tab === "chapters"} onClick=${() => setTab("chapters")}>Главы</button>
+          <button role="tab" aria-selected=${tab === "layers"} onClick=${() => setTab("layers")}>Развитие</button>
         </div>
         ${cache.error && !view && html`<p class="muted" role="alert">${cache.error}</p>`}
         ${view && tab === "chapters" && html`<${Chapters} ui=${ui} view=${view} open=${open} setOpen=${setOpen} busy=${busy}
           call=${call} />`}
+        ${tab === "layers" && html`<${Layers} ui=${ui} chatId=${chatId} tick=${layersTick} />`}
       </div>`;
     },
   });
+
+  // «Развитие»: the layers of the open branch and its «Сейчас:» lines
+  function Layers({ ui, chatId, tick }) {
+    const { html, useState, useEffect } = ui;
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+    const load = async () => {
+      try {
+        const got = await t.call("layers", { chat_id: chatId });
+        if (t.chatId() === chatId) { setData(got); setError(""); }
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    useEffect(() => { load(); }, [chatId, tick]);
+    const call = async (action, payload = {}) => {
+      setBusy(true);
+      try {
+        const got = await t.call(action, { chat_id: chatId, ...payload });
+        if (got && got.members && got.now_lines) setData(got);
+        return got || {};
+      } catch (e) {
+        ui.toast(e.message, "error");
+        return null;
+      } finally {
+        setBusy(false);
+      }
+    };
+    const undo = async () => {
+      if (await call("undo")) { await load(); reload(); }
+    };
+    if (!data) return html`<p class="muted" role=${error ? "alert" : "status"}>${error || "Загрузка…"}</p>`;
+    return html`<div class="memory-chapters" data-slot="memory-layers">
+      <div class="memory-toolbar">
+        <button disabled=${busy || !data.undo} onClick=${undo}
+          title="Отменить последнее ручное изменение">↶ ${data.undo ? "Отменить: " + data.undo : "Отменить"}</button>
+      </div>
+      <p class="muted memory-hint">${data.development_on
+        ? `Карточка не меняется. После каждой закрытой главы модель обновляет «каким он стал сейчас» (до ${data.dev_tokens} токенов); слой идёт сразу после карточки и важнее её. Свой на каждой ветке.`
+        : "«Развитие персонажей» выключено в настройках дополнения: слои не обновляются и в промпт не идут."}</p>
+      <ul class="memory-list">
+        ${data.members.map((m) => html`<${LayerCard} key=${m.target} ui=${ui} m=${m} busy=${busy} call=${call}
+          chatId=${chatId} reloadLayers=${load} />`)}
+      </ul>
+      <h3 class="memory-label">Строки «Сейчас:»</h3>
+      <p class="muted memory-hint">${data.now_on
+        ? "Дописываются к пузырю лорбука только в этом чате и на этой ветке, и только когда пузырь идёт в ответ. Сам лорбук не меняется."
+        : "«Строки «Сейчас:» для лорбуков» выключены в настройках дополнения: новые не появляются и в промпт не идут."}</p>
+      ${data.now_lines.length === 0 && html`<p class="muted">Строк пока нет.</p>`}
+      <ul class="memory-list">
+        ${data.now_lines.map((l) => html`<${NowLine} key=${l.block_id} ui=${ui} l=${l} busy=${busy} call=${call} />`)}
+      </ul>
+    </div>`;
+  }
+
+  const BY = { hand: "вручную", auto: "модель", transfer: "перенесено" };
+
+  function LayerCard({ ui, m, busy, call, chatId, reloadLayers }) {
+    const { html, useState, Select } = ui;
+    const [open, setOpen] = useState(false);
+    const [draft, setDraft] = useState(null);
+    const [versions, setVersions] = useState(null);
+    const [chats, setChats] = useState(null);
+    const [to, setTo] = useState("");
+    const text = draft ?? m.text;
+    const toggleVersions = async () => {
+      if (versions) { setVersions(null); return; }
+      try { setVersions((await t.call("layer_versions", { chat_id: chatId, target: m.target })).versions); }
+      catch (e) { ui.toast(e.message, "error"); }
+    };
+    const openTransfer = async () => {
+      if (chats) { setChats(null); return; }
+      try {
+        const list = (await t.call("layer_chats", { chat_id: chatId, target: m.target })).chats;
+        setChats(list);
+        const first = list.find((c) => c.has_messages);
+        setTo(first ? first.chat_id : "");
+      } catch (e) { ui.toast(e.message, "error"); }
+    };
+    const send = async () => {
+      const got = await call("layer_transfer", { target: m.target, to_chat_id: to });
+      if (got && got.done) {
+        ui.toast(`Развитие перенесено в «${got.done.title || "чат"}»${got.done.memory ? "" : " (там память выключена: включите её в том чате)"}`);
+        setChats(null);
+      }
+    };
+    const setNoLayer = async (value) => {
+      if (await call("member_set", { character_id: m.target, no_layer: value })) reloadLayers();
+    };
+    return html`<li class="memory-chapter">
+      <button class="memory-row" aria-expanded=${open} onClick=${() => setOpen(!open)}>
+        <span class="memory-row-main"><strong>${m.is_me ? "Я · " + m.name : m.name}</strong>
+          <span class="muted"> · ${m.no_layer ? "не наслаивать" : m.text ? BY[m.by] || "" : "ещё нет"}</span></span>
+        ${m.locked && html`<span class="memory-state">🔒</span>`}
+      </button>
+      ${open && html`<div class="memory-sheet">
+        <label class="memory-switch"><input type="checkbox" checked=${m.no_layer} disabled=${busy}
+          onChange=${(e) => setNoLayer(e.target.checked)} /> Не наслаивать (без слоя и без запросов)</label>
+        <textarea class="memory-text" rows="6" value=${text} aria-label=${"Развитие: " + m.name}
+          placeholder="Слоя пока нет: он появится после закрытой главы. Можно написать свой: он будет под замком."
+          onInput=${(e) => setDraft(e.target.value)}></textarea>
+        <p class="muted memory-hint">Свой текст ставит замок: сами его больше не перепишем.</p>
+        <div class="memory-actions">
+          <button disabled=${busy || draft === null || !text.trim() || text === m.text}
+            onClick=${async () => { if (await call("layer_edit", { target: m.target, text })) setDraft(null); }}>Сохранить</button>
+          <button disabled=${busy || !m.text} aria-expanded=${!!versions} onClick=${toggleVersions}>Версии</button>
+          <button disabled=${busy || !m.text} aria-expanded=${!!chats} onClick=${openTransfer}>Перенести в другой чат…</button>
+        </div>
+        ${m.text && html`<label class="memory-switch"><input type="checkbox" checked=${m.locked} disabled=${busy}
+          onChange=${(e) => call("layer_lock", { target: m.target, locked: e.target.checked })} /> 🔒 Под замком</label>`}
+        ${chats && html`<div class="memory-transfer">
+          ${chats.length === 0 ? html`<p class="muted">Других чатов с этим персонажем нет.</p>` : html`
+            <${Select} value=${to} onChange=${(e) => setTo(e.target.value)} aria-label="Чат, куда перенести">
+              ${chats.map((c) => html`<option value=${c.chat_id} disabled=${!c.has_messages}>${c.title}${c.memory ? "" : " (память выключена)"}${c.has_messages ? "" : " (пусто)"}</option>`)}
+            <//>
+            <button disabled=${busy || !to} onClick=${send}>Перенести</button>
+            <p class="muted memory-hint">Там это станет текущим развитием на открытой ветке; вернуть прежнее можно через «Версии».</p>`}
+        </div>`}
+        ${versions && html`<ul class="memory-versions">
+          ${versions.length === 0 && html`<li class="muted">Версий нет.</li>`}
+          ${versions.map((v, i) => html`<li key=${v.id}>
+            <p class="muted">${new Date(v.created_at).toLocaleString()} · ${BY[v.by] || v.by}${i === 0 ? " · сейчас" : ""}</p>
+            <p class="memory-preview">${v.text}</p>
+            ${i > 0 && html`<button disabled=${busy} onClick=${async () => {
+              if (await call("layer_restore", { target: m.target, text_id: v.id })) setVersions(null);
+            }}>Вернуть эту</button>`}
+          </li>`)}
+        </ul>`}
+      </div>`}
+    </li>`;
+  }
+
+  function NowLine({ ui, l, busy, call }) {
+    const { html, useState } = ui;
+    const [open, setOpen] = useState(false);
+    const [draft, setDraft] = useState(null);
+    const text = draft ?? l.line;
+    const write = async () => {
+      const sure = await ui.ask(`Дописать «Сейчас: ${l.line}» в пузырь «${l.title}» лорбука навсегда? Лорбук изменится во всех `
+        + "чатах. Перед этим будет сделана копия данных; отменить можно в истории лорбука.", { ok: "Записать", danger: true });
+      if (sure && await call("now_write", { block_id: l.block_id })) ui.toast("Записано в лорбук");
+    };
+    return html`<li class="memory-chapter">
+      <button class="memory-row" aria-expanded=${open} onClick=${() => setOpen(!open)}>
+        <span class="memory-row-main"><strong>${l.title || "Пузырь"}</strong>
+          <span class="muted"> · ${l.book ? l.book + " · " : ""}Сейчас: ${l.line}</span></span>
+        ${l.locked && html`<span class="memory-state">🔒</span>`}
+      </button>
+      ${open && html`<div class="memory-sheet">
+        <textarea class="memory-text" rows="3" value=${text} aria-label=${"Сейчас: " + l.title}
+          onInput=${(e) => setDraft(e.target.value)}></textarea>
+        <div class="memory-actions">
+          <button disabled=${busy || draft === null || !text.trim() || text === l.line}
+            onClick=${async () => { if (await call("now_edit", { block_id: l.block_id, text })) setDraft(null); }}>Сохранить</button>
+          <button class="danger-text" disabled=${busy} onClick=${() => call("now_delete", { block_id: l.block_id })}>Удалить</button>
+          <button disabled=${busy} onClick=${write}>Записать в лорбук насовсем</button>
+        </div>
+      </div>`}
+    </li>`;
+  }
 
   function describe(state, job) {
     const parts = [];
@@ -267,7 +434,7 @@ export default function setup(t) {
       </button>
       ${open && html`<div class="memory-sheet">
         <p class="muted">В групповом чате персонаж получает только главы, где он был. «Помнит всё»: все главы
-          (например, рассказчику). «Не наслаивать»: без слоя «Развитие» (он появится позже).</p>
+          (например, рассказчику). «Не наслаивать»: без слоя «Развитие» и без запросов о нём.</p>
         ${list.map((m) => html`<div key=${m.character_id} class="memory-member">
           <strong>${m.name}</strong>
           <label class="memory-switch"><input type="checkbox" checked=${m.remembers_all} disabled=${busy}
@@ -329,6 +496,9 @@ export default function setup(t) {
   t.on("chat", () => { cache = { chatId: "", view: null, state: null, job: null }; reload(); });
   t.on("message", () => { setTimeout(reload, 2500); });
   t.onNotice("chapters", () => reload());
+  t.onNotice("layers", (data) => {
+    if (!data || data.chat_id === t.chatId()) { layersTick += 1; t.refresh(); }
+  });
 
   t.composerButton({
     icon: "🧠",

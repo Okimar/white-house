@@ -123,3 +123,103 @@ def plot_messages(old: str, summaries: list[tuple[str, str]], note: str = "") ->
     if note:
         user += f"\n\nYour previous answer was refused: {note}. Answer again."
     return [ChatMessage("system", system), ChatMessage("user", user)], source + old
+
+
+# -- M4: «Развитие персонажа» and «Сейчас:» lines -------------------------------------------------
+
+LAYER_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "layers": {"type": "array", "items": {
+            "type": "object", "properties": {"who": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["who", "text"]}},
+        "now_lines": {"type": "array", "items": {
+            "type": "object", "properties": {"entry": {"type": "string"}, "line": {"type": "string"}},
+            "required": ["entry", "line"]}},
+    },
+    "required": ["layers", "now_lines"],
+}
+COMPRESS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"text": {"type": "string"}},
+    "required": ["text"],
+    "additionalProperties": False,
+}
+LAYER_RULES = """Rules:
+- Write in the language most of the scene is written in{hint}.
+- Present tense: how things stand NOW. Name the characters by name. No meta talk (never "the chapter", "the layer", \
+"the user", "the AI", "the roleplay"), no advice, no markdown, no lists: short running prose.
+- Do not invent anything that is not in the scene or in the old text."""
+NOW_LINE_MAX_CHARS = 300
+
+
+def layer_messages(scene: str, people: list[dict[str, str]], entries: list[dict[str, str]], target_tokens: int,
+                   note: str = "") -> tuple[list[ChatMessage], str]:
+    """The request of the development step for one closed chapter.
+
+    `scene`: the chapter's summary, or its text when it has none. `people`: [{code, name, card, old}] the characters
+    whose layer is to be updated (card = the card's short description, old = the layer as it is on this branch).
+    `entries`: [{code, title, text, old}] lorebook bubbles the chapter mentions, for «Сейчас:» lines ([] = none
+    asked). Returns the request and the scene (for the language check)."""
+    hint = language_hint(scene)
+    parts = ["You keep the memory of a long roleplay chat."]
+    if people:
+        parts.append(
+            f"For each character listed, write their layer «how this character is NOW»: relationships with the others, "
+            f"what has happened to them, new traits and habits, changes of state (wounds, possessions, position, "
+            f"goals). The character card stays as it is written; the layer holds only what changed since the card or "
+            f"is new, and where it contradicts the card, the layer is the truth now. Merge the old layer with this "
+            f"scene: keep what still holds, drop what is no longer true or no longer matters, compress older details "
+            f"more than new ones. Each layer at most {target_tokens} tokens. A character the scene did not change "
+            f"keeps the old layer word for word.")
+    if entries:
+        parts.append(
+            "For each world entry listed that this scene really changed (a place destroyed or taken, an object lost "
+            "or found, a status or a ruler changed), one short line, one sentence, about how it is NOW. Leave out "
+            "entries the scene did not change: an empty list is fine. A line replaces the entry's old line.")
+    parts.append(LAYER_RULES.format(hint=hint))
+    parts.append('Answer as JSON: {"layers": [{"who": "<code>", "text": "..."}], '
+                 '"now_lines": [{"entry": "<code>", "line": "..."}]}.')
+    user: list[str] = []
+    if people:
+        user.append("Characters:\n" + "\n\n".join(
+            f"{p['code']}: {p['name']}\nCard: {shorten(p['card'], 300) or '(none)'}\nOld layer: {p['old'] or '(none yet)'}"
+            for p in people))
+    if entries:
+        user.append("World entries:\n" + "\n\n".join(
+            f"{e['code']}: {e['title']}\nText: {shorten(e['text'], 200)}\nOld line: {e['old'] or '(none)'}"
+            for e in entries))
+    user.append(f"The scene that just ended:\n{scene}")
+    text = "\n\n".join(user)
+    if note:
+        text += f"\n\nYour previous answer was refused: {note}. Answer again."
+    return [ChatMessage("system", "\n".join(parts)), ChatMessage("user", text)], scene
+
+
+def compress_messages(name: str, text: str, target_tokens: int) -> list[ChatMessage]:
+    """The self-compression request: a layer that came out too long, shortened to `target_tokens`."""
+    system = (f"Shorten the text below (how the character {name} is now in a long roleplay) to at most {target_tokens} "
+              f"tokens. Keep relationships, what happened to them and their present state; drop repetition and older "
+              f'details first. Same language, present tense, no meta talk, running prose. Answer as JSON: {{"text": "..."}}.')
+    return [ChatMessage("system", system), ChatMessage("user", text)]
+
+
+def wrong_language(text: str, source: str) -> str:
+    """Why a layer or a line is in the wrong script ('' when it is fine)."""
+    if not text.strip():
+        return ""
+    if cyrillic_share(source) > 0.5 and cyrillic_share(text) < 0.5:
+        return "the text must be in Russian, the language of the scene"
+    if cyrillic_share(source) < 0.1 and cyrillic_share(text) > 0.5:
+        return "the text must be in the language of the scene, not in Russian"
+    return ""
+
+
+def cut_to(text: str, tokens: int) -> str:
+    """`text` cut at a sentence end to about `tokens` tokens (the last resort of the self-compression)."""
+    size = tokens * CHARS_PER_TOKEN
+    if len(text) <= size:
+        return text
+    head = text[:size]
+    end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+    return (head[:end + 1] if end > size // 2 else head.rstrip() + "…").strip()

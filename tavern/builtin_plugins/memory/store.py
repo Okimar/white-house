@@ -367,3 +367,74 @@ def set_member(db: Database, chat_id: str, character_id: str, *, remembers_all: 
                "ON CONFLICT(chat_id, character_id) DO UPDATE SET remembers_all = excluded.remembers_all, "
                "no_layer = excluded.no_layer",
                (chat_id, character_id, int(flags["remembers_all"]), int(flags["no_layer"])))
+
+
+# -- «Развитие» layers and «Сейчас:» lines (migrations/0004_layers.sql) ------------------------------
+
+LAYER_RUNS = "p_memory_layer_runs"
+ANCHORED = ("development", "now_line")
+
+
+def anchored_rows(db: Database, chat_id: str, kind: str, target: str | None = None) -> list[dict[str, Any]]:
+    """Every version of a kind (all branches), newest first; one target only when given."""
+    where, args = "chat_id = ? AND kind = ?", [chat_id, kind]
+    if target is not None:
+        where += " AND target = ?"
+        args.append(target)
+    rows = db.fetchall(f"SELECT {TEXT_FIELDS} FROM {TEXTS} WHERE {where} ORDER BY created_at DESC, rowid DESC",
+                       tuple(args))
+    return [_text(r) for r in rows]
+
+
+def anchored_for_path(db: Database, chat_id: str, kind: str, path_ids: set[str]) -> dict[str, dict[str, Any]]:
+    """target -> the branch's version: the newest one anchored at a message of the branch (ADR 3.1)."""
+    out: dict[str, dict[str, Any]] = {}
+    for row in anchored_rows(db, chat_id, kind):
+        if row["anchor_id"] in path_ids and row["target"] not in out:
+            out[row["target"]] = row
+    return out
+
+
+def anchored_versions(db: Database, chat_id: str, kind: str, target: str, path_ids: set[str]) -> list[dict[str, Any]]:
+    """The versions of one target on a branch, newest first: the first one is the branch's."""
+    return [r for r in anchored_rows(db, chat_id, kind, target) if r["anchor_id"] in path_ids]
+
+
+def put_anchored(db: Database, chat_id: str, kind: str, target: str, text: str, anchor_id: str, *, by: str,
+                 locked: bool = False, made_from: str = "") -> str:
+    """A new version of a layer or a line, anchored at `anchor_id`. Older versions of the target past
+    2 x KEEP_VERSIONS (all branches together) are dropped."""
+    if kind not in ANCHORED:
+        raise ValueError(kind)
+    text_id = new_id()
+    with db.transaction() as conn:
+        conn.execute(f"INSERT INTO {TEXTS} (id, chat_id, kind, target, anchor_id, made_from, text, made_by, locked, "
+                     "is_current, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                     (text_id, chat_id, kind, target, anchor_id, made_from, text, by, int(locked), now_iso()))
+        conn.execute(f"DELETE FROM {TEXTS} WHERE chat_id = ? AND kind = ? AND target = ? AND id NOT IN "
+                     f"(SELECT id FROM {TEXTS} WHERE chat_id = ? AND kind = ? AND target = ? "
+                     f"ORDER BY created_at DESC, rowid DESC LIMIT {KEEP_VERSIONS * 2})",
+                     (chat_id, kind, target, chat_id, kind, target))
+    return text_id
+
+
+def set_text_lock(db: Database, text_id: str, locked: bool) -> None:
+    db.execute(f"UPDATE {TEXTS} SET locked = ? WHERE id = ?", (int(locked), text_id))
+
+
+def layer_runs(db: Database, chat_id: str) -> dict[str, dict[str, Any]]:
+    """chapter id -> {state, error, tries, failed_at} of the development step."""
+    rows = db.fetchall(f"SELECT chapter_id, state, error, tries, updated_at FROM {LAYER_RUNS} WHERE chat_id = ?",
+                       (chat_id,))
+    return {r["chapter_id"]: {"state": r["state"], "error": r["error"], "tries": int(r["tries"]),
+                              "failed_at": r["updated_at"] if r["state"] == "failed" else ""} for r in rows}
+
+
+def put_layer_run(db: Database, chat_id: str, chapter_id: str, state: str, error: str = "") -> None:
+    """The development step of a chapter is done, or failed once more (tries + 1)."""
+    db.execute(
+        f"INSERT INTO {LAYER_RUNS} (chapter_id, chat_id, state, error, tries, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(chapter_id) DO UPDATE SET state = excluded.state, error = excluded.error, "
+        f"tries = CASE WHEN excluded.state = 'failed' THEN {LAYER_RUNS}.tries + 1 ELSE 0 END, "
+        "updated_at = excluded.updated_at",
+        (chapter_id, chat_id, state, (error or "")[:300], 1 if state == "failed" else 0, now_iso()))

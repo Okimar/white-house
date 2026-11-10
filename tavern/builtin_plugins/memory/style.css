@@ -25,3 +25,5 @@
 .memory-versions li { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .memory-member { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; border-top: 1px solid var(--line); }
 .memory-member strong { flex: 1 1 100%; padding-top: 8px; }
+.memory-transfer { display: flex; flex-direction: column; gap: 8px; }
+.memory-transfer button { min-height: var(--tap); }

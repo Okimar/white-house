@@ -1,11 +1,11 @@
 # 0019. Memory++: chapters, summaries, character development and threads, as a built-in plugin
 
-Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3 done 2026-11-10 (see «M1 done», «M2 done» and «M3 done» in
-section 7). Builds on 0004 (character tree, vectors), 0006
+Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3 and M4 done 2026-11-10 (see «M1 done», «M2 done», «M3 done»
+and «M4 done» in section 7). Builds on 0004 (character tree, vectors), 0006
 (lorebooks), 0009 (plugins), 0010 / 0013 (assistant), 0011 (tree of thoughts: an agentic built-in plugin),
 and the foreground rule being built now (`tavern/core/foreground.py`).
 
-Stages M1, M2 and M3 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
+Stages M1 to M4 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
 M1–M8; section 8 lists risks and the owner's answers to the open questions (all decided 2026-11-09).
 
 ## 1. Context
@@ -653,7 +653,8 @@ Under it a folded «Участники» list: each member of the chat with two 
 
 In the mobile-ui order (most used first, details folded):
 - «Включать память в новых чатах» off; «Живой хвост, % окна» 35; «Живой хвост, не меньше сообщений» 10;
-  «Бюджет памяти, токенов» 1500; «Держать найденную главу, ответов» 3.
+  «Бюджет памяти, токенов» 1500 (M4: «не меньше», with «Бюджет памяти, % окна модели» 15); «Держать найденную
+  главу, ответов» 3.
 - (Per chat, in the window: «Память в этом чате»; per member «Помнит всё», «Не наслаивать».)
 - «Сообщений в главе (примерно)» 40; «Границы глав определяет модель» off.
 - «Пересказы глав (нужна модель)» off; «Пересказывать устаревшие сами» off; «Сюжет до сих пор» off.
@@ -815,6 +816,49 @@ screen (no browser, owner's rule 9).
   rewrite; the card and the lorebook rows never change (row hashes before / after) until «Записать в лорбук
   насовсем», which makes one undoable history step; «Не наслаивать» means no layer and no request.
 - Browser: the «Развитие» tab, edit, lock, transfer to another chat.
+
+**M4 done (2026-11-10).** Built: `layers.py` and migration `0004_layers.sql` (`p_memory_layer_runs`: which closed
+chapter the development step worked on, with its failure and tries; an index on `p_memory_texts(chat_id, kind,
+anchor_id)`). Layers and lines are `p_memory_texts` versions (kind `development`, target = character id, the persona's
+character id or `user` in a chat without a «me» member; kind `now_line`, target = lorebook bubble id) anchored at the
+chapter's last message, so the newest version anchored on the branch is the branch's (3.1). Job step 6 (`layers.step`,
+after the summaries and the plot): the next closed chapter in STORY ORDER without a run (with «Пересказы глав» on it
+waits for its summary; a chapter whose summary failed goes by its text) gets ONE request through `job.step` (cancelled at
+once by a user request, redone after): the scene (summary, else the shortened text), each participant without «Не
+наслаивать» and without a lock (name, the card's description, the old layer), and the chat's lorebook bubbles the
+chapter mentions by keywords (`retrieval.keyword_hits`, at most 12, a locked line left out) with their old lines; JSON
+`{"layers": [{"who", "text"}], "now_lines": [{"entry", "line"}]}` (codes C1 / E1, names understood too), present tense,
+the scene's language (one retry with the reason, then the run fails with a backoff, skipped after 3 failures). Self-
+compression: the old layer goes in and the prompt asks to merge and compress; a layer longer than 1.3 × «Длина
+развития» (450) gets one more request «Shorten…» inside the same step, and is cut at a sentence end if still too long.
+Nobody to layer and no bubble mentioned: the run is marked done with no request. In the prompt (`layers.contribute`,
+whatever the window): each prompt member's layer as `Extra(place="after_card", owner=member, drop_rank=60)` labelled
+«Развитие: <name>», text «[<name> сейчас — развитие по ходу истории; где расходится с карточкой, верно это]»; the persona's
+after the persona's card, or in the memory spot when the chat has no «me» member; «Сейчас: …» appended to
+`lore_rewritten[block]` (on top of a regex rewrite) only for bubbles chosen for this reply. The window's «Развитие» tab:
+a card per character and «Я» (text, «Сохранить» = a new locked version, «🔒», «Версии» / «Вернуть эту», «Перенести в
+другой чат…» with the app's `Select`, «Не наслаивать»), then the branch's «Сейчас:» lines («Сохранить» = lock,
+«Удалить» = an empty version, «Записать в лорбук насовсем» after `ask`); hand edits share the window's one «↶». «Записать
+в лорбук насовсем»: `backups.before("memory-now-line")`, then `character_tree.update_block` (one lorebook history step,
+undone there), then an empty version so the line is not appended twice. Settings (off): «Развитие персонажей», «Строки
+«Сейчас:» для лорбуков», «Длина развития, токенов» (450), own connection / model for development (role → «Модель для
+памяти» → the chat's). Budget (M3 note 6): new setting «Бюджет памяти, % окна модели» (15); the reserve is
+max(«Бюджет памяти, не меньше токенов» (1500), 15 % of the window): 4 800 tokens for a 32k window (the plot and 3–4
+summaries), the floor for small windows; existing chats keep their number as the floor.
+Choices where the ADR left room: (1) one request per chapter for all its participants and the lines together (the ADR
+read as per participant; one is cheaper and keeps lines and layers consistent); (2) strict story order: a failing chapter
+holds the later ones until its backoff (a layer is built on the previous one), at most 3 tries; (3) a chapter changed
+later (stale, split, merged) is not layered again unless it is a new chapter row; switching the settings on later
+processes all closed chapters of the branch, oldest first; (4) the layer is sent to every reply where that member's
+card is in the prompt, not only when it speaks; settings off = nothing made and nothing sent, hand-written layers
+included; (5) hand edits, versions and lock work like the plot (a new locked version at the branch's anchor; the lock
+toggle is not in «↶»); (6) transfer copies the branch's layer into the other chat at its newest message (`made_by
+transfer`, not locked); the persona's layer goes to the other chat's persona; the other chat must have messages and the
+character; memory there is not switched on by it (the toast says so); (7) one «Сейчас:» line per bubble per branch, a
+newer one replaces it (the model sees the old one); «Удалить» is an empty version (undoable); (8) «Записать в лорбук
+насовсем» is not in the window's «↶» (the lorebook's own history undoes it); (9) the development step uses the
+`development` role's model. Not built (M5+): threads, mini-cards, export of layers and lines, assistant tools, bulk.
+Not seen on screen (no browser, owner's rule 9).
 
 **M5: «Слово и нити».** One agent. Migration 0002, job step 7, vows always in that character's replies, the
 rest by relevance (keywords + vectors of the quote), status per branch, the tab. Tests: a vow goes only to its

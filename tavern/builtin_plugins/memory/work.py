@@ -19,6 +19,9 @@ rate limit or a user's request that cancelled a step loses nothing.
      `job.step`; its summary and a title are kept after the request returned. A failed request marks the chapter and
      the job goes on; the plugin wakes the job again after the backoff (`run` returns the seconds).
   5. «Сюжет до сих пор» (M3): built from the summaries of the branch when it is missing or out of date.
+  6. «Развитие» and «Сейчас:» lines (M4, `layers.step`): the next closed chapter of the branch in story order (after
+     its summary, when summaries are on) gets one request through `job.step`: each participant's layer «how they are
+     now» and a line for the lorebook bubbles the chapter mentions. A failure is retried after a backoff.
   Summaries get their own vectors (`s:<chapter id>`) in step 2, so a summary is found by meaning too.
 Model requests go through ONE client per (connection, model) per run, made with `background=True` (ADR 0019 point H):
 «спрашивать каждый раз» asks once for the run, and with no page open the run waits («ждёт разрешения»).
@@ -40,7 +43,7 @@ from tavern.providers.base import ProviderError
 from tavern.services import cast, embeddings, lorebooks
 from tavern.util.ids import now_iso
 
-from . import borders, chapters, pieces, store, summaries
+from . import borders, chapters, layers, pieces, store, summaries
 
 log = logging.getLogger(__name__)
 
@@ -365,6 +368,12 @@ async def run(api: Any, chat_id: str, job: Any, cache: store.VectorCache | None 
             note = step_note or note
         else:
             outcome, step_note = await plot_step(api, chat_id, path, job, clients)
+            if outcome in ("done", "rate"):
+                continue
+            note = step_note or note
+            outcome, wait, step_note = await layers.step(api, chat_id, path, job, clients)
+            if wait is not None:
+                retry = wait if retry is None else min(retry, wait)
             if outcome in ("done", "rate"):
                 continue
             note = step_note or note

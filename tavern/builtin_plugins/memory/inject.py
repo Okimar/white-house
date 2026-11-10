@@ -21,6 +21,9 @@ What is offered, in this ranking (ADR 0019 4.1):
      it does not fit) its pieces may;
   3. chapters found in one of the last `sticky` replies and not found now, in the form they went then;
   4. pieces of old messages that are in no chapter yet (the job lags, e.g. right after an import).
+Unconditional (M4, `layers.contribute`, whatever the window): each member's «Развитие» right after its card, and the
+«Сейчас:» line of each chosen lorebook bubble appended to its text for this reply (`lore_rewritten`).
+The budget (`budget`): `memory_percent` of the window (15 %), never less than `memory_tokens` (1500).
 Group chats: a chapter goes only to a speaking member who was in it, or one with «Помнит всё»; the plot goes to
 everyone; the user's own turn (impersonation) sees everything.
 Which chapters really went is learned in `prompt.built` (`record_hits`) and kept for the sticky rule.
@@ -37,7 +40,7 @@ from tavern.core.assembly import Extra
 from tavern.core.prompt import estimate_tokens
 from tavern.services import character_tree
 
-from . import chapters, pieces, search, store
+from . import chapters, layers, pieces, search, store
 
 MAX_OFFERS = 40  # chapter / piece offers per reply at most (the assembler sends only what was left out and fits)
 SCAN_CHARS = 4000
@@ -60,6 +63,14 @@ def tail(history: list[dict[str, Any]], max_context: int, percent: float, minimu
     if not taken:
         return None, set()
     return taken[-1], set(taken)
+
+
+def budget(settings: dict[str, Any], max_context: int) -> int:
+    """The memory's own budget: `memory_percent` of the window, but never less than `memory_tokens` (M4: a fixed 1500
+    fitted only one summary and the plot in a large window)."""
+    floor = int(settings.get("memory_tokens") or 0)
+    percent = float(settings.get("memory_percent") or 0)
+    return max(floor, int(max_context * percent / 100))
 
 
 def scan_texts(history: list[dict[str, Any]], count: int) -> list[str]:
@@ -104,6 +115,7 @@ async def contribute(api: Any, cache: store.VectorCache, job: Any, pending: dict
     plot = store.plot_for_path(db, chat_id, {m["id"] for m in history})
     if plot is not None and plot["text"].strip():
         prompt.values["summary"] = plot["text"]  # {{summary}} in a preset, whatever the window
+    layers.contribute(api, job, history)  # M4: development after the cards, «Сейчас:» lines; whatever the window
     if not job.max_context_tokens:
         return
     tail_from, tail_ids = tail(history, job.max_context_tokens, float(settings["tail_percent"]),
@@ -111,7 +123,7 @@ async def contribute(api: Any, cache: store.VectorCache, job: Any, pending: dict
     if tail_from is None:
         return
     prompt.tail_from = tail_from
-    prompt.memory_reserve = int(settings["memory_tokens"])
+    prompt.memory_reserve = budget(settings, job.max_context_tokens)
     generation = store.next_generation(db, chat_id)
     first: list[Offer] = []
     if plot is not None and plot["text"].strip():  # the plot is first in the ranking and first in the block
