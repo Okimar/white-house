@@ -685,11 +685,12 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 .select-btn { justify-content: space-between; gap: 8px; min-width: 0; max-width: 100%; text-align: left; font-weight: normal; background: var(--panel); }
 .select-btn .icon { flex: none; color: var(--text2); }
 .select-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.select-list { position: fixed; z-index: 70; box-sizing: border-box; max-width: calc(100vw - 16px); display: flex; flex-direction: column; padding: 4px;
+.select-list { position: fixed; z-index: 70; box-sizing: border-box; overscroll-behavior: contain; max-width: calc(100vw - 16px); display: flex; flex-direction: column; padding: 4px;
   background: var(--dialog-bg); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--menu-shadow); }
 .select-list:focus { outline: none; }
 .select-filter { flex: none; width: 100%; box-sizing: border-box; margin-bottom: 4px; }
-.select-options { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+/* The list scrolls by itself under a finger and never drags the page with it (core/popup.js holds the rest). */
+.select-options { overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; min-height: 0; }
 .select-option { display: flex; align-items: center; gap: 8px; min-height: var(--tap); padding: 4px 8px; border-radius: var(--radius-sm); cursor: pointer;
   overflow-wrap: anywhere; color: var(--fg); }
 .suggest-option { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; }

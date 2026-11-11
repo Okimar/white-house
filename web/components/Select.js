@@ -6,6 +6,7 @@
 // listbox with options. Long lists (more than FILTER_FROM options) get a filter field.
 import { html, render, useEffect, useLayoutEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { Icon } from "./Icon.js";
+import { holdTouch, keepRowInList, placeList, visibleArea } from "../core/popup.js";
 
 export const FILTER_FROM = 10;
 
@@ -59,31 +60,26 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
 
   useEffect(() => { setActive(q ? 0 : Math.max(0, selectedAt)); }, [q]);
 
+  const side = useRef(null); // "down" / "up": chosen once, kept while it has room
+  const touching = useRef(false); // a finger is on the list: nothing moves under it
   const place = () => {
     const el = panel.current;
-    if (!el || !anchor.isConnected) return;
+    if (!el || !anchor.isConnected || touching.current) return;
     const box = anchor.getBoundingClientRect();
-    const gap = 4;
     const margin = 8;
-    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     el.style.maxHeight = "none";
     el.style.minWidth = `${Math.min(box.width, window.innerWidth - 2 * margin)}px`;
-    const natural = el.offsetHeight;
-    const below = vh - box.bottom - gap - margin;
-    const above = box.top - gap - margin;
-    const down = natural <= below || below >= above;
-    const room = Math.max(120, down ? below : above);
-    const height = Math.min(natural, room);
-    el.style.maxHeight = `${room}px`;
-    const left = Math.min(box.left, window.innerWidth - el.offsetWidth - margin);
-    el.style.left = `${Math.max(margin, left)}px`;
-    el.style.top = `${down ? box.bottom + gap : Math.max(margin, box.top - gap - height)}px`;
+    const at = placeList({ box, natural: el.offsetHeight, width: el.offsetWidth, view: visibleArea(),
+      pageWidth: window.innerWidth, side: side.current, margin, least: 120 });
+    side.current = at.side;
+    el.style.maxHeight = `${at.maxHeight}px`;
+    el.style.left = `${at.left}px`;
+    el.style.top = `${at.top}px`;
   };
   useLayoutEffect(place); // after every render: options may change while it is open
 
   useEffect(() => {
-    const row = list.current && list.current.querySelector('[aria-selected="true"], .active');
-    if (row) row.scrollIntoView({ block: "nearest" });
+    if (list.current) keepRowInList(list.current, list.current.querySelector(".active") || list.current.querySelector('[aria-selected="true"]'));
   }, [active, q]);
 
   // A layout effect, not a plain one: the list is rendered from inside another component's effect, and a plain
@@ -114,18 +110,36 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
         s.onClose();
       }
     };
-    const scrolled = (e) => { if (!panel.current.contains(e.target)) state.current.onClose(); };
+    // The browser scrolls the focused filter field into view while the keyboard opens: not the user's scroll.
+    let moved = 0;
+    const resized = () => { moved = Date.now(); place(); };
+    const scrolled = (e) => {
+      if (panel.current.contains(e.target) || touching.current) return;
+      if (Date.now() - moved < 500) place();
+      else state.current.onClose();
+    };
+    const down = (e) => { if (panel.current.contains(e.target)) touching.current = true; };
+    const up = () => { touching.current = false; };
+    const unhold = holdTouch(panel.current, list.current);
+    const vv = window.visualViewport;
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("pointerup", up, true);
+    document.addEventListener("pointercancel", up, true);
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", key, true);
-    window.addEventListener("resize", place);
+    window.addEventListener("resize", resized);
     document.addEventListener("scroll", scrolled, true);
-    if (window.visualViewport) window.visualViewport.addEventListener("resize", place);
+    if (vv) { vv.addEventListener("resize", resized); vv.addEventListener("scroll", resized); }
     return () => {
+      unhold();
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("pointerup", up, true);
+      document.removeEventListener("pointercancel", up, true);
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", key, true);
-      window.removeEventListener("resize", place);
+      window.removeEventListener("resize", resized);
       document.removeEventListener("scroll", scrolled, true);
-      if (window.visualViewport) window.visualViewport.removeEventListener("resize", place);
+      if (vv) { vv.removeEventListener("resize", resized); vv.removeEventListener("scroll", resized); }
     };
   }, []);
 
@@ -141,7 +155,7 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
         const chosen = r.value === value;
         return html`<div key=${"o" + i} role="option" class=${"select-option" + (chosen ? " selected" : "") + (!r.disabled && mine === active ? " active" : "")}
           data-slot="select-option" aria-selected=${chosen ? "true" : "false"} aria-disabled=${r.disabled ? "true" : undefined}
-          onPointerMove=${() => { if (!r.disabled && active !== mine) setActive(mine); }}
+          onPointerMove=${(e) => { if (e.pointerType === "mouse" && !r.disabled && active !== mine) setActive(mine); }}
           onClick=${() => { if (!r.disabled) onPick(r.value); }}>
           <span class="select-check">${chosen && html`<${Icon} name="check" />`}</span>
           <span class="select-label">${r.label}</span></div>`;

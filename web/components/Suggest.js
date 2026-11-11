@@ -4,76 +4,98 @@
 // onInput / onChange get { target: { value } } as with a native input; picking a row calls both (the value is set,
 // then the same save as after leaving the field). The list lives at the end of <body> like Select's, opens under
 // the field or above it, fits the visible height (keyboard open), and closes on a tap outside, on scrolling the
-// page, on Esc / Tab. The field keeps focus: rows swallow pointerdown so blur does not eat the tap.
+// page, on Esc / Tab. The field keeps focus: rows swallow pointerdown so blur does not eat the tap. Placement and
+// touch handling are shared with Select (core/popup.js): the list stays still under a finger, scrolls by itself,
+// and never pans the page.
 import { html, render, useEffect, useLayoutEffect, useRef, useState } from "../vendor/preact-htm.mjs";
+import { holdTouch, keepRowInList, placeList, visibleArea } from "../core/popup.js";
 
 const MAX_ROWS = 200;
 let host = null;
 let closeCurrent = null;
 let seq = 0;
+let pressing = false; // a finger or the mouse is down on the open list: a blur then is not "leaving the field"
 
 function Panel({ anchor, rows, active, listId, onActive, onPick, onClose }) {
   const panel = useRef(null);
+  const list = useRef(null);
   const state = useRef({});
   state.current = { onClose };
   const born = useRef(Date.now());
   const moved = useRef(Date.now());
+  const side = useRef(null); // "down" / "up": chosen once, kept while it has room (no flipping while the keyboard moves)
+  const touching = useRef(false); // a finger is on the list: nothing moves under it
 
   const place = () => {
     const el = panel.current;
-    if (!el || !anchor.isConnected) return;
+    if (!el || !anchor.isConnected || touching.current) return;
     const box = anchor.getBoundingClientRect();
-    const gap = 4;
     const margin = 8;
-    const vv = window.visualViewport;
-    const vh = vv ? vv.height : window.innerHeight;
     el.style.maxHeight = "none";
     el.style.width = `${Math.min(Math.max(box.width, 260), window.innerWidth - 2 * margin)}px`;
-    const natural = el.offsetHeight;
-    const below = vh - box.bottom - gap - margin;
-    const above = box.top - gap - margin;
-    const down = natural <= below || below >= above;
-    const room = Math.max(88, down ? below : above);
-    const height = Math.min(natural, room);
-    el.style.maxHeight = `${room}px`;
-    const left = Math.min(box.left, window.innerWidth - el.offsetWidth - margin);
-    el.style.left = `${Math.max(margin, left)}px`;
-    el.style.top = `${down ? box.bottom + gap : Math.max(margin, box.top - gap - height)}px`;
+    const at = placeList({ box, natural: el.offsetHeight, width: el.offsetWidth, view: visibleArea(),
+      pageWidth: window.innerWidth, side: side.current, margin });
+    side.current = at.side;
+    el.style.maxHeight = `${at.maxHeight}px`;
+    el.style.left = `${at.left}px`;
+    el.style.top = `${at.top}px`;
   };
   useLayoutEffect(place);
 
   useEffect(() => {
-    const row = panel.current && panel.current.querySelector(".active");
-    if (row) row.scrollIntoView({ block: "nearest" });
+    if (list.current) keepRowInList(list.current, list.current.querySelector(".active"));
   }, [active]);
 
   useLayoutEffect(() => {
     const outside = (e) => { if (!panel.current.contains(e.target) && !anchor.contains(e.target)) state.current.onClose(); };
     // The browser scrolls a focused field into view while the keyboard opens: that is not the user's scroll.
     const scrolled = (e) => {
-      if (panel.current.contains(e.target)) return;
+      if (panel.current.contains(e.target) || touching.current) return;
       if (Date.now() - Math.max(born.current, moved.current) < 500) place();
       else state.current.onClose();
     };
     const resized = () => { moved.current = Date.now(); place(); };
+    const down = (e) => {
+      if (!panel.current.contains(e.target)) return;
+      touching.current = true;
+      pressing = true;
+    };
+    const up = () => {
+      if (!touching.current) return;
+      // The click that picks a row comes after pointerup; the blur guard holds a moment longer.
+      touching.current = false;
+      setTimeout(() => { pressing = false; }, 400);
+    };
+    const unhold = holdTouch(panel.current, list.current);
     document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("pointerup", up, true);
+    document.addEventListener("pointercancel", up, true);
     document.addEventListener("scroll", scrolled, true);
     window.addEventListener("resize", resized);
-    if (window.visualViewport) window.visualViewport.addEventListener("resize", resized);
+    const vv = window.visualViewport;
+    if (vv) { vv.addEventListener("resize", resized); vv.addEventListener("scroll", resized); }
     return () => {
+      unhold();
+      if (touching.current) setTimeout(() => { pressing = false; }, 400);
       document.removeEventListener("pointerdown", outside, true);
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("pointerup", up, true);
+      document.removeEventListener("pointercancel", up, true);
       document.removeEventListener("scroll", scrolled, true);
       window.removeEventListener("resize", resized);
-      if (window.visualViewport) window.visualViewport.removeEventListener("resize", resized);
+      if (vv) { vv.removeEventListener("resize", resized); vv.removeEventListener("scroll", resized); }
     };
   }, []);
 
+  // Rows swallow pointerdown / mousedown so the field keeps focus (and the keyboard stays) until the click picks.
+  // Hover marks a row only for a mouse: a finger sliding over rows is a scroll, not a choice.
   return html`<div ref=${panel} class="select-list suggest-list" data-slot="suggest-list"
-    onPointerDown=${(e) => e.preventDefault()}>
-    <div class="select-options" role="listbox" id=${listId} aria-label=${anchor.getAttribute("aria-label") || undefined}>
+    onPointerDown=${(e) => e.preventDefault()} onMouseDown=${(e) => e.preventDefault()}>
+    <div ref=${list} class="select-options" role="listbox" id=${listId} aria-label=${anchor.getAttribute("aria-label") || undefined}>
       ${rows.map((r, i) => html`<div key=${r.id} id=${listId + "-" + i} role="option" aria-selected=${i === active ? "true" : "false"}
         class=${"select-option suggest-option" + (i === active ? " active" : "")} data-slot="select-option"
-        onPointerMove=${() => { if (active !== i) onActive(i); }}
+        onPointerMove=${(e) => { if (e.pointerType === "mouse" && active !== i) onActive(i); }}
         onClick=${() => onPick(r.id)}>
         <span class="suggest-id">${r.id}</span>
         ${r.name && html`<span class="suggest-name muted">${r.name}</span>`}</div>`)}
@@ -156,6 +178,6 @@ export function Suggest({ value, options, onInput, onChange, disabled, ...rest }
     onFocus=${() => { setActive(-1); setOpen(true); }}
     onInput=${(e) => { setText(e.target.value); setDirty(true); setActive(-1); setOpen(true); if (onInput) onInput(e); }}
     onChange=${onChange}
-    onBlur=${() => setOpen(false)}
+    onBlur=${() => { if (!pressing) setOpen(false); }}
     onKeyDown=${onKeyDown} />`;
 }

@@ -178,6 +178,7 @@ tavern/                 Python package (backend)
                         picture goes to the model's next call as an image part, never kept; web/core/capture.js draws the page
                         (vendored modern-screenshot; phone / tablet in a hidden same-origin frame `/?capture=1`)
   web/components/Select.js  own drop-down instead of the native <select> (themed, filter, keys); never add a native <select>
+  web/core/popup.js     where Select / Suggest lists open (visible part with the keyboard, side kept) and touch held in the list
   web/core/layout.js, choice.js  menu layout (top / side, folded) and the «choice» setting control
   builtin_plugins/memory  «🧠 Память++» (ADR 0019, M1): pieces.py (cut messages, keywords, each speaker's latest left out),
                         store.py (own tables p_memory_*, vector cache), search.py (keywords + vectors, bounded cost), inject.py

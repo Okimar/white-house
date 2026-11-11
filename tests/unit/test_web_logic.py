@@ -59,3 +59,42 @@ def test_every_icon_named_in_the_page_exists() -> None:
             used.add(next(g for g in match.groups() if g))
     assert used, "the pattern found no icons"
     assert not sorted(used - known), sorted(used - known)
+
+
+def place(**args: object) -> dict:
+    return run_module(
+        'import { placeList } from "./core/popup.js";'
+        f"console.log(JSON.stringify(placeList({json.dumps(args)})))"
+    )
+
+
+@needs_node
+def test_list_above_a_field_stays_inside_the_visible_part_when_the_keyboard_pans_the_page() -> None:
+    # Tablet, keyboard open: Chrome shows layout rows 500..1100; the field sits at 900..944, many models.
+    got = place(box={"top": 900, "bottom": 944, "left": 20}, natural=4000, width=300,
+                view={"top": 500, "height": 600}, pageWidth=768)
+    assert got["side"] == "up"
+    assert got["top"] >= 508  # never above the visible part (it was placed at 8 before)
+    assert got["top"] + got["maxHeight"] <= 900
+
+
+@needs_node
+def test_the_chosen_side_is_kept_while_it_has_room() -> None:
+    # Opened below; the keyboard then takes some room but three rows still fit under the field: no flip.
+    got = place(box={"top": 300, "bottom": 344, "left": 20}, natural=4000, width=300,
+                view={"top": 0, "height": 600}, pageWidth=768, side="down")
+    assert got["side"] == "down" and got["top"] == 348
+    # Without a chosen side the bigger room wins (above here: 288 against 244).
+    assert place(box={"top": 300, "bottom": 344, "left": 20}, natural=4000, width=300,
+                 view={"top": 0, "height": 600}, pageWidth=768)["side"] == "up"
+    # Too little room left under it: it moves above.
+    got = place(box={"top": 500, "bottom": 544, "left": 20}, natural=4000, width=300,
+                view={"top": 0, "height": 600}, pageWidth=768, side="down")
+    assert got["side"] == "up"
+
+
+@needs_node
+def test_list_never_goes_past_the_right_edge() -> None:
+    got = place(box={"top": 100, "bottom": 144, "left": 700}, natural=200, width=300,
+                view={"top": 0, "height": 1280}, pageWidth=768)
+    assert got["left"] + 300 <= 768 - 8
