@@ -140,6 +140,29 @@ body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
   border-top: 1px solid var(--line); background: var(--composer-bg); box-shadow: var(--shadow);
 }
 .composer textarea { flex: 1 0 100%; min-width: 0; resize: none; max-height: 40vh; }
+/* Marks of plugin helpers (spelling) in the message box: a layer over the textarea with the same box, font and
+   wrapping (Composer.js copies them); its text is clear, only the wavy underlines show; it never takes a touch. */
+.composer { position: relative; }
+.composer-marks { position: absolute; overflow: hidden; pointer-events: none; z-index: 1; }
+.composer-marks-text { box-sizing: border-box; margin: 0; border: 0; color: transparent; -webkit-text-fill-color: transparent;
+  white-space: pre-wrap; overflow-wrap: break-word; }
+.composer-mark { text-decoration-line: underline; text-decoration-style: wavy; text-decoration-color: var(--danger);
+  text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
+.composer-mark[data-kind="grammar"], .composer-mark[data-kind="punctuation"] { text-decoration-color: var(--warning); }
+.composer-hint { flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--text-sm); }
+.composer-hint span { flex: 1 1 200px; min-width: 0; }
+.composer-hint button { min-height: var(--tap); }
+/* The menu of one mark (corrections, «Пропустить», «В словарь»), placed by core/popup.js above the word. */
+.mark-menu { position: fixed; z-index: 65; box-sizing: border-box; display: flex; flex-direction: column; padding: 4px;
+  min-width: 160px; max-width: min(280px, calc(100vw - 16px)); overflow-y: auto; overscroll-behavior: contain;
+  touch-action: pan-y; background: var(--dialog-bg); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--menu-shadow); }
+.mark-menu-title { padding: 4px 8px; font-size: var(--text-sm); }
+.mark-menu-option { display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: var(--tap);
+  padding: 4px 8px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg); text-align: left;
+  font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
+.mark-menu-option.quiet { font-size: var(--text-sm); font-weight: normal; color: var(--text2); }
+.mark-menu-option:hover, .mark-menu-option:focus-visible { background: var(--raised); }
 .composer-tools { display: flex; align-items: center; gap: 4px; width: 100%; }
 
 .overlay { position: fixed; inset: 0; background: var(--overlay-bg); display: grid; place-items: center; padding: 12px; z-index: 20; }

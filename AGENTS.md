@@ -209,7 +209,10 @@ tavern/                 Python package (backend)
                         hand edit = lock, versions, delete / restore, merge, make real via `t.openCharacter`),
                         migrations/0006_faces.sql; the «Лица» tab. One «Модель для памяти» for every task (setting type
                         `model` with `connection_key`: plugins/manifest.py, Plugins.js `ModelField`)
-  builtin_plugins/spelling  spelling strip above the chat message box; first user of t.composerHelper / t.composer
+  builtin_plugins/spelling  spelling: mistakes underlined in the chat message box (view() `marks`, drawn by Composer.js on a
+                        layer over the textarea, web/core/textMarks.js; a tap opens corrections / «Пропустить» / «В словарь»);
+                        engines LanguageTool, Yandex, or a model (connection + model settings, plugin model access, only new
+                        sentences sent, a newer check cancels the older one); off by default, the composer says so once
   skills/*.md           built-in skills now: characters, lorebooks, lorebook-work, regex, unslop, theme-scripts
   services/skills.py    skills (10б): instructions the assistant reads for a kind of work; built-in files in
                         tavern/skills/*.md (English, header name/title/description/audience, parts ## Plan /

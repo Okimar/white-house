@@ -20,7 +20,10 @@
 //     state "wait" | "done" | "error" | ""; everything is plain text, never HTML
 //   t.composerHelper({onText(text, caret), view()}): a strip above the message box. onText runs on
 //     every change of the typed text (it never delays sending); view() returns null or
-//     {note, items: [{label, title, options: [{label, onClick}]}], undo: {label, onClick}} (plain text);
+//     {note, items: [{label, title, options: [{label, onClick}]}], undo: {label, onClick},
+//      marks: [{start, end, word, kind, title, options: [{label, onClick}]}]} (plain text). marks are ranges of
+//     the CURRENT text (view() runs while the box renders, t.composer.text() is already the new text): drawn as
+//     wavy underlines in the box (kind "spelling" | "grammar" | "punctuation"), a tap on one opens its options;
 //     t.composer.text() / .caret() / .replace([{start, end, text}], caret?) read and edit the box
 //     (the caret stays where it was unless `caret` is given); call t.refresh() to redraw the strip
 //   t.window({icon, title, render(ui), button}) -> {open(), close()}: a window of the plugin (a full-height sheet on a
@@ -62,6 +65,9 @@ export function usePluginUi() {
   useEffect(() => { listeners.add(set); return () => listeners.delete(set); }, []);
   return ui;
 }
+
+// A plugin's summary from /api/plugins (on or off, its name), or null: the message box says when spelling is off.
+export function pluginSummary(id) { return current.get(id) || null; }
 
 // The message box registers itself here so plugins can read and edit what is typed.
 let composerBridge = null;

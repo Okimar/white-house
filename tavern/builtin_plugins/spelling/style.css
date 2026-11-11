@@ -1,11 +1,9 @@
+/* ✎ Орфография: the strip above the message box now holds only a quiet note (why the check does not work) and
+   «Вернуть исправление»; the mistakes themselves are underlined in the box (styles.css: composer-mark, mark-menu). */
 .composer-helper[data-plugin="spelling"] {
   flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0;
 }
-.composer-helper[data-plugin="spelling"] .composer-helper-item { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .composer-helper[data-plugin="spelling"] button {
   min-height: var(--tap); padding: 0 10px; max-width: 100%; overflow-wrap: anywhere;
 }
-.composer-helper[data-plugin="spelling"] .composer-helper-chip {
-  border-style: dashed; border-color: var(--danger, #c0392b); text-decoration: underline wavy var(--danger, #c0392b);
-}
-.composer-helper[data-plugin="spelling"] .composer-helper-note { font-size: var(--text-sm); }
+.composer-helper[data-plugin="spelling"] .composer-helper-note { font-size: var(--text-sm); overflow-wrap: anywhere; }

@@ -169,3 +169,5 @@ Example: `tavern/builtin_plugins/memory/web.js`.
 ## Composer helper (2026-11-07)
 
 `t.composerHelper({onText(text, caret), view()})` draws a strip above the chat message box; `t.composer.text()/.caret()/.replace(edits, caret?)` read and edit the box. Only the chat composer is bridged, not the assistant's box. Example: tavern/builtin_plugins/spelling.
+
+Marks (2026-11-11): `view()` may return `marks: [{start, end, word, kind, title, options: [{label, onClick, quiet?}]}]`, ranges of the CURRENT text (view() runs while the box renders, so `t.composer.text()` is already the new text: move your ranges to it there, as spelling's `shiftRanges` does, or the underline lags a frame). The composer draws them as wavy underlines on a layer over the textarea (kind `spelling` red, `grammar` / `punctuation` amber) and opens a small menu of `options` when a tap leaves the caret in a mark; focus stays in the box, so the keyboard stays open. The strip is shown only when there is a `note`, `items` or `undo`.

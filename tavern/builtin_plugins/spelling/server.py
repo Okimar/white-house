@@ -1,8 +1,10 @@
-"""✎ Орфография: spell checking of what is typed in the message box, no model, no key, no spending.
+"""✎ Орфография: spell checking of what is typed in the message box.
 
 The text goes to an outside service (LanguageTool by default, Yandex Speller as the other choice,
-or the person's own server through the address setting): only the text of the message box, never
-the chat. Before it leaves, code, links, e-mails and macros like {{char}} are blanked out with
+or the person's own server through the address setting), or to a model of the person's own connection
+(engine «model», through the plugin's model access: allowed in Settings → «Дополнения», its limits and
+spending): only the text of the message box, never the chat. Dictionary services only see words that do
+not exist; a model also sees real words in the wrong place («Привит я бола» → «Привет, я была»). Before it leaves, code, links, e-mails and macros like {{char}} are blanked out with
 spaces (offsets stay the same), and only the last `max_chars` characters are sent. The page asks
 after a pause in typing; this part only builds the request, reads the answer and decides which
 mistakes to show (not names, not the person's dictionary, not odd words) and which are sure enough
@@ -11,6 +13,7 @@ for automatic correction.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from difflib import SequenceMatcher
 from typing import Any
@@ -44,6 +47,46 @@ PROTECTED = re.compile(
     re.DOTALL,
 )
 SENTENCE_END = ".!?…\n"
+
+
+MODEL_CACHE_SIZE = 200   # sentences already checked by the model (per connection, model, language)
+MODEL_MAX_LINES = 12     # sentences in one model request; older ones wait for the next pause
+MODEL_MAX_TOKENS = 700
+MAX_WRONG = 60
+LANGUAGE_NAMES = {"auto": "Russian or English", "ru": "Russian", "en": "English", "uk": "Ukrainian"}
+KINDS = ("spelling", "grammar", "punctuation")
+_model_cache: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+
+MODEL_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"items": {"type": "array", "maxItems": 40, "items": {
+        "type": "object",
+        "properties": {
+            "n": {"type": "integer"},
+            "start": {"type": "integer"},
+            "end": {"type": "integer"},
+            "wrong": {"type": "string"},
+            "variants": {"type": "array", "items": {"type": "string"}},
+            "kind": {"type": "string", "enum": list(KINDS)},
+        },
+        "required": ["n", "start", "end", "wrong", "variants", "kind"],
+        "additionalProperties": False,
+    }}},
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+MODEL_SYSTEM = """You proofread chat messages a person is typing ({language}). Find:
+- spelling mistakes and typos, INCLUDING typos that make another real word ("Привит я бола" means "Привет, я была": both "Привит" and "бола" are mistakes);
+- grammar mistakes (agreement, case, gender, verb forms);
+- clearly missing or wrong punctuation.
+Leave alone: style, word choice, slang or casual spelling used on purpose, roleplay actions in *asterisks*, and these names: {names}.
+Each line is "N: text". For every mistake give:
+n = the line number; wrong = the exact fragment as written, as short as possible (usually one word, never a whole sentence);
+start, end = character offsets of `wrong` inside that line's text (0-based, end exclusive);
+variants = 1 to 5 corrections of that fragment only, best first, same language;
+kind = spelling | grammar | punctuation (a missing comma: wrong = the word before it, variant = the word with the comma).
+No mistakes: {{"items": []}}."""
 
 
 class SpellingFailed(AppError):
@@ -274,6 +317,122 @@ async def check(text: str, settings: dict[str, Any], names: list[str]) -> list[d
     return select(issues, text, dictionary=settings.get("dictionary", ""), names=names, offset=offset)
 
 
+# -- the model as the checker ---------------------------------------------------------------------
+
+
+def sentences(masked: str, offset: int = 0) -> list[tuple[int, str]]:
+    """(absolute start, text) of each sentence with letters in `masked[offset:]`, trimmed, one line each."""
+    out = []
+    for m in re.finditer(r"[^.!?…\n]+[.!?…]*", masked[offset:]):
+        piece = m.group(0)
+        lead = len(piece) - len(piece.lstrip())
+        piece = piece.strip()
+        if piece and any(c.isalpha() for c in piece):
+            out.append((offset + m.start() + lead, piece))
+    return out
+
+
+def model_messages(lines: list[str], language: str, names: list[str]) -> list[Any]:
+    from tavern.providers.base import ChatMessage
+
+    shown = ", ".join(dict.fromkeys(n for n in names if n))[:400] or "(none)"
+    system = MODEL_SYSTEM.format(language=LANGUAGE_NAMES.get(language, LANGUAGE_NAMES["auto"]), names=shown)
+    return [ChatMessage("system", system),
+            ChatMessage("user", "\n".join(f"{i}: {line}" for i, line in enumerate(lines, 1)))]
+
+
+def place(line: str, wrong: str, hint: Any) -> tuple[int, int] | None:
+    """Where `wrong` really is in the line: at the model's offset when it matches, else the occurrence
+    nearest to it; None when the fragment is not in the line at all (the model made it up)."""
+    if isinstance(hint, int) and not isinstance(hint, bool) and 0 <= hint and line[hint:hint + len(wrong)] == wrong:
+        return hint, hint + len(wrong)
+    found = [m.start() for m in re.finditer(re.escape(wrong), line)]
+    if not found:
+        return None
+    near = hint if isinstance(hint, int) and not isinstance(hint, bool) else 0
+    at = min(found, key=lambda f: abs(f - near))
+    return at, at + len(wrong)
+
+
+def read_model(value: Any, lines: list[str]) -> list[list[dict[str, Any]]]:
+    """The model's answer as mistakes per line ({start, end, word, suggestions, kind}, offsets in the line).
+    Items whose `wrong` is not in the line, without corrections or overlapping an earlier one are dropped."""
+    per_line: list[list[dict[str, Any]]] = [[] for _ in lines]
+    items = value.get("items") if isinstance(value, dict) else None
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        n, wrong = item.get("n"), item.get("wrong")
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= len(lines) or not isinstance(wrong, str):
+            continue
+        wrong = wrong.strip()
+        if not wrong or len(wrong) > MAX_WRONG:
+            continue
+        span = place(lines[n - 1], wrong, item.get("start"))
+        if span is None:
+            continue
+        variants = [v.strip() for v in item.get("variants") or [] if isinstance(v, str) and v.strip() and len(v) <= 80]
+        variants = [v for v in dict.fromkeys(variants) if v != wrong][:MAX_SUGGESTIONS]
+        if not variants:
+            continue
+        found = per_line[n - 1]
+        if any(span[0] < f["end"] and span[1] > f["start"] for f in found):
+            continue
+        kind = item.get("kind") if item.get("kind") in KINDS else "spelling"
+        found.append({"start": span[0], "end": span[1], "word": wrong, "suggestions": variants, "kind": kind})
+    return per_line
+
+
+async def model_check(text: str, settings: dict[str, Any], names: list[str], llm: Any) -> list[dict[str, Any]]:
+    """Mistakes of `text` found by a model (absolute positions, filtered like the services' ones). Only the
+    sentences not checked before go out, in one request; `llm` is the plugin's model client."""
+    if not text.strip() or text.lstrip().startswith("/"):
+        return []
+    offset, _ = window(text, settings.get("max_chars", 1500))
+    found = sentences(mask(text), offset)
+    language = settings.get("language", "auto")
+    base = (settings.get("connection", ""), settings.get("model", ""), language)
+    todo = list(dict.fromkeys(line for _, line in found if base + (line,) not in _model_cache))[-MODEL_MAX_LINES:]
+    if todo:
+        value = await llm.generate_json(model_messages(todo, language, names), schema=MODEL_SCHEMA,
+                                        max_tokens=MODEL_MAX_TOKENS, temperature=0)
+        for line, issues in zip(todo, read_model(value, todo)):
+            if len(_model_cache) >= MODEL_CACHE_SIZE:
+                _model_cache.pop(next(iter(_model_cache)))
+            _model_cache[base + (line,)] = issues
+    issues: list[dict[str, Any]] = []
+    for start, line in found:
+        for item in _model_cache.get(base + (line,), []):
+            issues.append({**item, "start": item["start"] + start, "end": item["end"] + start})
+    return select(issues, text, dictionary=settings.get("dictionary", ""), names=names)
+
+
+class Latest:
+    """Only the newest model check runs: a new one cancels the one still waiting for the model (the person
+    typed on), and the cancelled caller gets "stale". Saves the model's time and the person's money."""
+
+    def __init__(self) -> None:
+        self.task: asyncio.Future[Any] | None = None
+
+    async def run(self, work: Any) -> tuple[bool, Any]:
+        """(fresh, result): fresh is False when a newer check replaced this one."""
+        task = asyncio.ensure_future(work)
+        previous, self.task = self.task, task
+        if previous is not None and not previous.done():
+            previous.cancel()
+        try:
+            await asyncio.wait({task})
+        except asyncio.CancelledError:  # the request itself went away
+            task.cancel()
+            raise
+        finally:
+            if self.task is task and task.done():
+                self.task = None
+        if task.cancelled():
+            return False, None
+        return True, task.result()
+
+
 def clean_word(word: Any) -> str:
     word = str(word or "").strip()
     if not word or len(word) > 60 or any(c.isspace() for c in word):
@@ -291,6 +450,19 @@ def add_to_dictionary(raw: str, word: str) -> str:
 
 
 def setup(api: Any) -> None:
+    latest = Latest()
+    clients: dict[tuple[str, str, str], Any] = {}
+
+    def client_for(chat_id: str) -> Any:
+        """One model client per (connection, model, chat): «спрашивать каждый раз» asks once for it, not at
+        every pause in typing (background=True); the permission and the money limits apply to every request."""
+        key = (str(api.settings.get("connection") or ""), str(api.settings.get("model") or ""), chat_id)
+        if key not in clients:
+            if len(clients) > 16:
+                clients.clear()
+            clients[key] = api.llm(connection_id=key[0], model=key[1], chat_id=chat_id or None, background=True)
+        return clients[key]
+
     def names_of(chat_id: str) -> list[str]:
         if not chat_id:
             return []
@@ -304,11 +476,23 @@ def setup(api: Any) -> None:
             return []
 
     async def act_check(payload: dict[str, Any]) -> dict[str, Any]:
-        """{text, chat_id} -> {issues: [{start, end, word, suggestions, sure}]}; the page sends only the typed text."""
+        """{text, chat_id} -> {issues: [{start, end, word, suggestions, sure, kind?}], stale?}; the page sends only
+        the typed text. stale: a newer check replaced this one while it waited for the model."""
         text = payload.get("text")
         if not isinstance(text, str):
             raise SpellingFailed("Нет текста для проверки")
-        issues = await check(text, api.settings, names_of(str(payload.get("chat_id") or "")))
+        chat_id = str(payload.get("chat_id") or "")
+        settings = api.settings
+        if settings.get("engine") != "model":
+            return {"issues": await check(text, settings, names_of(chat_id))}
+
+        async def work() -> list[dict[str, Any]]:
+            return await model_check(text, settings, names_of(chat_id), client_for(chat_id))
+
+        # A refusal (no permission, a limit) and a failing model are AppErrors with a message the page shows.
+        fresh, issues = await latest.run(work())
+        if not fresh:
+            return {"issues": [], "stale": True}
         return {"issues": issues}
 
     def act_add_word(payload: dict[str, Any]) -> dict[str, Any]:
