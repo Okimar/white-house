@@ -1,10 +1,14 @@
 """✎ Орфография: spell checking of what is typed in the message box.
 
 The text goes to an outside service (LanguageTool by default, Yandex Speller as the other choice,
-or the person's own server through the address setting), or to a model of the person's own connection
-(engine «model», through the plugin's model access: allowed in Settings → «Дополнения», its limits and
+or the person's own server through the address setting), and with the engine «model» also to a model of the
+person's own connection (through the plugin's model access: allowed in Settings → «Дополнения», its limits and
 spending): only the text of the message box, never the chat. Dictionary services only see words that do
-not exist; a model also sees real words in the wrong place («Привит я бола» → «Привет, я была»). Before it leaves, code, links, e-mails and macros like {{char}} are blanked out with
+not exist; a model also sees real words in the wrong place («Привит я бола» → «Привет, я была»). With the model
+on, the dictionary service still runs (setting `base`): the page asks both apart (part «dict» / «model»), shows
+the dictionary's marks at once and the model's when they come, the model's winning where both mark one place.
+Positions go to the page in UTF-16 units (JavaScript strings), so an emoji before a word does not shift its mark.
+Before it leaves, code, links, e-mails and macros like {{char}} are blanked out with
 spaces (offsets stay the same), and only the last `max_chars` characters are sent. The page asks
 after a pause in typing; this part only builds the request, reads the answer and decides which
 mistakes to show (not names, not the person's dictionary, not odd words) and which are sure enough
@@ -51,7 +55,12 @@ SENTENCE_END = ".!?…\n"
 
 MODEL_CACHE_SIZE = 200   # sentences already checked by the model (per connection, model, language)
 MODEL_MAX_LINES = 12     # sentences in one model request; older ones wait for the next pause
-MODEL_MAX_TOKENS = 700
+# Thinking models (Gemini 2.5 / 3 think by default, and a plugin's client gets none of the connection's thinking
+# settings) count their thinking in this cap: 700 left nothing for the answer, the reply came back empty and the
+# check «did not work». The answer itself is short; the cap only stops a runaway.
+MODEL_MAX_TOKENS = 8000
+MODEL_MAX_ITEMS = 40
+AUTO_MAX_DISTANCE = 2    # the dictionary's autocorrect: at most this many letters changed
 MAX_WRONG = 60
 LANGUAGE_NAMES = {"auto": "Russian or English", "ru": "Russian", "en": "English", "uk": "Ukrainian"}
 KINDS = ("spelling", "grammar", "punctuation")
@@ -59,7 +68,7 @@ _model_cache: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
 
 MODEL_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {"items": {"type": "array", "maxItems": 40, "items": {
+    "properties": {"items": {"type": "array", "items": {
         "type": "object",
         "properties": {
             "n": {"type": "integer"},
@@ -241,16 +250,35 @@ def keep(issue: dict[str, Any], spans: list[tuple[int, int]], words: set[str], t
     return True
 
 
+def distance(a: str, b: str) -> int:
+    """Letters to add, drop or change to turn `a` into `b` (Levenshtein)."""
+    row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        prev, row[0] = row[0], i
+        for j, cb in enumerate(b, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (ca != cb))
+    return row[-1]
+
+
+# *actions* and quoted speech: the dictionary's autocorrect leaves them as typed (underlines still show).
+QUOTED = re.compile(r'\*[^*\n]+\*|"[^"\n]+"|«[^»\n]+»|“[^”\n]+”|„[^“”\n]+[“”]')
+
+
 def is_sure(issue: dict[str, Any], text: str) -> bool:
-    """Safe to correct without asking: one suggestion, close to the word, not a name-looking word."""
+    """Safe for the dictionary's autocorrect: an obvious typo of one word. One suggestion, itself one word, at most
+    AUTO_MAX_DISTANCE letters away, not a name-looking word, not inside *actions* or quotes."""
     suggestions = issue["suggestions"]
     word = issue["word"]
     if len(suggestions) != 1 or len(word) < 3 or not word.isalpha():
         return False
     suggestion = suggestions[0]
-    if not suggestion.strip() or suggestion.casefold() == word.casefold():
+    if not suggestion.isalpha() or suggestion.casefold() == word.casefold():
+        return False
+    if distance(word.casefold(), suggestion.casefold()) > AUTO_MAX_DISTANCE:
         return False
     if SequenceMatcher(None, word.casefold(), suggestion.casefold()).ratio() < 0.6:
+        return False
+    if any(m.start() <= issue["start"] and issue["end"] <= m.end() for m in QUOTED.finditer(text)):
         return False
     if word[0].isupper():  # a capital letter inside a sentence is most likely a name
         before = text[:issue["start"]].rstrip(" \t")
@@ -271,7 +299,7 @@ def select(issues: list[dict[str, Any]], text: str, *, dictionary: str, names: l
         if keep(item, spans, words, tokens):
             item["sure"] = is_sure(item, text)
             out.append(item)
-    return out
+    return sorted(out, key=lambda i: i["start"])
 
 
 # -- the check ----------------------------------------------------------------------------------
@@ -359,7 +387,7 @@ def read_model(value: Any, lines: list[str]) -> list[list[dict[str, Any]]]:
     Items whose `wrong` is not in the line, without corrections or overlapping an earlier one are dropped."""
     per_line: list[list[dict[str, Any]]] = [[] for _ in lines]
     items = value.get("items") if isinstance(value, dict) else None
-    for item in items if isinstance(items, list) else []:
+    for item in (items if isinstance(items, list) else [])[:MODEL_MAX_ITEMS]:
         if not isinstance(item, dict):
             continue
         n, wrong = item.get("n"), item.get("wrong")
@@ -379,7 +407,8 @@ def read_model(value: Any, lines: list[str]) -> list[list[dict[str, Any]]]:
         if any(span[0] < f["end"] and span[1] > f["start"] for f in found):
             continue
         kind = item.get("kind") if item.get("kind") in KINDS else "spelling"
-        found.append({"start": span[0], "end": span[1], "word": wrong, "suggestions": variants, "kind": kind})
+        found.append({"start": span[0], "end": span[1], "word": wrong, "suggestions": variants, "kind": kind,
+                      "source": "model"})
     return per_line
 
 
@@ -394,8 +423,7 @@ async def model_check(text: str, settings: dict[str, Any], names: list[str], llm
     base = (settings.get("connection", ""), settings.get("model", ""), language)
     todo = list(dict.fromkeys(line for _, line in found if base + (line,) not in _model_cache))[-MODEL_MAX_LINES:]
     if todo:
-        value = await llm.generate_json(model_messages(todo, language, names), schema=MODEL_SCHEMA,
-                                        max_tokens=MODEL_MAX_TOKENS, temperature=0)
+        value = await ask_model(llm, model_messages(todo, language, names))
         for line, issues in zip(todo, read_model(value, todo)):
             if len(_model_cache) >= MODEL_CACHE_SIZE:
                 _model_cache.pop(next(iter(_model_cache)))
@@ -407,30 +435,74 @@ async def model_check(text: str, settings: dict[str, Any], names: list[str], llm
     return select(issues, text, dictionary=settings.get("dictionary", ""), names=names)
 
 
+async def ask_model(llm: Any, messages: list[Any]) -> Any:
+    """The model's JSON answer; its failures become SpellingFailed with the reason in plain Russian (a refusal of
+    the plugin gate, PluginRefused, passes as it is: it already says what to do)."""
+    from tavern.core.llm import StructuredOutputError
+    from tavern.providers.base import ProviderError
+
+    try:
+        return await llm.generate_json(messages, schema=MODEL_SCHEMA, max_tokens=MODEL_MAX_TOKENS, temperature=0)
+    except StructuredOutputError as exc:
+        if not str((exc.details or {}).get("text") or "").strip():
+            raise SpellingFailed("модель прислала пустой ответ (возможно, всё ушло на размышления: "
+                                 "выберите быструю модель без размышлений)") from None
+        raise SpellingFailed("модель ответила не в том виде, попробуйте другую модель") from None
+    except ProviderError as exc:
+        raise SpellingFailed(f"модель не ответила: {exc}") from None
+
+
 class Latest:
-    """Only the newest model check runs: a new one cancels the one still waiting for the model (the person
-    typed on), and the cancelled caller gets "stale". Saves the model's time and the person's money."""
+    """One model check at a time. A newer one waits for the one already asking the model instead of cancelling it:
+    cancelling every older request while the person typed on meant a slow model never finished one, and a
+    «спрашивать каждый раз» question closed under the finger. The finished one fills the sentence memory, so the
+    newer one sends only what is left. Of the checks waiting, only the newest runs; the others get "stale"."""
 
     def __init__(self) -> None:
         self.task: asyncio.Future[Any] | None = None
+        self.newest = 0
 
     async def run(self, work: Any) -> tuple[bool, Any]:
-        """(fresh, result): fresh is False when a newer check replaced this one."""
-        task = asyncio.ensure_future(work)
-        previous, self.task = self.task, task
-        if previous is not None and not previous.done():
-            previous.cancel()
+        """(fresh, result): fresh is False when a newer check came while this one waited its turn."""
+        self.newest += 1
+        mine = self.newest
         try:
-            await asyncio.wait({task})
-        except asyncio.CancelledError:  # the request itself went away
-            task.cancel()
+            while self.task is not None and not self.task.done():
+                await asyncio.wait({self.task})
+        except asyncio.CancelledError:  # the request itself went away while waiting
+            work.close()
             raise
-        finally:
-            if self.task is task and task.done():
-                self.task = None
-        if task.cancelled():
+        if mine != self.newest:
+            work.close()
             return False, None
-        return True, task.result()
+        task = asyncio.ensure_future(work)
+        self.task = task
+        # Shielded: when the page's request goes away the model's answer still lands in the memory.
+        return True, await asyncio.shield(task)
+
+
+def to_units(text: str, issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Positions in `text` (Python characters) -> UTF-16 units, as the page's JavaScript counts them."""
+    if all(ord(c) < 0x10000 for c in text):
+        return issues
+    units = [0]
+    for c in text:
+        units.append(units[-1] + (2 if ord(c) >= 0x10000 else 1))
+    return [{**i, "start": units[i["start"]], "end": units[i["end"]]} for i in issues]
+
+
+def merge(base: list[dict[str, Any]], model: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Both engines' marks without two on one place: the model's win where they overlap."""
+    kept = [i for i in base if not any(i["start"] < m["end"] and i["end"] > m["start"] for m in model)]
+    return sorted(kept + model, key=lambda i: i["start"])
+
+
+def base_settings(settings: dict[str, Any]) -> dict[str, Any] | None:
+    """The dictionary service's settings; None when there is none (the model alone: «base» is "off")."""
+    if settings.get("engine") != "model":
+        return settings
+    base = settings.get("base", "languagetool")
+    return {**settings, "engine": base} if base in DEFAULT_URLS else None
 
 
 def clean_word(word: Any) -> str:
@@ -476,24 +548,37 @@ def setup(api: Any) -> None:
             return []
 
     async def act_check(payload: dict[str, Any]) -> dict[str, Any]:
-        """{text, chat_id} -> {issues: [{start, end, word, suggestions, sure, kind?}], stale?}; the page sends only
-        the typed text. stale: a newer check replaced this one while it waited for the model."""
+        """{text, chat_id, part?} -> {issues: [{start, end, word, suggestions, sure, kind?, source?}], stale?}; the
+        page sends only the typed text. part: "dict" = the dictionary service (fast), "model" = the model; none =
+        both, merged. Positions are UTF-16 units. stale: a newer model check came while this one waited."""
         text = payload.get("text")
         if not isinstance(text, str):
             raise SpellingFailed("Нет текста для проверки")
         chat_id = str(payload.get("chat_id") or "")
         settings = api.settings
-        if settings.get("engine") != "model":
-            return {"issues": await check(text, settings, names_of(chat_id))}
+        part = payload.get("part")
+        model_on = settings.get("engine") == "model"
+        base = base_settings(settings)
+        names = names_of(chat_id)
 
-        async def work() -> list[dict[str, Any]]:
-            return await model_check(text, settings, names_of(chat_id), client_for(chat_id))
+        async def dictionary() -> list[dict[str, Any]]:
+            return await check(text, base, names) if base is not None else []
 
-        # A refusal (no permission, a limit) and a failing model are AppErrors with a message the page shows.
-        fresh, issues = await latest.run(work())
+        async def by_model() -> tuple[bool, list[dict[str, Any]]]:
+            if not model_on:
+                return True, []
+            # A refusal (no permission, a limit) and a failing model are AppErrors with a message the page shows.
+            return await latest.run(model_check(text, settings, names, client_for(chat_id)))
+
+        if part == "dict":
+            return {"issues": to_units(text, await dictionary())}
+        if part == "model":
+            fresh, issues = await by_model()
+            return {"issues": to_units(text, issues)} if fresh else {"issues": [], "stale": True}
+        found, (fresh, issues) = await asyncio.gather(dictionary(), by_model())
         if not fresh:
             return {"issues": [], "stale": True}
-        return {"issues": issues}
+        return {"issues": to_units(text, merge(found, issues))}
 
     def act_add_word(payload: dict[str, Any]) -> dict[str, Any]:
         """{word} -> put the word into the personal dictionary (the plugin's «Свой словарь» setting)."""

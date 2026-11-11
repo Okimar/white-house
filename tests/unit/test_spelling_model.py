@@ -2,7 +2,9 @@
 2026-11-11, «Привит я бола» typed on an Android tablet and nothing happened): every word of that line is a real
 word, so the dictionary services find nothing, and only a model sees the mistakes. Here: sentences, reading the
 model's answer (offsets checked against the text, made-up fragments dropped), only new sentences sent, names and
-the dictionary filtered, a newer check cancelling an older one."""
+the dictionary filtered. Then the owner's report from the tablet: the model check never answered (a thinking model
+spent the whole 700-token cap on thinking), so: room for the answer, failures said plainly, a newer check waiting
+for the running one instead of cancelling it, both engines merged, positions in UTF-16 units for the page."""
 
 from __future__ import annotations
 
@@ -12,7 +14,9 @@ import json
 
 import pytest
 
+from tavern.core.llm import LLMClient
 from tavern.paths import BUILTIN_PLUGINS_DIR
+from tavern.providers.base import GenerationRequest, Provider, ProviderError, StreamEvent, Usage
 
 spec = importlib.util.spec_from_file_location("test_builtin_spelling_model",
                                               BUILTIN_PLUGINS_DIR / "spelling" / "server.py")
@@ -158,32 +162,150 @@ def test_the_schema_is_tight_and_strict():
     json.dumps(sp.MODEL_SCHEMA)
 
 
-# -- a newer check cancels an older one ---------------------------------------------------------------------
+# -- why the model check «did not work» (owner, 2026-11-11, tablet) -------------------------------------------
 
 
-async def test_a_newer_check_cancels_the_one_still_waiting_for_the_model():
+class ThinkingProvider(Provider):
+    """A thinking model (Gemini 2.5 / 3 by default): its thinking counts in maxOutputTokens, so with a small cap the
+    whole budget goes on thinking and the answer comes back empty, as the real service does."""
+
+    kind = "fake"
+    THINKING = 1500
+
+    def __init__(self, answer: str):
+        self.answer = answer
+        self.caps: list[int] = []
+
+    async def stream(self, request: GenerationRequest):
+        self.caps.append(request.max_tokens)
+        if request.max_tokens and request.max_tokens <= self.THINKING:
+            yield StreamEvent("done", usage=Usage(10, request.max_tokens), finish_reason="max_tokens")
+            return
+        yield StreamEvent("text", self.answer)
+        yield StreamEvent("done", usage=Usage(10, self.THINKING + 20), finish_reason="stop")
+
+    async def list_models(self):
+        return []
+
+
+async def test_regression_a_thinking_model_has_room_left_for_the_answer():
+    # 700 tokens all went on thinking: the reply was empty, twice, and the check failed every time.
+    answer = json.dumps(owner_answer([OWNER_TEXT]), ensure_ascii=False)
+    provider = ThinkingProvider(answer)
+    found = await sp.model_check(OWNER_TEXT, settings(), [], LLMClient(provider, model="gemini-3-flash"))
+    assert [i["word"] for i in found] == ["Привит", "бола"]
+    assert provider.caps == [sp.MODEL_MAX_TOKENS] and sp.MODEL_MAX_TOKENS > 4 * ThinkingProvider.THINKING
+
+
+async def test_an_empty_answer_says_why_in_plain_words():
+    provider = ThinkingProvider("{}")
+    provider.THINKING = 10**6  # thinks past any cap
+    with pytest.raises(sp.SpellingFailed, match="пустой ответ"):
+        await sp.model_check("Совсем новая строка", settings(), [], LLMClient(provider, model="m"))
+    provider = ThinkingProvider("не JSON вовсе")
+    with pytest.raises(sp.SpellingFailed, match="не в том виде"):
+        await sp.model_check("Ещё одна строка", settings(), [], LLMClient(provider, model="m"))
+
+
+async def test_a_failing_service_is_said_in_russian_with_its_reason():
+    class Down(FakeModel):
+        async def generate_json(self, messages, **opts):
+            raise ProviderError("Gemini returned 400: API key not valid", reason="auth")
+
+    with pytest.raises(sp.SpellingFailed, match="модель не ответила: Gemini returned 400"):
+        await sp.model_check("Строка", settings(), [], Down(None))
+
+
+# -- one model check at a time, never cancelled ---------------------------------------------------------------
+
+
+async def test_a_newer_check_waits_for_the_running_one_instead_of_cancelling_it():
+    # Cancelling meant a slow model never finished one while the person typed with pauses (and a «спрашивать каждый
+    # раз» question closed under the finger). Now the running one ends and fills the memory; of the ones waiting
+    # only the newest runs.
     latest = sp.Latest()
     started = asyncio.Event()
-    cancelled = []
+    release = asyncio.Event()
+    ran = []
 
     async def slow():
         started.set()
-        try:
-            await asyncio.sleep(10)
-        except asyncio.CancelledError:
-            cancelled.append(True)
-            raise
+        await release.wait()
+        ran.append("old")
         return "old"
 
-    async def quick():
+    async def middle():
+        ran.append("middle")
+        return "middle"
+
+    async def newest():
+        ran.append("new")
         return "new"
 
     first = asyncio.create_task(latest.run(slow()))
     await started.wait()
-    second = await latest.run(quick())
-    assert second == (True, "new")
-    assert await first == (False, None) and cancelled == [True]
-    assert latest.task is None
+    second = asyncio.create_task(latest.run(middle()))
+    third = asyncio.create_task(latest.run(newest()))
+    await asyncio.sleep(0)
+    release.set()
+    assert await first == (True, "old")
+    assert await second == (False, None) and await third == (True, "new")
+    assert ran == ["old", "new"]
+
+
+async def test_a_page_that_went_away_does_not_stop_the_model_answer_landing_in_memory():
+    latest = sp.Latest()
+    release = asyncio.Event()
+    done = []
+
+    async def work():
+        await release.wait()
+        done.append(True)
+        return "x"
+
+    caller = asyncio.create_task(latest.run(work()))
+    await asyncio.sleep(0)
+    caller.cancel()
+    release.set()
+    await asyncio.sleep(0.01)
+    assert done == [True]
+
+
+# -- both engines, positions for the page ---------------------------------------------------------------------
+
+
+def test_marks_of_both_engines_merge_and_the_models_win_on_one_place():
+    base = [{"start": 0, "end": 6, "word": "Привит", "suggestions": ["Привет"]},
+            {"start": 15, "end": 21, "word": "превет", "suggestions": ["привет"]}]
+    model = [{"start": 0, "end": 6, "word": "Привит", "suggestions": ["Привет,"], "source": "model"},
+             {"start": 9, "end": 13, "word": "бола", "suggestions": ["была"], "source": "model"}]
+    got = sp.merge(base, model)
+    assert [(i["word"], i["suggestions"]) for i in got] == [
+        ("Привит", ["Привет,"]), ("бола", ["была"]), ("превет", ["привет"])]
+    assert sp.merge(base, []) == base and sp.merge([], model) == model
+
+
+def test_positions_reach_the_page_in_utf16_units():
+    text = "Ну 😊 Привит я бола"
+    start = text.index("Привит")
+    got = sp.to_units(text, [{"start": start, "end": start + 6, "word": "Привит"}])
+    assert (got[0]["start"], got[0]["end"]) == (start + 1, start + 7)  # the emoji is two units in JavaScript
+    plain = [{"start": 0, "end": 6, "word": "Привит"}]
+    assert sp.to_units("Привит я бола", plain) is plain
+
+
+def test_model_items_are_marked_as_the_models_and_capped():
+    many = {"items": [{"n": 1, "start": 0, "end": 1, "wrong": "а", "variants": ["б"], "kind": "spelling"}] * 100}
+    got = sp.read_model(many, ["а"])[0]
+    assert len(got) == 1 and got[0]["source"] == "model"
+
+
+def test_the_dictionary_service_runs_beside_the_model():
+    assert sp.base_settings(settings())["engine"] == "languagetool"
+    assert sp.base_settings(settings(base="yandex"))["engine"] == "yandex"
+    assert sp.base_settings(settings(base="off")) is None
+    plain = {"engine": "yandex"}
+    assert sp.base_settings(plain) is plain
 
 
 async def test_a_failure_of_the_newest_check_reaches_the_caller():

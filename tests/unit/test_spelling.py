@@ -159,6 +159,18 @@ def test_only_sure_mistakes_are_corrected_automatically():
     assert sure("Превет", "Превет", ["Привет"])
 
 
+def test_the_dictionarys_autocorrect_takes_only_an_obvious_one_word_typo():
+    assert sp.distance("превет", "привет") == 1 and sp.distance("кот", "кто") == 2 and sp.distance("", "аб") == 2
+    assert sure("я пишу превед", "превед", ["привет"])                       # two letters: still obvious
+    assert not sure("я пишу прювэд", "прювэд", ["привет"])                   # three letters
+    assert not sure("я пишу превет", "превет", ["при вет"])                  # never more than one word
+    assert not sure("я пишу превет", "превет", ["привет,"])                  # never punctuation
+    assert not sure("Он *пишет превет* мне", "превет", ["привет"])          # an action
+    assert not sure("Он сказал «превет» мне", "превет", ["привет"])         # quoted speech
+    assert not sure('Он сказал "превет" мне', "превет", ["привет"])
+    assert sure("Он *пишет* превет мне", "превет", ["привет"])              # outside them: fixed
+
+
 def test_select_marks_sure_ones():
     text = "я пишу превет и вот дрязг"
     items = [issue("превет", 7, ["привет"]), issue("дрязг", 20, ["дрязг1", "дрязги"])]

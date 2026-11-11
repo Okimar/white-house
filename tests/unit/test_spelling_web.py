@@ -1,6 +1,9 @@
 """The page side of spelling, run in Node (skipped where it is missing, like Termux): marks layer pieces, the mark
 under the caret, replacements that keep the caret, underlines that move with typing, the «spelling is off» hint,
-and the plugin's web part end to end with a fake `t` (the owner's «Привит я бола»: underlined, tap, pick)."""
+and the plugin's web part end to end with a fake `t` (the owner's «Привит я бола»: underlined, tap, pick). Then the
+owner's tablet report: with the model on, the dictionary still checks (both parts, merged, the model's mark wins),
+one part failing leaves the other, the model's autocorrect applies all it found except the word being typed, the
+dictionary's only its sure typos, and «Вернуть» takes every correction back."""
 
 from __future__ import annotations
 
@@ -138,7 +141,7 @@ const after = helper.view();
 console.log(JSON.stringify({ before, calls, marks, text, replaced, left: after.marks.map((m) => m.word) }));
 """)
     assert got["before"] is None  # nothing before the pause
-    assert got["calls"] == [["check", {"text": "Привит я бола", "chat_id": "c1"}]]
+    assert got["calls"] == [["check", {"text": "Привит я бола", "chat_id": "c1", "part": "dict"}]]
     assert got["marks"] == [
         [0, 6, "Привит", "spelling", "Ошибка в слове", ["Привет,", "Пропустить", "В словарь"]],
         [9, 13, "бола", "grammar", "Грамматика", ["была", "Пропустить", "В словарь"]]]
@@ -174,3 +177,111 @@ const marks = helper.view().marks.map((m) => [m.start, m.end, m.word]);
 console.log(JSON.stringify({ marks }));
 """)
     assert got["marks"] == [[13, 17, "бола"]]
+
+
+# -- both parts, merged; autocorrect by part (owner, 2026-11-11) -----------------------------------------------
+
+
+MODEL_ANSWER = """
+const dictIssues = (text) => {
+  const out = [];
+  for (const [w, s, sure] of [["превет", "привет", true], ["бола", "болта", false]]) {
+    const at = text.indexOf(w);
+    if (at >= 0) out.push({ start: at, end: at + w.length, word: w, suggestions: [s], sure, kind: "spelling" });
+  }
+  return out.sort((a, b) => a.start - b.start);
+};
+const modelIssues = (text) => {
+  const out = [];
+  for (const [w, s, kind] of [["Привит", "Привет,", "spelling"], ["бола", "была", "grammar"], ["ещ", "ещё", "spelling"]]) {
+    const at = text.indexOf(w);
+    if (at >= 0) out.push({ start: at, end: at + w.length, word: w, suggestions: [s], sure: false, kind, source: "model" });
+  }
+  return out;
+};
+let modelWait = 60;
+answer = async (name, payload) => {
+  if (payload.part === "dict") return { issues: dictIssues(payload.text) };
+  await wait(modelWait);
+  return { issues: modelIssues(payload.text) };
+};
+t.settings.engine = "model";
+"""
+
+
+def test_with_the_model_on_the_dictionary_marks_come_first_and_the_models_win_on_one_place():
+    got = run_module(f'import setup from "{PLUGIN}";' + FAKE_T + MODEL_ANSWER + """
+setup(t);
+type("Привит я бола и превет");
+await wait(330);
+const early = helper.view().marks.map((m) => [m.word, m.options[0].label]);
+await wait(100);
+const late = helper.view().marks.map((m) => [m.word, m.options[0].label]);
+console.log(JSON.stringify({ parts: calls.map((c) => c[1].part).sort(), early, late, text }));
+""")
+    assert got["parts"] == ["dict", "model"]
+    assert got["early"] == [["бола", "болта"], ["превет", "привет"]]          # the dictionary at once
+    assert got["late"] == [["Привит", "Привет,"], ["бола", "была"], ["превет", "привет"]]
+    assert got["text"] == "Привит я бола и превет"                             # autocorrect is off
+
+
+def test_one_part_failing_leaves_the_other_and_says_which():
+    got = run_module(f'import setup from "{PLUGIN}";' + FAKE_T + MODEL_ANSWER + """
+answer = async (name, payload) => {
+  if (payload.part === "model") throw new Error("модель прислала пустой ответ");
+  return { issues: dictIssues(payload.text) };
+};
+setup(t);
+type("Это превет");
+await wait(380);
+const view = helper.view();
+console.log(JSON.stringify({ note: view.note, marks: view.marks.map((m) => m.word) }));
+""")
+    assert got["marks"] == ["превет"]
+    assert got["note"].startswith("Проверка моделью не работает: модель прислала пустой ответ.")
+
+
+def test_the_models_autocorrect_applies_everything_but_the_word_being_typed_and_vernut_takes_all_back():
+    got = run_module(f'import setup from "{PLUGIN}";' + FAKE_T + MODEL_ANSWER + """
+t.settings.autocorrect = true;
+setup(t);
+type("Привит я бола и превет и ещ");
+await wait(450);
+const fixed = text;
+const view = helper.view();
+const left = view.marks.map((m) => m.word);
+view.undo.onClick();
+const back = text;
+const after = helper.view();
+console.log(JSON.stringify({ fixed, left, back, after: after && after.marks.map((m) => m.word) }));
+""")
+    # the dictionary fixed its sure «превет» at once; the model then fixed all of its own, but not «ещ» under the caret
+    assert got["fixed"] == "Привет, я была и привет и ещ"
+    assert got["left"] == ["ещ"]
+    assert got["back"] == "Привит я бола и превет и ещ"   # «Вернуть»: every correction taken back
+    assert got["after"] == ["ещ"]                        # the taken-back words are not marked again
+
+
+def test_the_dictionarys_autocorrect_fixes_only_its_sure_typos():
+    got = run_module(f'import setup from "{PLUGIN}";' + FAKE_T + MODEL_ANSWER + """
+t.settings.engine = "languagetool";
+t.settings.autocorrect = true;
+setup(t);
+type("Тут бола и превет и всё");
+await wait(380);
+console.log(JSON.stringify({ text, marks: helper.view().marks.map((m) => m.word), undo: !!helper.view().undo }));
+""")
+    assert got["text"] == "Тут бола и привет и всё"     # «бола» has an unsure suggestion: only underlined
+    assert got["marks"] == ["бола"] and got["undo"] is True
+
+
+def test_merge_and_map_through_edits():
+    got = run_module(f'import {{ mergeMarks, mapThrough }} from "{PLUGIN}";' + """
+const merged = mergeMarks([{ start: 0, end: 4, word: "a" }, { start: 10, end: 12, word: "b" }],
+                          [{ start: 2, end: 6, word: "m" }]).map((r) => r.word);
+const moved = mapThrough([{ start: 0, end: 3 }, { start: 5, end: 8 }, { start: 10, end: 12 }],
+                         [{ start: 5, end: 8, text: "xxxx" }, { start: 0, end: 3, text: "y" }]);
+console.log(JSON.stringify({ merged, moved }));
+""")
+    assert got["merged"] == ["m", "b"]
+    assert got["moved"] == [{"start": 9, "end": 11}]  # -2 and +1 before it
