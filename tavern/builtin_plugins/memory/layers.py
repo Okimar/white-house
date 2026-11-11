@@ -20,7 +20,9 @@ The job step (`step`, called by work.py after the summaries and the plot): the n
 story order, that has no development run yet (with «Пересказы глав» on it waits for the chapter's summary) gets ONE
 request through `job.step` (a user's request cancels it at once and it is redone): the chapter's summary (or text),
 and for each participant without «Не наслаивать» and without a lock their card's short description and old layer;
-and the lorebook bubbles of the chat that the chapter mentions by keywords, with their old lines. The answer is JSON
+and the lorebook bubbles of the chat that the chapter mentions by keywords, with their old lines. M6: the side
+characters («Лица») the chapter names are people of the request too (target 'face:<id>'); their layer goes with their
+mini-card (faces.contribute), not after a card. The answer is JSON
 (`prompts.LAYER_SCHEMA`). A layer longer than asked is compressed by one more request inside the same step (the
 self-compression), and cut at a sentence end if it is still too long. A failed request marks the chapter's run and
 is retried after a backoff; after MAX_TRIES the chapter is skipped, so one bad chapter never stops the layers.
@@ -77,12 +79,18 @@ def persona_target(ctx: Any, chat_id: str) -> str:
     return me["character_id"] if me else "user"
 
 
-def targets(ctx: Any, chat_id: str) -> list[dict[str, Any]]:
-    """Who of the chat may have a layer: its characters, then the user's persona («Я»)."""
-    out = [{"target": m["character_id"], "name": m["name"], "is_me": False}
+def targets(ctx: Any, chat_id: str, *, faces: bool = False) -> list[dict[str, Any]]:
+    """Who of the chat may have a layer: its characters, then the user's persona («Я»); with `faces`, then the side
+    characters used in the chat (M6: target 'face:<id>')."""
+    out = [{"target": m["character_id"], "name": m["name"], "is_me": False, "is_face": False}
            for m in ctx.members.list(chat_id) if not m["is_me"]]
     me = cast.me(ctx, chat_id)
-    out.append({"target": me["character_id"] if me else "user", "name": cast.user_name(ctx, chat_id), "is_me": True})
+    out.append({"target": me["character_id"] if me else "user", "name": cast.user_name(ctx, chat_id), "is_me": True,
+                "is_face": False})
+    if faces:
+        from . import faces as side  # faces.py imports this module
+
+        out.extend(side.people(ctx, chat_id))
     return out
 
 
@@ -227,6 +235,15 @@ def plan(api: Any, chat_id: str, path: list[dict[str, Any]], p: chapters.Placed,
                 continue
             people.append({"code": f"C{len(people) + 1}", "target": target, "name": name, "card": card,
                            "old": (layers.get(target) or {}).get("text", "")})
+        from . import faces as side  # M6: the side characters the chapter names are people of the request too
+
+        text = "\n".join(m.get("content") or "" for m in chapters.eligible_in(path, p.lo, p.hi))
+        for face in side.named_in(ctx, chat_id, text):
+            who = side.target(face["id"])
+            if flags.get(who, {}).get("no_layer") or (layers.get(who) or {}).get("locked"):
+                continue
+            people.append({"code": f"C{len(people) + 1}", "target": who, "name": face["name"], "card": face["card"],
+                           "old": (layers.get(who) or {}).get("text", "")})
     entries: list[dict[str, Any]] = []
     if lines_on(settings):
         old = store.anchored_for_path(db, chat_id, NOW, path_ids)
@@ -361,7 +378,7 @@ def view(api: Any, chat_id: str, storage: Any) -> dict[str, Any]:
     flags = store.member_flags(db, chat_id)
     layers = store.anchored_for_path(db, chat_id, DEV, path_ids)
     members = []
-    for who in targets(ctx, chat_id):
+    for who in targets(ctx, chat_id, faces=True):
         row = layers.get(who["target"])
         members.append({**who, "no_layer": bool(flags.get(who["target"], {}).get("no_layer")),
                         "text": row["text"] if row else "", "by": row["by"] if row else "",
@@ -398,7 +415,7 @@ def _body(payload: dict[str, Any]) -> str:
 
 def _target(ctx: Any, chat_id: str, payload: dict[str, Any]) -> str:
     target = _need(payload, "target")
-    if not any(t["target"] == target for t in targets(ctx, chat_id)):
+    if not any(t["target"] == target for t in targets(ctx, chat_id, faces=True)):
         raise AppError("Такого участника в чате нет", code="not_found", status=404)
     return target
 
@@ -460,6 +477,8 @@ def transfer_chats(api: Any, chat_id: str, payload: dict[str, Any]) -> list[dict
     persona = target == persona_target(ctx, chat_id)
     if persona:
         ids = [c["id"] for c in ctx.chats.list_chats(limit=500)]
+    elif target.startswith(store.FACE_PREFIX):  # a side character: the chats it is linked to
+        ids = [link["chat_id"] for link in store.face_links(ctx.db, face_id=target[len(store.FACE_PREFIX):])]
     else:
         ids = [r["chat_id"] for r in ctx.db.fetchall(
             "SELECT DISTINCT cm.chat_id FROM chat_members cm JOIN chats c ON c.id = cm.chat_id "
@@ -495,6 +514,9 @@ def transfer(api: Any, chat_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if target == persona_target(ctx, chat_id):
         to_target = persona_target(ctx, to_chat)
     elif any(m["character_id"] == target for m in ctx.members.list(to_chat)):
+        to_target = target
+    elif target.startswith(store.FACE_PREFIX) and any(
+            link["chat_id"] == to_chat for link in store.face_links(db, face_id=target[len(store.FACE_PREFIX):])):
         to_target = target
     else:
         raise LayerError("Этого персонажа нет в том чате")

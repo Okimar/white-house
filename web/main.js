@@ -168,7 +168,8 @@ function App() {
     }
   };
   setPluginEnv({ toast: (text) => notify(text, "info"), chatId: () => chatId, reloadChat: () => chat.reload(), command: runCommand,
-    showMessage: (message) => showFound(message) });
+    showMessage: (message) => showFound(message),
+    openCharacter: (id) => { refresh(); setEditingCharacter(id); } });
   const isCommand = (text) => text.startsWith("/") &&
     plugins.commands.some((c) => c.name === text.slice(1).split(/\s/)[0].toLowerCase());
   const { summary: spend, reload: reloadSpending } = useSpending(chatId);

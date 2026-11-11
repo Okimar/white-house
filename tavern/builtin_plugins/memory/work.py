@@ -25,8 +25,12 @@ rate limit or a user's request that cancelled a step loses nothing.
   7. «Слово и нити» (M5, `threads.step`): the next closed chapter of the branch in story order gets one request
      through `job.step`: new records (promises, vows, claims, debts, secrets, quests with their toggle) with exact
      quotes, and status changes of the records still open. A failure is retried after a backoff.
+  8. «Лица» (M6, `faces.step`, run before 6 and 7 so a side character found in a chapter is a person of their
+     requests): the next closed chapter in story order gets one request through `job.step`: mini-cards of the side
+     characters it names (new ones only when they recur and are not main characters; known ones updated, never a
+     locked one). A failure is retried after a backoff.
   Summaries get their own vectors (`s:<chapter id>`) in step 2, so a summary is found by meaning too; so do the
-  quotes of «Слово и нити» (`t:<record id>`).
+  quotes of «Слово и нити» (`t:<record id>`) and the mini-cards used in the chat (`f:<face id>@<chat id>`).
 Model requests go through ONE client per (connection, model) per run, made with `background=True` (ADR 0019 point H):
 «спрашивать каждый раз» asks once for the run, and with no page open the run waits («ждёт разрешения»).
 """
@@ -47,7 +51,7 @@ from tavern.providers.base import ProviderError
 from tavern.services import cast, embeddings, lorebooks
 from tavern.util.ids import now_iso
 
-from . import borders, chapters, layers, pieces, store, summaries, threads
+from . import borders, chapters, faces, layers, pieces, store, summaries, threads
 
 log = logging.getLogger(__name__)
 
@@ -128,14 +132,11 @@ class Clients:
         self._made: dict[tuple[str, str], Any] = {}
 
     def which(self, role: str) -> tuple[str, str]:
-        """(connection id, model) of a role: its own settings, else the plugin's «Модель для памяти», else the chat's."""
+        """(connection id, model) of a role (border, summary, plot, development, threads, faces): ONE model for every
+        role (owner, 2026-11-11): «Модель для памяти» (connection "" = the chat's; model "" = that connection's own).
+        Per-role settings of older versions are ignored."""
         settings = self.api.settings
-        for prefix in (role, "memory"):
-            connection = str(settings.get(f"{prefix}_connection") or "")
-            model = str(settings.get(f"{prefix}_model_name") or "").strip()
-            if connection or model:
-                return connection, model
-        return "", ""
+        return str(settings.get("memory_connection") or ""), str(settings.get("memory_model_name") or "").strip()
 
     def get(self, role: str) -> Any:
         key = self.which(role)
@@ -343,7 +344,8 @@ async def run(api: Any, chat_id: str, job: Any, cache: store.VectorCache | None 
         model = api.vectors_model()
         total, todo = 0, []
         if model:
-            todo, total = todo_list(ctx.db, chat_id, path, model, threads.vector_items(api, chat_id, path))
+            todo, total = todo_list(ctx.db, chat_id, path, model,
+                                    threads.vector_items(api, chat_id, path) + faces.vector_items(api, chat_id))
         if todo:
             batch = embeddings.batches(todo)[0]
             texts = [text for _, text, _ in batch]
@@ -374,6 +376,15 @@ async def run(api: Any, chat_id: str, job: Any, cache: store.VectorCache | None 
             note = step_note or note
         else:
             outcome, step_note = await plot_step(api, chat_id, path, job, clients)
+            if outcome in ("done", "rate"):
+                continue
+            note = step_note or note
+            # M6 «Лица» before the development and threads of the same chapter: side characters found in it are
+            # then people of those requests
+            outcome, wait, step_note = await faces.step(api, chat_id, path, job, clients,
+                                                        lambda: known_names(api, chat_id))
+            if wait is not None:
+                retry = wait if retry is None else min(retry, wait)
             if outcome in ("done", "rate"):
                 continue
             note = step_note or note

@@ -105,7 +105,7 @@ async def test_threads_are_off_by_default_and_migration_0005(client, ctx, fake_l
     assert thread_requests(fake_llm) == [] and rows(ctx, chat_id) == []
     assert {"p_memory_threads", "p_memory_thread_states", "p_memory_thread_runs", "p_memory_threads_gone",
             "p_memory_threads_chat", "p_memory_thread_states_chat", "p_memory_thread_runs_chat"} <= set(objects(ctx))
-    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] == 5
+    assert ctx.db.fetchone("SELECT schema_version AS v FROM plugins WHERE id = 'memory'")["v"] >= 5
     plugins = (await client.get("/api/plugins")).json()["plugins"]
     values = next(p for p in plugins if p["id"] == "memory")["values"]
     assert values["threads"] is False and values["quests"] is False

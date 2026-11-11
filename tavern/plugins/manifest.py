@@ -8,7 +8,7 @@ A plugin is a folder:
                    "migrations": "migrations",   folder of NNNN_name.sql files: the plugin's own tables, every name
                                             starting with p_<id>_ (plugins/schema.py); applied before setup(api)
                    "uses": ["commands", "models", ...],   what it says it does, shown before enabling
-                   "settings": [{"key", "label", "type": bool|number|text|choice|connection|list,
+                   "settings": [{"key", "label", "type": bool|number|text|choice|connection|model|list,
                                  "default", "choices": [[value, label]], "min", "max", "help",
                                  "multiline": true  text only: a box of several lines
                                  "choices_from": "action"  choice only: the options (a list of [value, label])
@@ -16,8 +16,12 @@ A plugin is a folder:
                                  "action": "name"  type "action": a button that calls the plugin's action
                                                     and shows its {"message"} (e.g. «Проверить связь»)
                                  "fields": [...]   list only: the fields of one row (bool/number/text/choice)
+                                 "connection_key": "key"  model only: the "connection" setting whose models
+                                                    the field offers
                                 }]}
-"connection" is the id of one of the user's connections ("" = as in the chat); "list" is a list of rows,
+"connection" is the id of one of the user's connections ("" = as in the chat); "model" is a model name of the
+connection chosen in its `connection_key` setting ("" = that connection's own model; the page shows that model as
+the value and offers the service's model list, so one connection serves any of its models); "list" is a list of rows,
 each an object with the row fields (e.g. the thinkers of the tree of thoughts). "secret" is a key or
 password: written once, kept in data/secrets.json, never returned to the browser (plugins read it with
 `api.secret(key)`).
@@ -39,7 +43,7 @@ from tavern.errors import AppError
 MANIFEST = "plugin.json"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 USES = ("commands", "messages", "storage", "models", "generator", "events", "ui", "network", "microphone", "secrets")
-FIELD_TYPES = ("bool", "number", "text", "choice", "connection", "list", "secret", "action")
+FIELD_TYPES = ("bool", "number", "text", "choice", "connection", "model", "list", "secret", "action")
 ROW_TYPES = ("bool", "number", "text", "choice")
 MAX_ROWS = 100
 EXTENSIONS = frozenset({
@@ -132,6 +136,8 @@ def _field(raw: Any, types: tuple[str, ...] = FIELD_TYPES) -> dict[str, Any]:
             raise PluginError(f"plugin.json: у настройки {out['key']!r} нет choices")
         out["choices"] = [[str(c[0]), str(c[1])] if isinstance(c, list) and len(c) == 2 else [str(c), str(c)]
                           for c in choices]
+    if kind == "model" and isinstance(raw.get("connection_key"), str) and raw["connection_key"]:
+        out["connection_key"] = raw["connection_key"][:64]
     if kind == "text" and raw.get("multiline") is True:
         out["multiline"] = True  # shown as a box of several lines
     if kind == "list":
@@ -156,7 +162,7 @@ def _empty(kind: str, field: dict[str, Any]) -> Any:
         return []
     if kind == "choice":
         return field["choices"][0][0] if field.get("choices") else ""
-    return {"bool": False, "number": 0, "text": "", "connection": "", "secret": "", "action": ""}.get(kind, "")
+    return {"bool": False, "number": 0, "text": "", "connection": "", "model": "", "secret": "", "action": ""}.get(kind, "")
 
 
 def coerce(field: dict[str, Any], value: Any) -> Any:
@@ -247,6 +253,10 @@ def normalize(raw: Any, *, folder_id: str | None = None) -> dict[str, Any]:
     out["settings"] = [_field(f) for f in fields[:50]]
     if len({f["key"] for f in out["settings"]}) != len(out["settings"]):
         raise PluginError("plugin.json: ключи настроек повторяются")
+    connections = {f["key"] for f in out["settings"] if f["type"] == "connection"}
+    for f in out["settings"]:
+        if f.get("connection_key") and f["connection_key"] not in connections:
+            raise PluginError(f"plugin.json: у настройки {f['key']!r} connection_key не указывает на настройку-подключение")
     return out
 
 

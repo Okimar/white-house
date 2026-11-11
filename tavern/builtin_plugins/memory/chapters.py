@@ -11,7 +11,7 @@ goes back to `raw` by itself when the text is the same again. «Принять �
 The event handlers only make this quicker; the job checks the hash on every pass.
 
 Every hand edit writes one step to `undo:<chat>` (plugin storage, the last 50): the chapter rows as they were and
-the ids it created (or a text, M3-M4, or a «Слово и нити» record, M5); `undo` puts it back.
+the ids it created (or a text, M3-M4, a «Слово и нити» record, M5, or a mini-card, M6); `undo` puts it back.
 """
 
 from __future__ import annotations
@@ -201,6 +201,13 @@ def log_thread(storage: Any, op: str, *, before: dict[str, Any] | None = None, c
     _log(storage, op, [], [], thread={"before": before, "created": created, "made_state": made_state})
 
 
+def log_face(storage: Any, op: str, *, before: dict[str, Any] | None = None, version: str = "",
+             merge: dict[str, Any] | None = None) -> None:
+    """A hand edit of a mini-card (M6), in the same undo log of the chat it was made in: the face as it was, the
+    version it wrote, or what a merge moved (store.undo_face reverses them)."""
+    _log(storage, op, [], [], face={"before": before, "version": version, "merge": merge})
+
+
 def undo_label(storage: Any) -> str:
     steps = storage.get("undo", [])
     return steps[-1]["op"] if steps else ""
@@ -217,6 +224,8 @@ def undo(db: Database, storage: Any) -> str:
         _undo_text(db, text)
     if step.get("thread"):
         store.undo_thread(db, step["thread"])
+    if step.get("face"):
+        store.undo_face(db, step["face"])
     if step["created"]:
         store.delete_chapters(db, step["created"])
     if step["before"]:

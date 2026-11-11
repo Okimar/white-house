@@ -6,7 +6,8 @@ Tasks answered as JSON through `LLMClient.generate_json` (core/structured.py che
   * «Сюжет до сих пор»: `{"plot": str}`, 300-500 tokens, built from the previous plot and the summaries after it
     (or from the summaries alone), in story order;
   * M4: «Развитие» layers and «Сейчас:» lines (`LAYER_SCHEMA`), and the self-compression of a too long layer;
-  * M5: «Слово и нити» of a closed chapter (`THREAD_SCHEMA`): new records with exact quotes, status changes.
+  * M5: «Слово и нити» of a closed chapter (`THREAD_SCHEMA`): new records with exact quotes, status changes;
+  * M6: «Лица», mini-cards of the side characters of a closed chapter (`FACE_SCHEMA`): new ones and updates.
 
 The prompts themselves are English (small models follow them best); the answer's language is decided by the text
 it retells, and `problem()` checks it (R4: a summary in the wrong script is refused, asked once more, and then the
@@ -305,3 +306,57 @@ def thread_messages(lines: list[str], people: list[dict[str, str]], open_threads
             f"«{t['quote']}»" for t in open_threads))
     user.append("The scene:\n" + "\n".join(lines))
     return [ChatMessage("system", system), ChatMessage("user", "\n\n".join(user))]
+
+
+# -- M6: «Лица», mini-cards of side characters ------------------------------------------------------
+
+FACE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "faces": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"face": {"type": "string"}, "name": {"type": "string"},
+                           "aliases": {"type": "array", "items": {"type": "string"}}, "card": {"type": "string"}},
+            "required": ["name", "card"]}},
+    },
+    "required": ["faces"],
+}
+
+
+def face_messages(lines: list[str], main: list[str], known: list[dict[str, Any]], target_tokens: int,
+                  note: str = "") -> tuple[list[ChatMessage], str]:
+    """The request of the faces step for one closed chapter.
+
+    `lines`: the scene («Name: text» per message). `main`: names of the main characters (members, the user's persona,
+    lorebook entries): never a mini-card for them. `known`: [{code, name, aliases, card, locked}] side characters
+    already known who appear in the scene: their card is updated (a locked one is only listed, not to be changed).
+    Returns the request and the scene (for the language check)."""
+    scene = "\n".join(lines)
+    hint = language_hint(scene)
+    system = "\n".join([
+        "You keep the memory of a long roleplay chat: its side characters, people without their own character card "
+        "(an innkeeper, a guard, a merchant, a neighbour). Read the scene and write a short card for each side "
+        "character who really takes part in it (speaks, acts or is dealt with more than once), not for someone "
+        "named only in passing.",
+        "Never a card for the main characters listed. A side character already known (code F1, F2...) gets "
+        "`face` = its code and an updated card: keep what still holds and add what the scene shows; leave a known "
+        "one out when the scene adds nothing, and never change one marked locked. A new one gets `face` = \"\".",
+        f"`name`: the name as the scene uses it; an unnamed one by the short role word the scene uses (трактирщик, "
+        f"guard). `aliases`: other ways the scene refers to the same person. `card`: who they are, how they look and "
+        f"speak, what they do, how they stand to the main characters; at most {target_tokens} tokens, running prose, "
+        f"no lists.",
+        f"Write in the language most of the scene is written in{hint}. Present tense. Only what the scene and the old "
+        f"card say, nothing invented. No meta talk (never \"the scene\", \"the user\", \"the AI\", \"the roleplay\").",
+        'Answer as JSON: {"faces": [{"face": "F1", "name": "...", "aliases": ["..."], "card": "..."}]}. '
+        "An empty list is fine.",
+    ])
+    user = [f"Main characters: {', '.join(main) if main else '(none)'}"]
+    if known:
+        user.append("Known side characters:\n" + "\n\n".join(
+            f"{f['code']}: {f['name']}{' (also: ' + ', '.join(f['aliases']) + ')' if f['aliases'] else ''}"
+            f"{' [locked]' if f['locked'] else ''}\nCard: {f['card'] or '(empty)'}" for f in known))
+    user.append("The scene:\n" + scene)
+    text = "\n\n".join(user)
+    if note:
+        text += f"\n\nYour previous answer was refused: {note}. Answer again."
+    return [ChatMessage("system", system), ChatMessage("user", text)], scene

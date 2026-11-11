@@ -72,6 +72,30 @@ def test_settings_are_coerced_and_checked():
             check_settings(fields, bad, {})
 
 
+def test_a_model_setting_names_its_connection_setting():
+    """Type "model" (owner, 2026-11-11): a model of the connection chosen in `connection_key`; "" = its own model."""
+    raw = {**MANIFEST, "settings": [{"key": "conn", "type": "connection"},
+                                    {"key": "model", "type": "model", "connection_key": "conn"}]}
+    fields = normalize(raw)["settings"]
+    assert fields[1]["type"] == "model" and fields[1]["connection_key"] == "conn" and fields[1]["default"] == ""
+    assert check_settings(fields, {"model": "gemini-lite"}, {}) == {"model": "gemini-lite"}
+    with pytest.raises(PluginError):
+        check_settings(fields, {"model": 5}, {})
+    with pytest.raises(PluginError):  # connection_key must name a "connection" setting
+        normalize({**MANIFEST, "settings": [{"key": "model", "type": "model", "connection_key": "nope"}]})
+
+
+def test_memory_plugin_has_one_model_setting_for_every_task():
+    manifest = read_manifest(BUILTIN_PLUGINS_DIR / "memory")
+    keys = [f["key"] for f in manifest["settings"]]
+    assert [k for k in keys if k.endswith(("_connection", "_model_name"))] == ["memory_connection", "memory_model_name"]
+    model = next(f for f in manifest["settings"] if f["key"] == "memory_model_name")
+    assert model["type"] == "model" and model["connection_key"] == "memory_connection"
+    # settings stored by an older version (own model per task) are dropped, not an error
+    old = {"summary_connection": "x", "summary_model_name": "big", "memory_model_name": "small"}
+    assert check_settings(manifest["settings"], {}, old) == {"memory_model_name": "small"}
+
+
 def test_access_settings_are_checked():
     assert check_access({"models": True, "per_reply": 3.0}, {})["per_reply"] == 3
     for bad in ({"models": 1}, {"day": -1}, {"day": True}, {"other": 1}):

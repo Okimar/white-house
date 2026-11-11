@@ -1,4 +1,4 @@
-// 🧠 Память++ (stages M1-M5): the composer button opens the «Память» window; its «Главы» tab lists the chapters of
+// 🧠 Память++ (stages M1-M6): the composer button opens the «Память» window; its «Главы» tab lists the chapters of
 // the open branch (split, merge, move the border, delete, restore, undo) with their summaries (edit = lock, lock,
 // «Пересказать заново», versions), «Сюжет до сих пор» on top, and a folded «Участники» list (M3). Chapter borders are thin lines above
 // messages, «Новая глава отсюда» is in a message's «⋯» menu, and a chip in the top bar shows the background work.
@@ -8,10 +8,14 @@
 // M5: the «Слово и нити» tab: records of the open branch grouped by who gave the word, with status chips, a filter by
 // status and kind, the record sheet (quote, kind, to whom, importance, who knows a secret: saving locks it; status;
 // lock; «Удалить» / «Вернуть»; «→ к сообщению №N» closes the window and shows the quoted message) and «+ Добавить».
+// M6: the «Лица» tab: mini-cards of side characters (this chat's, or all with a search): name, aliases and card (saving
+// locks it), ★ «Любимое», «Использовать в этом чате», lock, versions, «Объединить с…», «Сделать настоящим персонажем»
+// (asks first, then opens the new card through t.openCharacter), «Удалить» / «Вернуть».
 export default function setup(t) {
   let cache = { chatId: "", view: null, state: null, job: null };
   let layersTick = 0; // bumped by the notice «layers»: the «Развитие» tab loads again
   let threadsTick = 0; // bumped by the notice «threads»: the «Слово и нити» tab loads again
+  let facesTick = 0; // bumped by the notice «faces»: the «Лица» tab loads again
   let focusId = "";
   let loading = false;
 
@@ -85,12 +89,14 @@ export default function setup(t) {
           <button role="tab" aria-selected=${tab === "chapters"} onClick=${() => setTab("chapters")}>Главы</button>
           <button role="tab" aria-selected=${tab === "layers"} onClick=${() => setTab("layers")}>Развитие</button>
           <button role="tab" aria-selected=${tab === "threads"} onClick=${() => setTab("threads")}>Слово и нити</button>
+          <button role="tab" aria-selected=${tab === "faces"} onClick=${() => setTab("faces")}>Лица</button>
         </div>
         ${cache.error && !view && html`<p class="muted" role="alert">${cache.error}</p>`}
         ${view && tab === "chapters" && html`<${Chapters} ui=${ui} view=${view} open=${open} setOpen=${setOpen} busy=${busy}
           call=${call} />`}
         ${tab === "layers" && html`<${Layers} ui=${ui} chatId=${chatId} tick=${layersTick} />`}
         ${tab === "threads" && html`<${Threads} ui=${ui} chatId=${chatId} tick=${threadsTick} />`}
+        ${tab === "faces" && html`<${Faces} ui=${ui} chatId=${chatId} tick=${facesTick} />`}
       </div>`;
     },
   });
@@ -186,7 +192,7 @@ export default function setup(t) {
     };
     return html`<li class="memory-chapter">
       <button class="memory-row" aria-expanded=${open} onClick=${() => setOpen(!open)}>
-        <span class="memory-row-main"><strong>${m.is_me ? "Я · " + m.name : m.name}</strong>
+        <span class="memory-row-main"><strong>${m.is_me ? "Я · " + m.name : m.is_face ? "Лицо · " + m.name : m.name}</strong>
           <span class="muted"> · ${m.no_layer ? "не наслаивать" : m.text ? BY[m.by] || "" : "ещё нет"}</span></span>
         ${m.locked && html`<span class="memory-state">🔒</span>`}
       </button>
@@ -332,7 +338,7 @@ export default function setup(t) {
     const { html, Select } = ui;
     return html`<${Select} value=${value} onChange=${(e) => onChange(e.target.value)} aria-label=${label}>
       ${anyone && html`<option value="">всем / миру</option>`}
-      ${people.map((p) => html`<option value=${p.target}>${p.is_me ? "Я · " + p.name : p.name}</option>`)}
+      ${people.map((p) => html`<option value=${p.target}>${p.is_me ? "Я · " + p.name : p.is_face ? "Лицо · " + p.name : p.name}</option>`)}
     <//>`;
   }
 
@@ -434,6 +440,166 @@ export default function setup(t) {
         <button disabled=${busy || !who || quote.trim().length < 3} onClick=${add}>Добавить</button>
       </div>
     </div>`;
+  }
+
+  // «Лица»: mini-cards of side characters (app-wide; this chat's by default, all of them with a search)
+  function Faces({ ui, chatId, tick }) {
+    const { html, useState, useEffect, Select } = ui;
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [all, setAll] = useState(false);
+    const [query, setQuery] = useState("");
+    const load = async () => {
+      try {
+        const got = await t.call("faces", { chat_id: chatId, all, query });
+        if (t.chatId() === chatId) { setData(got); setError(""); }
+      } catch (e) {
+        setError(e.message);
+      }
+    };
+    useEffect(() => {
+      const timer = setTimeout(load, query ? 250 : 0); // typing in the search waits for a pause
+      return () => clearTimeout(timer);
+    }, [chatId, tick, all, query]);
+    const call = async (action, payload = {}) => {
+      setBusy(true);
+      try {
+        const got = await t.call(action, { chat_id: chatId, all, query, ...payload });
+        if (got && got.faces) setData(got);
+        return got || {};
+      } catch (e) {
+        ui.toast(e.message, "error");
+        return null;
+      } finally {
+        setBusy(false);
+      }
+    };
+    const undo = async () => {
+      if (await call("undo")) { await load(); reload(); }
+    };
+    if (!data) return html`<p class="muted" role=${error ? "alert" : "status"}>${error || "Загрузка…"}</p>`;
+    return html`<div class="memory-chapters" data-slot="memory-faces">
+      <div class="memory-toolbar">
+        <button disabled=${busy || !data.undo} onClick=${undo}
+          title="Отменить последнее ручное изменение">↶ ${data.undo ? "Отменить: " + data.undo : "Отменить"}</button>
+      </div>
+      <p class="muted memory-hint">${data.on
+        ? `Персонажи без карточки, которые встречаются снова (трактирщик, стражник). После каждой закрытой главы модель пишет и дополняет их мини-карточку (до ${data.tokens} токенов). В ответ она идёт, когда лицо названо в последних сообщениях или подходит по смыслу. «★ Любимое» — и в других чатах, когда его там назовут.`
+        : "«Второстепенные лица» выключены в настройках дополнения: новые мини-карточки не появляются и в промпт не идут."}</p>
+      <div class="memory-filter">
+        <input type="search" class="memory-search" value=${query} placeholder="Поиск по имени и тексту"
+          aria-label="Поиск лиц" onInput=${(e) => setQuery(e.target.value)} />
+        <${Select} value=${all ? "all" : "chat"} onChange=${(e) => setAll(e.target.value === "all")} aria-label="Какие лица показать">
+          <option value="chat">В этом чате</option>
+          <option value="all">Все лица (${data.total})</option>
+        <//>
+      </div>
+      ${data.faces.length === 0 && html`<p class="muted">${query ? "Ничего не нашлось." : all ? "Лиц пока нет."
+        : "В этом чате лиц пока нет. Они появляются после закрытых глав, когда второстепенный персонаж встречается снова."}</p>`}
+      <ul class="memory-list">
+        ${data.faces.map((f) => html`<${FaceItem} key=${f.id} ui=${ui} f=${f} faces=${data.faces} busy=${busy} call=${call} />`)}
+      </ul>
+    </div>`;
+  }
+
+  function FaceItem({ ui, f, faces, busy, call }) {
+    const { html, useState, Select } = ui;
+    const [open, setOpen] = useState(false);
+    const [draft, setDraft] = useState({});
+    const [versions, setVersions] = useState(null);
+    const [into, setInto] = useState("");
+    const aliasText = (list) => list.join(", ");
+    const original = (key) => (key === "aliases" ? aliasText(f.aliases) : f[key]);
+    const value = (key) => (key in draft ? draft[key] : original(key));
+    const set = (key, v) => setDraft({ ...draft, [key]: v });
+    const changed = Object.keys(draft).some((k) => draft[k] !== original(k));
+    const others = faces.filter((x) => x.id !== f.id && !x.deleted);
+    const save = async () => {
+      const payload = {};
+      if ("name" in draft) payload.name = draft.name;
+      if ("card" in draft) payload.card = draft.card;
+      if ("aliases" in draft) payload.aliases = draft.aliases.split(",").map((a) => a.trim()).filter(Boolean);
+      if (await call("face_edit", { face_id: f.id, ...payload })) setDraft({});
+    };
+    const toggleVersions = async () => {
+      if (versions) { setVersions(null); return; }
+      try { setVersions((await t.call("face_versions", { chat_id: t.chatId(), face_id: f.id })).versions); }
+      catch (e) { ui.toast(e.message, "error"); }
+    };
+    const merge = async () => {
+      const target = others.find((x) => x.id === into);
+      if (!target) return;
+      const sure = await ui.ask(`Объединить «${f.name}» с «${target.name}»? Останется одна мини-карточка «${target.name}»: `
+        + "имя и другие имена этой станут её другими именами, связи с чатами, развитие и записи «Слова и нитей» перейдут к ней. "
+        + "Отменить можно кнопкой ↶.", { ok: "Объединить", danger: true });
+      if (sure && await call("face_merge", { face_id: f.id, into_id: target.id })) setInto("");
+    };
+    const makeReal = async () => {
+      const sure = await ui.ask(`Сделать «${f.name}» настоящим персонажем? Появится карточка персонажа с этим именем и текстом `
+        + "мини-карточки в описании; мини-карточка останется и будет с ней связана.", { ok: "Сделать" });
+      if (!sure) return;
+      const got = await call("face_make_real", { face_id: f.id });
+      if (got && got.made) {
+        ui.toast(`Персонаж «${got.made.name}» создан`);
+        win.close();
+        t.openCharacter(got.made.character_id);
+      }
+    };
+    const chips = [f.favourite && "★", f.locked && "🔒", f.deleted ? "удалено" : !f.in_use && "не в этом чате",
+      f.character_name && "персонаж"].filter(Boolean).join(" ");
+    return html`<li class=${"memory-chapter" + (f.deleted ? " deleted" : "")}>
+      <button class="memory-row" aria-expanded=${open} onClick=${() => setOpen(!open)}>
+        <span class="memory-row-main"><strong>${f.name}</strong>
+          <span class="muted">${f.aliases.length ? " · " + f.aliases.join(", ") : ""} · ${f.card}</span></span>
+        ${chips && html`<span class="memory-state">${chips}</span>`}
+      </button>
+      ${open && html`<div class="memory-sheet">
+        <p class="muted">${f.by === "hand" ? "вручную" : "модель"} · чатов: ${f.chats}${f.first_no ? " · здесь впервые №" + f.first_no : ""}${f.character_name ? " · настоящий персонаж: " + f.character_name : ""}</p>
+        <div class="memory-grid">
+          <label>Имя<input value=${value("name")} aria-label="Имя" onInput=${(e) => set("name", e.target.value)} /></label>
+          <label>Другие имена<input value=${value("aliases")} aria-label="Другие имена через запятую"
+            placeholder="через запятую" onInput=${(e) => set("aliases", e.target.value)} /></label>
+        </div>
+        <textarea class="memory-text" rows="5" value=${value("card")} aria-label=${"Мини-карточка: " + f.name}
+          onInput=${(e) => set("card", e.target.value)}></textarea>
+        <p class="muted memory-hint">Своя правка ставит замок: модель эту карточку больше не меняет.</p>
+        <div class="memory-actions">
+          <button disabled=${busy || !changed || !String(value("name")).trim() || !String(value("card")).trim()}
+            onClick=${save}>Сохранить</button>
+          <button disabled=${busy} aria-expanded=${!!versions} onClick=${toggleVersions}>Версии</button>
+          ${f.character_id
+            ? html`<button disabled=${busy} onClick=${() => { win.close(); t.openCharacter(f.character_id); }}>Открыть персонажа</button>`
+            : html`<button disabled=${busy || f.deleted} onClick=${makeReal}>Сделать настоящим персонажем</button>`}
+          ${f.deleted
+            ? html`<button disabled=${busy} onClick=${() => call("face_undelete", { face_id: f.id })}>Вернуть</button>`
+            : html`<button class="danger-text" disabled=${busy} onClick=${() => call("face_delete", { face_id: f.id })}>Удалить</button>`}
+        </div>
+        <label class="memory-switch"><input type="checkbox" checked=${f.favourite} disabled=${busy}
+          onChange=${(e) => call("face_favourite", { face_id: f.id, favourite: e.target.checked })} /> ★ Любимое: во всех чатах, где его назовут</label>
+        <label class="memory-switch"><input type="checkbox" checked=${f.in_use} disabled=${busy}
+          onChange=${(e) => call("face_use", { face_id: f.id, in_use: e.target.checked })} /> Использовать в этом чате</label>
+        <label class="memory-switch"><input type="checkbox" checked=${f.locked} disabled=${busy}
+          onChange=${(e) => call("face_lock", { face_id: f.id, locked: e.target.checked })} /> 🔒 Под замком</label>
+        ${others.length > 0 && html`<div class="memory-transfer">
+          <${Select} value=${into} onChange=${(e) => setInto(e.target.value)} aria-label="С каким лицом объединить">
+            <option value="">Объединить с…</option>
+            ${others.map((x) => html`<option value=${x.id}>${x.name}</option>`)}
+          <//>
+          <button disabled=${busy || !into} onClick=${merge}>Объединить</button>
+        </div>`}
+        ${versions && html`<ul class="memory-versions">
+          ${versions.length === 0 && html`<li class="muted">Версий нет.</li>`}
+          ${versions.map((v, i) => html`<li key=${v.id}>
+            <p class="muted">${new Date(v.created_at).toLocaleString()} · ${v.by === "hand" ? "вручную" : "модель"}${i === 0 ? " · сейчас" : ""}</p>
+            <p class="memory-preview"><strong>${v.name}</strong>${v.aliases.length ? " (" + v.aliases.join(", ") + ")" : ""}: ${v.card}</p>
+            ${i > 0 && html`<button disabled=${busy} onClick=${async () => {
+              if (await call("face_restore", { face_id: f.id, version_id: v.id })) setVersions(null);
+            }}>Вернуть эту</button>`}
+          </li>`)}
+        </ul>`}
+      </div>`}
+    </li>`;
   }
 
   function describe(state, job) {
@@ -688,6 +854,7 @@ export default function setup(t) {
   t.onNotice("threads", (data) => {
     if (!data || data.chat_id === t.chatId()) { threadsTick += 1; t.refresh(); }
   });
+  t.onNotice("faces", () => { facesTick += 1; t.refresh(); }); // faces are app-wide: every open chat reloads them
 
   t.composerButton({
     icon: "🧠",

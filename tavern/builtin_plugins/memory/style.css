@@ -34,3 +34,6 @@
 .memory-grid label, .memory-grid-label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .memory-knows { border: 1px solid var(--line); border-radius: var(--radius-sm); margin: 0; padding: 0 8px; }
 .memory-link { align-self: flex-start; min-height: var(--tap); }
+/* M6: «Лица» */
+.memory-search { min-height: var(--tap); font-size: 16px; box-sizing: border-box; }
+.memory-grid input { min-height: var(--tap); font-size: 16px; min-width: 0; box-sizing: border-box; }

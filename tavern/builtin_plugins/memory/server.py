@@ -1,11 +1,13 @@
-"""🧠 Память++ (stages M1-M5). Everything is off until the plugin is switched on AND the chat's memory is.
+"""🧠 Память++ (stages M1-M6). Everything is off until the plugin is switched on AND the chat's memory is.
 
 Registers: chat events that wake the chat's background job (`work.py`), `chat.created` (the global «Включать
 память в новых чатах»), the filter `meaning.wanted` and the `chat.before_generate` handler (`inject.py`), and the
 actions the web part calls (chapters; M3: summaries, the plot, members' flags), and `prompt.built` (which chapters
 really went: the sticky rule); M4: the «Развитие» tab's actions (layers, hand edit with a lock, versions, transfer to
 another chat, «Сейчас:» lines with «Записать в лорбук насовсем»: layers.py); M5: the «Слово и нити» tab's actions (records with
-their status per branch, hand edit with a lock, status, delete / restore, add by hand: threads.py). A failed summary asks for a later pass after its backoff (a timer per chat, dropped
+their status per branch, hand edit with a lock, status, delete / restore, add by hand: threads.py); M6: the «Лица» tab's
+actions (mini-cards of side characters: list and search, hand edit with a lock, versions, ★, use in this chat, delete /
+restore, merge, «Сделать настоящим персонажем»: faces.py). A failed summary asks for a later pass after its backoff (a timer per chat, dropped
 when the plugin is switched off). Nothing happens in a chat whose switch is off: no tables written, no job, no request.
 ADR 0019 holds the whole design; this file only wires it.
 """
@@ -18,7 +20,7 @@ from typing import Any
 from tavern.errors import AppError
 from tavern.services import cast
 
-from . import actions, chapters, inject, layers, pieces, store, threads, work
+from . import actions, chapters, faces, inject, layers, pieces, store, threads, work
 
 WAKE_DELAY = 2.0  # seconds a chat's job waits after an event, so edits that follow each other are worked together
 WAKE_EVENTS = ("message.received", "message.added", "message.edited", "message.excluded", "message.deleted",
@@ -257,7 +259,7 @@ def setup(api: Any) -> None:
         """«Помнит всё» / «Не наслаивать» of one member of the chat."""
         chat_id = on_chat(payload)
         character_id = _text(payload, "character_id")
-        if not any(t["target"] == character_id for t in layers.targets(api.ctx, chat_id)):  # the persona too (M4)
+        if not any(t["target"] == character_id for t in layers.targets(api.ctx, chat_id, faces=True)):  # persona, faces
             raise AppError("Такого участника в чате нет", code="not_found", status=404)
         values = {k: bool(payload[k]) for k in ("remembers_all", "no_layer") if k in payload}
         store.set_member(db, chat_id, character_id, **values)
@@ -328,3 +330,33 @@ def setup(api: Any) -> None:
         return threads.view(api, chat_id, api.storage(chat_id))
 
     api.action("threads", threads_view)
+
+    # M6: «Лица», mini-cards of side characters (faces.py). Faces are app-wide; a hand edit goes into the undo log of the
+    # chat whose window made it.
+    def face_hand(fn: Any) -> Any:
+        """A hand edit of a face: memory must be on in the chat; tell the pages; give the new tab view."""
+        def run(payload: dict[str, Any]) -> dict[str, Any]:
+            chat_id = on_chat(payload)
+            storage = api.storage(chat_id)
+            fn(api, chat_id, payload, storage)
+            api.notify("faces", chat_id=chat_id)
+            return faces.view(api, chat_id, storage, payload)
+        return run
+
+    for name in ("face_edit", "face_lock", "face_favourite", "face_use", "face_restore", "face_delete",
+                 "face_undelete", "face_merge"):
+        api.action(name, face_hand(getattr(faces, name)))
+
+    def faces_view(payload: dict[str, Any]) -> dict[str, Any]:
+        chat_id = _chat_id(payload)
+        return faces.view(api, chat_id, api.storage(chat_id), payload)
+
+    def face_make_real(payload: dict[str, Any]) -> dict[str, Any]:
+        chat_id = on_chat(payload)
+        made = faces.face_make_real(api, chat_id, payload)
+        api.notify("faces", chat_id=chat_id)
+        return {"made": made, **faces.view(api, chat_id, api.storage(chat_id), payload)}
+
+    api.action("faces", faces_view)
+    api.action("face_versions", lambda p: {"versions": faces.face_versions(api, p)})
+    api.action("face_make_real", face_make_real)

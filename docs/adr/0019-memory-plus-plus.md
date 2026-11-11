@@ -1,11 +1,11 @@
 # 0019. Memory++: chapters, summaries, character development and threads, as a built-in plugin
 
-Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3, M4 and M5 done 2026-11-10 (see «M1 done», «M2 done»,
-«M3 done», «M4 done» and «M5 done» in section 7). Builds on 0004 (character tree, vectors), 0006
+Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3, M4 and M5 done 2026-11-10, M6 done 2026-11-11 (see «M1 done», «M2 done»,
+«M3 done», «M4 done», «M5 done» and «M6 done» in section 7). Builds on 0004 (character tree, vectors), 0006
 (lorebooks), 0009 (plugins), 0010 / 0013 (assistant), 0011 (tree of thoughts: an agentic built-in plugin),
 and the foreground rule being built now (`tavern/core/foreground.py`).
 
-Stages M1 to M5 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
+Stages M1 to M6 are implemented so far. Sections 2 and 3 name the code to add; section 7 splits it into stages
 M1–M8; section 8 lists risks and the owner's answers to the open questions (all decided 2026-11-09).
 
 ## 1. Context
@@ -916,6 +916,57 @@ export of records, assistant tools, bulk. Not seen on screen (no browser, owner'
 «★» reuse in every chat, «Сделать настоящим персонажем», the tab. Tests: never a bubble tree; off by default;
 a favourite face shows up in another chat only when named; the button makes a card and keeps the face linked;
 the assistant's create-face action has `confirm`.
+
+**M6 done (2026-11-11).** Built: `faces.py` and migration `0006_faces.sql` (the sketch's «0003_faces»: shipped files are
+never renumbered): `p_memory_faces` (APP-WIDE: name, aliases, the flat card, ★ favourite, made_by, locked, deleted,
+merged_into, character_id of the real character made from it, the chat it came from), `p_memory_face_versions` (every
+state of name / aliases / card), `p_memory_face_chats` (where a face appeared, its first message, `in_use` = «Использовать
+в этом чате»), `p_memory_face_runs` (which closed chapter the step read), a trigger dropping a face's vectors with it.
+Job step 8 (`faces.step`, setting «Второстепенные лица — мини-карточки», off) runs BEFORE steps 6 and 7 in each pass, so
+a side character found in a chapter is already a person of that chapter's development and threads requests: the next
+closed chapter in story order gets ONE request through `job.step` (cancelled at once by a user request, redone after)
+with the numbered scene, the main characters (members, the persona; lorebook entries are excluded by stem) and the
+known faces the scene names (linked to the chat or favourites, codes F1.., a locked one marked «[locked]»). JSON
+`{"faces": [{face, name, aliases, card}]}`; one more try when a card is in the wrong language. Detection rule: the model
+proposes, the script confirms: a NEW face is kept only when its name is not a main character's (all words of the name
+by stem) and it RECURS: named (name or alias, any ending) in two messages of the chapter, or in one and in an earlier
+message of the branch; a one-message cameo is dropped. A known face (by code, or by the same name / alias) gets the new
+card and aliases as an automatic version, never when locked or deleted (a deleted face stays known, so it is not made
+again); every face the chapter names is linked to the chat. Cards are cut to 200 tokens. A failure is retried after the
+backoff, at most 3 times. Cards of the chat's faces get vectors `f:<face>@<chat>` in step 2. In the prompt
+(`faces.contribute`, whatever the window, nothing with the setting off): faces linked and used in the chat, or
+favourites not switched off there, without one made real whose character is a member of the chat; relevant when named
+in the last `meaning_messages` texts (name or alias, any ending), or, for faces linked to the chat, found by the reply's
+ONE meaning request (no request of its own); a favourite goes to another chat ONLY when named. At most 4 faces within
+600 tokens as one memory-spot entry «Лица: …» (source `plugin:memory:faces`, drop rank 40: dropped before threads),
+each «- Имя (также: …): card» and, with «Развитие» on, «Сейчас: …» = that face's development layer of this branch cut to
+120 tokens. Development and «Слово и нити» of a side character reuse M4 / M5 unchanged: the face is a person with target
+`face:<id>` in their requests when the chapter names it (`layers.plan`, `threads.people_of`), in the «Развитие» tab
+(«Лицо · …», hand edit, versions, «Не наслаивать», transfer to chats it is linked to) and in the «Слово и нити» people;
+its records reach a member by the M5 rules (given to them, secrets by who knows). The «Лица» tab: this chat's faces or
+«Все лица» with a search (name, alias, card); a face sheet: name, other names, the card («Сохранить» = a new locked
+version: rename and aliases too), «Версии» / «Вернуть эту», «★ Любимое», «Использовать в этом чате», «🔒», «Объединить
+с…» (asks; the face's name and aliases become aliases of the other, its links, development texts, records, who-knows
+lists and member flags move; undoable), «Сделать настоящим персонажем» (asks; a card through the normal character
+service, name + the card as the description + «Также: …», no bubbles; the face keeps `character_id`; then the page
+opens it through the new plugin web call `t.openCharacter(id)`), «Открыть персонажа», «Удалить» / «Вернуть»; hand
+edits share the window's one «↶» (the chat's undo log, though faces are app-wide).
+Owner's request during M6 (2026-11-11): ONE model for every memory task. The per-role «Своя модель для …» settings
+(borders, summaries, plot, development, threads) are gone; `Clients.which` reads only «Модель для памяти» (connection ""
+= the chat's, model "" = that connection's own); older stored per-role values are dropped by the settings check. New
+general plugin setting type `model` with `connection_key` (`plugins/manifest.py`, `web/components/Plugins.js`
+`ModelField`): the form shows the connection's own model as the value and offers that service's model list (the list
+«Проверить» uses), so one connection serves any of its models.
+Choices where the ADR left room: (1) one request per closed chapter for all its side characters, new and known; (2)
+«recurring» = two messages of the chapter, or one plus an earlier message (not «two chapters»: a long scene with the
+innkeeper is enough); (3) a face is app-wide but a non-favourite one is known only in the chats it is linked to, so the
+same name in another chat makes a separate face (merge joins them); (4) a favourite is linked to a chat when a chapter
+there names it; «Использовать в этом чате» off keeps it out even as a favourite; (5) a made-real face stays a mini-card
+in chats where its character is not a member; (6) lock, ★ and «Использовать в этом чате» toggles are not in «↶» (as
+M4 / M5 locks); make-real is not either (the card is deleted as any card); (7) the merged face row stays (marked
+merged, hidden) only for undo; (8) a face's own records «to everyone» reach nobody (M5 choice 7); (9) faces are not group-
+filtered by speaker. Not built (M7+): the assistant's create-face action with `confirm`, export of faces with chats,
+bulk. Not seen on screen (no browser, owner's rule 9).
 
 **M7: the assistant, export, bulk.** Can be two agents in parallel: (a) export / import (E) +
 `transfer.py`, (b) assistant (J) + `skills/memory.md` + bulk with the estimate. They share no files if (a)

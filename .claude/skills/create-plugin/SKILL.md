@@ -31,7 +31,10 @@ data/plugins/<id>/          (built-in ones: tavern/builtin_plugins/<id>/)
 ```
 `id` = folder name (`a-z0-9_-`). `uses` is what the user sees before enabling: list honestly what
 the plugin does. Setting types: bool, number (min/max), text (`"multiline": true` for a box), choice,
-connection (a user's connection, "" = as in the chat), list (rows of `fields`). Files allowed: see
+connection (a user's connection, "" = as in the chat), model (`"connection_key": "<a connection setting>"`: a
+model of that connection; "" = its own model, which the form shows as the value, with the service's model list to
+pick from, so one connection serves any of its models; pass both to `api.llm(connection_id=, model=)`), list (rows
+of `fields`). Prefer ONE connection + model pair for all of a plugin's model tasks (owner, 2026-11-11). Files allowed: see
 `EXTENSIONS` in `tavern/plugins/manifest.py`.
 
 ## Server part: `setup(api)` (tavern/plugins/api.py)
@@ -117,6 +120,8 @@ export default function setup(t) {
 Also `t.settings`, `t.chatId()`, `t.toast(text)`, `t.reloadChat()`, `t.url(path)`, `t.signal`, and
 `t.showMessage({id, depth})` (M5): bring a message of the open branch into view and mark it for a moment, as a
 search find does (`depth` = the number the chat shows − 1; close your window first on a phone).
+`t.openCharacter(id)` (M6): open a character's card editor (the lists reload first, so a card the plugin just made
+is there); close your window first.
 The page CSP allows scripts and requests only to this server: go to the internet from the server
 part (an action), not from the browser. Message objects: `id`, `role`, `content`, `active_swipe`,
 `name`, `character_id`, `swipe_meta`, `extra`. Restyle through `style.css` and the `data-plugin`

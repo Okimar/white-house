@@ -4,6 +4,7 @@
 // only after the full-access warning (ApproveDialog). `PluginAsks` is the "may it call a model?"
 // window shown over the app while a plugin waits for an answer.
 import { Select } from "./Select.js";
+import { Suggest } from "./Suggest.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { money } from "../core/spending.js";
@@ -67,6 +68,47 @@ function ConnectionField({ field, value, onSave }) {
     <option value="">Как в чате</option>
     ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
   </${Select}></label>`;
+}
+
+// "model": a model of the connection chosen in the setting `field.connection_key` ("" there = the chat's active
+// connection). An empty value means that connection's own model, and the field SHOWS it as its value (saving it
+// unchanged keeps "", so the setting follows the connection); the list offers the service's models (the same list
+// «Проверить» gets), so any model of one API is used without a second connection.
+const modelLists = new Map(); // connection id -> Promise of its model names, for the opened tab
+function ModelField({ field, value, plugin, onSave }) {
+  const connections = useConnections();
+  const [active, setActive] = useState("");
+  const [models, setModels] = useState([]);
+  const [problem, setProblem] = useState("");
+  const chosen = (field.connection_key && plugin && plugin.values ? plugin.values[field.connection_key] : "") || "";
+  useEffect(() => {
+    if (chosen) return;
+    api.get("/settings").then((s) => setActive(s.active_connection || "")).catch(() => setActive(""));
+  }, [chosen]);
+  const connId = chosen || active;
+  const conn = connections.find((c) => c.id === connId);
+  const own = conn ? conn.model || "" : "";
+  useEffect(() => {
+    setModels([]);
+    setProblem("");
+    if (!connId) return;
+    if (!modelLists.has(connId)) {
+      modelLists.set(connId, api.get(`/connections/${connId}/models`).then((d) => (d.models || [])
+        .map((m) => (typeof m === "string" ? m : m.id || m.name)).filter(Boolean)));
+    }
+    modelLists.get(connId).then(setModels).catch((e) => { modelLists.delete(connId); setProblem(e.message); });
+  }, [connId]);
+  const shown = value || own;
+  const [draft, setDraft] = useState(shown);
+  useEffect(() => setDraft(shown), [shown]);
+  const save = (text) => {
+    const v = text.trim() === own ? "" : text.trim();
+    if (v !== (value || "")) onSave(v);
+  };
+  return html`<label>${field.label}<br /><${Suggest} value=${draft} options=${models} aria-label=${field.label}
+    placeholder=${own || "модель подключения"} onInput=${(e) => setDraft(e.target.value)}
+    onChange=${(e) => save(e.target.value)} /></label>
+    ${problem && html`<div class="muted">Список моделей не получен: ${problem}</div>`}`;
 }
 
 // "list": rows of small fields (e.g. the thinkers of the tree of thoughts); add, remove, edit.
@@ -151,6 +193,7 @@ function SettingField({ field, value, onSave, plugin }) {
   }
   if (field.type === "list") return html`<${ListField} field=${field} value=${value} plugin=${plugin} onSave=${onSave} />`;
   if (field.type === "connection") return html`<${ConnectionField} field=${field} value=${value} onSave=${onSave} />`;
+  if (field.type === "model") return html`<${ModelField} field=${field} value=${value} plugin=${plugin} onSave=${onSave} />`;
   if (field.type === "bool") {
     return html`<label><input type="checkbox" checked=${Boolean(value)}
       onChange=${(e) => onSave(e.target.checked)} /> ${field.label}</label>`;

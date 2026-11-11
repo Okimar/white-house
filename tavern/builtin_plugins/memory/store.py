@@ -1,4 +1,4 @@
-"""SQL over the memory plugin's own tables (migrations/0001_memory.sql ... 0005_threads.sql). Nothing else touches them.
+"""SQL over the memory plugin's own tables (migrations/0001_memory.sql ... 0006_faces.sql). Nothing else touches them.
 
 `db` is the app's `Database` (`api.ctx.db`). Vectors are stored normalized as `array('f')` bytes (a dot product is
 then the cosine) next to the hash of the text they were made from and the model's name: a vector counts only when
@@ -443,6 +443,7 @@ def put_layer_run(db: Database, chat_id: str, chapter_id: str, state: str, error
 # -- «Слово и нити» (migrations/0005_threads.sql) ------------------------------------------------------
 
 THREADS, THREAD_STATES, THREAD_RUNS = "p_memory_threads", "p_memory_thread_states", "p_memory_thread_runs"
+FACE_RUNS = "p_memory_face_runs"  # M6 (0006_faces.sql): which chapters the faces step read
 THREAD_FIELDS = ("id", "chat_id", "kind", "who", "to_whom", "knows", "quote", "message_id", "anchor_id", "chapter_id",
                  "importance", "keywords", "made_by", "locked", "deleted", "created_at", "updated_at")
 STATE_FIELDS = "id, thread_id, anchor_id, status, knows, note, message_id, made_by, created_at"
@@ -540,8 +541,9 @@ def undo_thread(db: Database, step: dict[str, Any]) -> None:
 
 
 def runs(db: Database, table: str, chat_id: str) -> dict[str, dict[str, Any]]:
-    """chapter id -> {state, error, tries, failed_at} of a per-chapter step (`LAYER_RUNS` or `THREAD_RUNS`)."""
-    if table not in (LAYER_RUNS, THREAD_RUNS):
+    """chapter id -> {state, error, tries, failed_at} of a per-chapter step (`LAYER_RUNS`, `THREAD_RUNS`,
+    `FACE_RUNS`)."""
+    if table not in (LAYER_RUNS, THREAD_RUNS, FACE_RUNS):
         raise ValueError(table)
     rows = db.fetchall(f"SELECT chapter_id, state, error, tries, updated_at FROM {table} WHERE chat_id = ?", (chat_id,))
     return {r["chapter_id"]: {"state": r["state"], "error": r["error"], "tries": int(r["tries"]),
@@ -550,7 +552,7 @@ def runs(db: Database, table: str, chat_id: str) -> dict[str, dict[str, Any]]:
 
 def put_run(db: Database, table: str, chat_id: str, chapter_id: str, state: str, error: str = "") -> None:
     """A per-chapter step of a chapter is done, or failed once more (tries + 1)."""
-    if table not in (LAYER_RUNS, THREAD_RUNS):
+    if table not in (LAYER_RUNS, THREAD_RUNS, FACE_RUNS):
         raise ValueError(table)
     db.execute(
         f"INSERT INTO {table} (chapter_id, chat_id, state, error, tries, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
@@ -558,3 +560,214 @@ def put_run(db: Database, table: str, chat_id: str, chapter_id: str, state: str,
         f"tries = CASE WHEN excluded.state = 'failed' THEN {table}.tries + 1 ELSE 0 END, "
         "updated_at = excluded.updated_at",
         (chapter_id, chat_id, state, (error or "")[:300], 1 if state == "failed" else 0, now_iso()))
+
+
+# -- «Лица»: mini-cards of side characters (migrations/0006_faces.sql) ---------------------------------
+
+FACES, FACE_VERSIONS, FACE_CHATS = "p_memory_faces", "p_memory_face_versions", "p_memory_face_chats"
+FACE_FIELDS = ("id", "name", "aliases", "card", "favourite", "made_by", "locked", "deleted", "merged_into",
+               "character_id", "origin_chat_id", "created_at", "updated_at")
+FACE_PREFIX = "face:"  # a face as a target of layers and records: 'face:<id>'
+
+
+def _face(row: Any) -> dict[str, Any]:
+    out = {key: row[key] for key in FACE_FIELDS}
+    out["aliases"] = json.loads(out["aliases"])
+    for key in ("favourite", "locked", "deleted"):
+        out[key] = bool(out[key])
+    return out
+
+
+def face_rows(db: Database, *, merged: bool = False) -> list[dict[str, Any]]:
+    """Every face of the app, oldest first; merged ones only with `merged`."""
+    where = "" if merged else "WHERE merged_into = ''"
+    rows = db.fetchall(f"SELECT {', '.join(FACE_FIELDS)} FROM {FACES} {where} ORDER BY created_at, rowid")
+    return [_face(r) for r in rows]
+
+
+def get_face(db: Database, face_id: str) -> dict[str, Any] | None:
+    row = db.fetchone(f"SELECT {', '.join(FACE_FIELDS)} FROM {FACES} WHERE id = ?", (face_id,))
+    return None if row is None else _face(row)
+
+
+def put_face(db: Database, row: dict[str, Any], *, version_by: str | None = None) -> str:
+    """Insert or update a whole face row (an upsert: replacing would cascade its links and versions). With
+    `version_by`, its name, aliases and card are also kept as a new version. Returns the version id ('' = none)."""
+    sets = ", ".join(f"{k} = excluded.{k}" for k in FACE_FIELDS if k != "id")
+    values = [json.dumps(row[k], ensure_ascii=False) if k == "aliases" else
+              (int(row[k]) if k in ("favourite", "locked", "deleted") else row[k]) for k in FACE_FIELDS]
+    version_id = ""
+    with db.transaction() as conn:
+        conn.execute(f"INSERT INTO {FACES} ({', '.join(FACE_FIELDS)}) VALUES ({', '.join('?' * len(FACE_FIELDS))}) "
+                     f"ON CONFLICT(id) DO UPDATE SET {sets}", values)
+        if version_by:
+            version_id = new_id()
+            conn.execute(f"INSERT INTO {FACE_VERSIONS} (id, face_id, name, aliases, card, made_by, created_at) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         (version_id, row["id"], row["name"], json.dumps(row["aliases"], ensure_ascii=False),
+                          row["card"], version_by, now_iso()))
+            conn.execute(f"DELETE FROM {FACE_VERSIONS} WHERE face_id = ? AND id NOT IN (SELECT id FROM {FACE_VERSIONS} "
+                         f"WHERE face_id = ? ORDER BY created_at DESC, rowid DESC LIMIT {KEEP_VERSIONS})",
+                         (row["id"], row["id"]))
+    return version_id
+
+
+def new_face(name: str, card: str, *, aliases: list[str] | None = None, by: str = "auto", origin: str = "",
+             locked: bool = False) -> dict[str, Any]:
+    now = now_iso()
+    return {"id": new_id(), "name": name, "aliases": aliases or [], "card": card, "favourite": False, "made_by": by,
+            "locked": locked, "deleted": False, "merged_into": "", "character_id": "", "origin_chat_id": origin,
+            "created_at": now, "updated_at": now}
+
+
+def delete_face(db: Database, face_id: str) -> None:
+    db.execute(f"DELETE FROM {FACES} WHERE id = ?", (face_id,))
+
+
+def face_versions(db: Database, face_id: str) -> list[dict[str, Any]]:
+    """Every version of a face, newest first (the first one is how it is now)."""
+    rows = db.fetchall(f"SELECT id, name, aliases, card, made_by, created_at FROM {FACE_VERSIONS} WHERE face_id = ? "
+                       "ORDER BY created_at DESC, rowid DESC", (face_id,))
+    return [{"id": r["id"], "name": r["name"], "aliases": json.loads(r["aliases"]), "card": r["card"],
+             "by": r["made_by"], "created_at": r["created_at"]} for r in rows]
+
+
+def delete_face_version(db: Database, version_id: str) -> None:
+    db.execute(f"DELETE FROM {FACE_VERSIONS} WHERE id = ?", (version_id,))
+
+
+def face_links(db: Database, *, chat_id: str | None = None, face_id: str | None = None) -> list[dict[str, Any]]:
+    """Links of faces to chats (one chat's, or one face's)."""
+    where: list[str] = []
+    args: list[str] = []
+    if chat_id is not None:
+        where.append("chat_id = ?")
+        args.append(chat_id)
+    if face_id is not None:
+        where.append("face_id = ?")
+        args.append(face_id)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    rows = db.fetchall(f"SELECT face_id, chat_id, first_message_id, in_use, created_at FROM {FACE_CHATS} {clause} "
+                       "ORDER BY created_at, rowid", tuple(args))
+    return [{"face_id": r["face_id"], "chat_id": r["chat_id"], "first_message_id": r["first_message_id"],
+             "in_use": bool(r["in_use"]), "created_at": r["created_at"]} for r in rows]
+
+
+def link_face(db: Database, face_id: str, chat_id: str, first_message_id: str | None = None, *,
+              in_use: bool | None = None) -> None:
+    """The face appeared in the chat (a link already there stays as it is); `in_use` is set when given."""
+    db.execute(f"INSERT INTO {FACE_CHATS} (face_id, chat_id, first_message_id, in_use, created_at) "
+               "VALUES (?, ?, ?, ?, ?) ON CONFLICT(face_id, chat_id) DO NOTHING",
+               (face_id, chat_id, first_message_id, 1 if in_use is None else int(in_use), now_iso()))
+    if in_use is not None:
+        db.execute(f"UPDATE {FACE_CHATS} SET in_use = ? WHERE face_id = ? AND chat_id = ?",
+                   (int(in_use), face_id, chat_id))
+
+
+def put_links(db: Database, links: list[dict[str, Any]]) -> None:
+    """Put link rows back as they were (undo of a merge)."""
+    with db.transaction() as conn:
+        for link in links:
+            conn.execute(f"INSERT INTO {FACE_CHATS} (face_id, chat_id, first_message_id, in_use, created_at) "
+                         "VALUES (?, ?, ?, ?, ?) ON CONFLICT(face_id, chat_id) DO UPDATE SET "
+                         "first_message_id = excluded.first_message_id, in_use = excluded.in_use",
+                         (link["face_id"], link["chat_id"], link["first_message_id"], int(link["in_use"]),
+                          link["created_at"]))
+
+
+def merge_faces(db: Database, face_id: str, into_id: str) -> dict[str, Any]:
+    """`face_id` becomes a part of `into_id` everywhere: its links to chats, its development layers (target
+    'face:<id>'), its «Слово и нити» records (who, to whom, who knows) and its members' flags move to `into_id`; the
+    face row itself stays, marked merged, only for undo. Returns what undo needs (`unmerge_faces`)."""
+    old_t, new_t = FACE_PREFIX + face_id, FACE_PREFIX + into_id
+    gone, into = get_face(db, face_id), get_face(db, into_id)
+    if gone is None or into is None:
+        raise KeyError(face_id if gone is None else into_id)
+    links = face_links(db, face_id=face_id) + face_links(db, face_id=into_id)
+    texts = [r["id"] for r in db.fetchall(f"SELECT id FROM {TEXTS} WHERE target = ?", (old_t,))]
+    pattern = f'%"{old_t}"%'
+    thread_before = [_thread(r) for r in db.fetchall(
+        f"SELECT {', '.join(THREAD_FIELDS)} FROM {THREADS} WHERE who = ? OR to_whom = ? OR knows LIKE ?",
+        (old_t, old_t, pattern))]
+    state_before = [{"id": r["id"], "knows": r["knows"]} for r in db.fetchall(
+        f"SELECT id, knows FROM {THREAD_STATES} WHERE knows LIKE ?", (pattern,))]
+    members = [{"chat_id": r["chat_id"], "remembers_all": r["remembers_all"], "no_layer": r["no_layer"]}
+               for r in db.fetchall(f"SELECT chat_id, remembers_all, no_layer FROM {MEMBERS} WHERE character_id = ?",
+                                    (old_t,))]
+
+    def swap(items: list[str]) -> list[str]:
+        out: list[str] = []
+        for item in items:
+            item = new_t if item == old_t else item
+            if item not in out:
+                out.append(item)
+        return out
+
+    with db.transaction() as conn:
+        for link in links:
+            if link["face_id"] == face_id:
+                conn.execute(f"INSERT INTO {FACE_CHATS} (face_id, chat_id, first_message_id, in_use, created_at) "
+                             "VALUES (?, ?, ?, ?, ?) ON CONFLICT(face_id, chat_id) DO NOTHING",
+                             (into_id, link["chat_id"], link["first_message_id"], int(link["in_use"]),
+                              link["created_at"]))
+        conn.execute(f"DELETE FROM {FACE_CHATS} WHERE face_id = ?", (face_id,))
+        conn.execute(f"UPDATE {TEXTS} SET target = ? WHERE target = ?", (new_t, old_t))
+        for row in thread_before:
+            conn.execute(f"UPDATE {THREADS} SET who = ?, to_whom = ?, knows = ? WHERE id = ?",
+                         (new_t if row["who"] == old_t else row["who"],
+                          new_t if row["to_whom"] == old_t else row["to_whom"],
+                          json.dumps(swap(row["knows"]), ensure_ascii=False), row["id"]))
+        for row in state_before:
+            conn.execute(f"UPDATE {THREAD_STATES} SET knows = ? WHERE id = ?",
+                         (json.dumps(swap(json.loads(row["knows"])), ensure_ascii=False), row["id"]))
+        conn.execute(f"DELETE FROM {MEMBERS} WHERE character_id = ?", (old_t,))
+        now = now_iso()
+        aliases = [*into["aliases"]]
+        for alias in [gone["name"], *gone["aliases"]]:
+            if alias.casefold() != into["name"].casefold() and all(alias.casefold() != a.casefold() for a in aliases):
+                aliases.append(alias)
+        conn.execute(f"UPDATE {FACES} SET aliases = ?, favourite = ?, updated_at = ? WHERE id = ?",
+                     (json.dumps(aliases, ensure_ascii=False), int(into["favourite"] or gone["favourite"]), now,
+                      into_id))
+        conn.execute(f"UPDATE {FACES} SET merged_into = ?, updated_at = ? WHERE id = ?", (into_id, now, face_id))
+    return {"faces": [gone, into], "links": links, "texts": texts, "old": old_t, "threads": thread_before,
+            "states": state_before, "members": members}
+
+
+def unmerge_faces(db: Database, step: dict[str, Any]) -> None:
+    """Undo of `merge_faces`: both faces, their links, the moved layers, records and flags as they were."""
+    with db.transaction() as conn:
+        for face in step["faces"]:
+            conn.execute(f"DELETE FROM {FACE_CHATS} WHERE face_id = ?", (face["id"],))
+        for text_id in step["texts"]:
+            conn.execute(f"UPDATE {TEXTS} SET target = ? WHERE id = ?", (step["old"], text_id))
+        for row in step["states"]:
+            conn.execute(f"UPDATE {THREAD_STATES} SET knows = ? WHERE id = ?", (row["knows"], row["id"]))
+        for row in step.get("members", []):
+            conn.execute(f"INSERT OR REPLACE INTO {MEMBERS} (chat_id, character_id, remembers_all, no_layer) "
+                         "VALUES (?, ?, ?, ?)", (row["chat_id"], step["old"], row["remembers_all"], row["no_layer"]))
+    for face in step["faces"]:
+        put_face(db, face)
+    put_links(db, step["links"])
+    for row in step["threads"]:
+        put_thread(db, row)
+
+
+def undo_face(db: Database, step: dict[str, Any]) -> None:
+    """Reverse one hand edit of a face (chapters.undo): a merge, the version it wrote, the face as it was before."""
+    if step.get("merge"):
+        unmerge_faces(db, step["merge"])
+        return
+    if step.get("version"):
+        delete_face_version(db, step["version"])
+    if step.get("before"):
+        put_face(db, step["before"])
+
+
+def face_runs(db: Database, chat_id: str) -> dict[str, dict[str, Any]]:
+    """chapter id -> {state, error, tries, failed_at} of the faces step."""
+    return runs(db, FACE_RUNS, chat_id)
+
+
+def put_face_run(db: Database, chat_id: str, chapter_id: str, state: str, error: str = "") -> None:
+    put_run(db, FACE_RUNS, chat_id, chapter_id, state, error)

@@ -121,7 +121,10 @@ def may_know(row: dict[str, Any], knows: list[str], speakers: set[str], persona:
 
 def names(ctx: Any, chat_id: str) -> dict[str, str]:
     """target -> name for the people of the chat (the persona under 'user' and its character id)."""
+    from . import faces  # faces.py imports layers, which this module imports
+
     out = {m["character_id"]: m["name"] for m in ctx.members.list(chat_id)}
+    out.update({p["target"]: p["name"] for p in faces.people(ctx, chat_id)})  # M6: side characters
     user = cast.user_name(ctx, chat_id)
     for target in persona_ids(ctx, chat_id):
         out[target] = user
@@ -131,6 +134,9 @@ def names(ctx: Any, chat_id: str) -> dict[str, str]:
 def name_of(ctx: Any, known: dict[str, str], target: str) -> str:
     if not target:
         return ""
+    if target not in known and target.startswith(store.FACE_PREFIX):
+        face = store.get_face(ctx.db, target[len(store.FACE_PREFIX):])
+        known[target] = face["name"] if face else "?"
     if target not in known:
         try:
             known[target] = ctx.characters.get(target)["name"]
@@ -254,9 +260,12 @@ def vector_items(api: Any, chat_id: str, path: list[dict[str, Any]]) -> list[tup
 # -- the job step ----------------------------------------------------------------------------------
 
 
-def people_of(ctx: Any, chat_id: str, p: chapters.Placed) -> list[dict[str, str]]:
+def people_of(ctx: Any, chat_id: str, p: chapters.Placed, path: list[dict[str, Any]] | None = None,
+              ) -> list[dict[str, str]]:
     """The people of a chapter's request with codes: the chat's characters and the persona, plus anyone else who wrote
-    in the chapter."""
+    in the chapter, and the side characters («Лица», M6) it names."""
+    from . import faces
+
     persona = layers.persona_target(ctx, chat_id)
     targets = [(t["target"], t["name"]) for t in layers.targets(ctx, chat_id)]
     known = names(ctx, chat_id)
@@ -264,6 +273,11 @@ def people_of(ctx: Any, chat_id: str, p: chapters.Placed) -> list[dict[str, str]
         target = persona if target == "user" else target
         if all(target != t for t, _ in targets):
             targets.append((target, name_of(ctx, known, target)))
+    path = path if path is not None else ctx.chats.active_path(chat_id)
+    text = "\n".join(m.get("content") or "" for m in chapters.eligible_in(path, p.lo, p.hi))
+    for face in faces.named_in(ctx, chat_id, text):
+        if all(faces.target(face["id"]) != t for t, _ in targets):
+            targets.append((faces.target(face["id"]), face["name"]))
     return [{"code": f"C{i}", "target": t, "name": n} for i, (t, n) in enumerate(targets, 1)]
 
 
@@ -272,7 +286,7 @@ def plan(api: Any, chat_id: str, path: list[dict[str, Any]], p: chapters.Placed)
     ctx = api.ctx
     index = chapters.index_of(path)
     messages = chapters.eligible_in(path, p.lo, p.hi)
-    people = people_of(ctx, chat_id, p)
+    people = people_of(ctx, chat_id, p, path)
     by_target = {x["target"]: x["name"] for x in people}
     known = names(ctx, chat_id)
     open_rows = []
@@ -443,7 +457,8 @@ def view(api: Any, chat_id: str, storage: Any) -> dict[str, Any]:
     path = ctx.chats.active_path(chat_id)
     number = {m["id"]: int(m["depth"]) + 1 for m in path}
     known = names(ctx, chat_id)
-    people = [{"target": t["target"], "name": t["name"], "is_me": t["is_me"]} for t in layers.targets(ctx, chat_id)]
+    people = [{"target": t["target"], "name": t["name"], "is_me": t["is_me"], "is_face": t["is_face"]}
+              for t in layers.targets(ctx, chat_id, faces=True)]
     persona = persona_ids(ctx, chat_id)
     me_target = layers.persona_target(ctx, chat_id)
     states = store.states_for_path(ctx.db, chat_id, set(number))
@@ -489,7 +504,7 @@ def _person(api: Any, chat_id: str, value: Any, *, empty: bool = False) -> str:
     """A target of the chat's people (the persona too); '' when `empty` allows «всем / миру»."""
     if empty and value in (None, ""):
         return ""
-    targets = {t["target"] for t in layers.targets(api.ctx, chat_id)} | persona_ids(api.ctx, chat_id)
+    targets = {t["target"] for t in layers.targets(api.ctx, chat_id, faces=True)} | persona_ids(api.ctx, chat_id)
     if not isinstance(value, str) or value not in targets:
         raise ThreadError("Такого участника в чате нет")
     return value
