@@ -71,7 +71,14 @@ class JobContext:
 
     async def step(self, factory: Callable[[], Awaitable[T]]) -> T:
         """One small step of work; cancelled at once while user work is busy and made again afterwards."""
-        return await self._jobs.ctx.foreground.run_background(factory)
+        state = self._state
+
+        def cancelled(times: int, quiet: bool) -> None:
+            # ADR 0019 R2: show how often a step was cut, and the quiet window after the third time
+            state.note = ("" if not times else f"отменено {times} раз" + (": жду тишины" if quiet else ""))
+            self._jobs._announce(state)
+
+        return await self._jobs.ctx.foreground.run_background(factory, cancelled)
 
     def progress(self, done: int, total: int, note: str = "") -> None:
         state = self._state

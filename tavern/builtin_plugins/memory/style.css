@@ -37,3 +37,7 @@
 /* M6: «Лица» */
 .memory-search { min-height: var(--tap); font-size: 16px; box-sizing: border-box; }
 .memory-grid input { min-height: var(--tap); font-size: 16px; min-width: 0; box-sizing: border-box; }
+.memory-bulk { display: flex; flex-direction: column; gap: 4px; }
+.memory-bulk > button { min-height: var(--tap); }
+.memory-file { display: flex; flex-direction: column; gap: 4px; min-height: var(--tap); font-size: var(--text-md); }
+.memory-file input { min-height: var(--tap); font-size: 14px; max-width: 100%; }

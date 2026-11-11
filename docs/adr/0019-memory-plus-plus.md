@@ -1,7 +1,7 @@
 # 0019. Memory++: chapters, summaries, character development and threads, as a built-in plugin
 
-Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3, M4 and M5 done 2026-11-10, M6 done 2026-11-11 (see «M1 done», «M2 done»,
-«M3 done», «M4 done», «M5 done» and «M6 done» in section 7). Builds on 0004 (character tree, vectors), 0006
+Status: accepted (2026-11-09). Stage M0 (architecture) 2026-11-09; M1 and M2 done 2026-11-09, M3, M4 and M5 done 2026-11-10, M6 and the combined M7 + M8 done 2026-11-11 (see «M1 done», «M2 done»,
+«M3 done», «M4 done», «M5 done», «M6 done» and «M7 + M8 done» in section 7). Builds on 0004 (character tree, vectors), 0006
 (lorebooks), 0009 (plugins), 0010 / 0013 (assistant), 0011 (tree of thoughts: an agentic built-in plugin),
 and the foreground rule being built now (`tavern/core/foreground.py`).
 
@@ -979,8 +979,73 @@ owns `api/jsonl.py`, `formats/jsonl.py`, and (b) owns `services/assistant_app.py
 - Browser: «Разобрать весь чат…» shows the price first, then progress; the assistant edits a chapter summary
   and «Отменить» puts it back.
 
-**M8: documents** (owner, Q10). A separate stage after M7: a document is cut into chapters and pieces like an
-old chat, with its own window. Designed when M7 is done.
+**M7 + M8 done (2026-11-11), one combined stage (owner's decision).** No browser (owner's rule 9): the interface is written
+by the mobile-ui rules and not seen on screen.
+
+*M7, export / import (point E).* `formats/jsonl.py` knows the record type `plugin` (`{"plugin", "version", "data"}`); the
+header says `version: 2` only when a file has such a record (a file with none is byte-for-byte the old format, so older
+builds still read it). Core: `api.on_export(fn(chat_id) -> dict | None)` and `api.on_import(fn(chat_id, data, id_map))`
+(`plugins/api.py`, `plugins/manager.py: export_records / import_records`), called by `api/jsonl.py` after the messages
+exist. A plugin that is off or not installed when a file comes keeps its record in `plugin_data` under `import:<id>` and is
+handed it right after it starts. `transfer.py` of the plugin: chapters (borders), summaries with their lock, every version
+of the plot, development layers, «Сейчас:» lines, member flags, «Слово и нити» records with their status rows, the faces
+linked to the chat (with versions), and which chapters the per-chapter steps already did. NEVER vectors, pieces or sticky
+hits (the new chat is woken and makes them). Every message id goes through `id_map`; chapters, texts, records get new ids,
+the plot's `made_from` is remapped to the new summary ids, and a chapter's `content_hash` is recomputed for the new message
+ids (else every imported chapter would be stale). A row whose message is not in the file is skipped. A face already in the
+app under the same id and name is just linked; otherwise a new card is made (with its versions). A file of a newer memory
+format is ignored, the chat still imports.
+
+*M7, the assistant (point J).* `api.action(name, fn, *, describe, reads, confirm)`; `PluginManager.action_info`.
+`assistant_app.app_routes` lists the actions that have a `describe` (`POST /plugins/<id>/actions/<name> — line [reads only]
+[asks the user first]`); `app_call` skips the journal and the wait for replies for `reads`, and `_ask_app_call` returns the
+`confirm` question (the model's own `what` wins). `catalog.py` holds the line for each memory action (chapters, summaries,
+plot, development, «Сейчас:», threads, faces, `vectorize`, `resummarize`, whole-chat run, documents); an action without a
+line (e.g. the window's own `undo`) stays hidden. New `face_add` (confirm; refuses a person the chat already knows). `skills/memory.md`
+(plugin skill, English) teaches the workflow, the price rule and the confirmations. Changes go through the assistant's
+journal as before (`p_memory_*` tables are watched, `_vectors` tables are not), so «Отменить» puts a text back.
+
+*M7, «Разобрать весь чат» (`bulk.py`).* It is the chat's ordinary job (it already goes chapter by chapter and gives way to the
+user) plus: `bulk_estimate` (requests per step, tokens, vector tokens, money from `spending.price_for` of the memory model and
+of the vector connection; an unknown price is said plainly, never a number), `bulk_start` (needs `confirmed: true`: the page
+asks, the assistant has `confirm`; it switches memory on, remembers the agreed estimate, wakes the job), `bulk_state`
+(progress per step, the real spending since the start; the mark ends by itself when nothing is left), `bulk_stop`. A job
+that gave up on rate limits (`JobGaveUp`) is woken again after `RATE_RETRY` while the mark is on; a restart wakes unfinished
+runs and documents `RESUME_DELAY` after the plugin starts. Estimate = a guess from the chat's own sizes plus fixed prompt
+overheads per step (`bulk.OVERHEAD`).
+
+*M7, R2.* `Foreground.run_background(factory, on_cancel)`: a step cancelled `quiet_after` (3) times in a row waits
+`quiet_seconds` (20) after the user's work last started or ended before it is made again (a reply in that time moves the
+window); the job's note shows «отменено n раз: жду тишины» (`JobContext.step`).
+
+*Plugin settings (general).* A field's `help` is shown FOLDED («Что это?», `<details class="plugin-help">`) in every plugin's
+form. The model-access permission came first on the card: «Разрешить дополнению пользоваться моделями (это тратит деньги)»
+with folded help; while it is off the plugin's `connection` / `model` settings are hidden (`visibleSettings`) with a short
+line, when on come «Спрашивать меня перед каждым запросом», the limits and (always) the «Потрачено» line. When a `model`
+setting's `connection_key` setting changes without the model in the same save, the saved model is reset to its default
+(`manifest.check_settings`): a model of another service is never kept. New setting: `docs_percent` (10).
+
+*M8, documents (`docs.py`, migration 0007).* A .txt / .md / .docx (pure Python: `word/document.xml`, heading styles
+become `#`; cp1251 accepted) is cut at once, no model: chapters by headings («#», «Глава N», «Chapter N», Roman numerals;
+a section under ~150 tokens joins the next, one over ~6000 is cut again), else by the chat's border cutter over paragraphs
+(`borders.score_gaps` / `choose`, so «***» and «На следующий день» are borders); each chapter into pieces (`pieces.cut`),
+keywords as for messages. Tables `p_memory_docs`, `_doc_texts`, `_doc_chapters`, `_doc_pieces`, `_doc_summaries`, `_doc_chats`
+(which chats may find it), `_doc_vectors` (app-wide documents, so not the chat vectors table; never exported or
+journaled). Before any model work `doc_estimate` gives the price; `doc_start` needs `confirmed: true`; the job
+`doc:<id>` makes vectors (batches, 429 waited out) and a summary per chapter (own prompt «memory of a long text», the same
+checks and retries as chat summaries), every step through `job.step`. Searching (`docs.contribute`, called from
+`inject.contribute`): only with memory on in the chat and the document attached; the two levels (summary, or a piece with one
+neighbour each side when it beats the summary by the margin; «Вся глава» sends the chapter up to 3000 tokens), keywords alone
+work before the run; own budget `docs_percent` of the window (at least 300 tokens), at most 4 entries «Из документа «…»,
+глава N», each its own unconditional memory-spot entry (drop rank 30, before the chat's own memory). `meaning.wanted` is
+also answered yes when an attached document has vectors. «Документы» tab: add (price dialog, yes starts), attach to / detach
+from this chat, «Разобрать…», «Остановить», chapters with «Вся глава», delete.
+
+Choices where the ADR left room: (1) bulk reuses the chat's job instead of a second job, so it follows the same switches; the
+estimate names the steps that are off; (2) vectors cost is estimated from piece tokens, summaries are counted per chapter;
+(3) documents are not in chat files and their vectors are one set per document, not per chat; (4) a document without vectors
+is searched by words only; (5) `doc_add` for the assistant takes plain `text`, files come from the page; (6) the sticky rule
+does not apply to documents; (7) no per-member filter for documents; (8) not seen on screen.
 
 ## 8. Risks and decisions
 

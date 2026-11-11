@@ -464,7 +464,7 @@ async def test_switching_memory_off_in_a_chat_stops_its_job(client, ctx, monkeyp
 # -- vectors stay with the chat --------------------------------------------------------------------
 
 
-async def test_the_export_file_has_no_vectors_and_no_memory_records(client, ctx, fake_llm):
+async def test_the_export_file_has_no_vectors_and_no_pieces(client, ctx, fake_llm):
     setup = await boot(client, ctx)
     chat_id = setup["chat"]["id"]
     for i in range(6):
@@ -475,9 +475,9 @@ async def test_the_export_file_has_no_vectors_and_no_memory_records(client, ctx,
     text = (await client.get(f"/api/chats/{chat_id}/export.jsonl")).text
     piece_ids = [r["id"] for r in ctx.db.fetchall("SELECT id FROM p_memory_pieces")]
     assert piece_ids and not any(pid in text for pid in piece_ids)
-    assert "vector" not in text.lower() and "p_memory" not in text and "memory" not in text.lower()
+    assert "vector" not in text.lower() and "p_memory" not in text  # M7: the memory itself goes, never vectors / pieces
     kinds = {json.loads(line).get("type") for line in text.splitlines() if line.strip()}
-    assert "plugin" not in kinds
+    assert "plugin" in kinds
 
 
 async def test_vectors_never_enter_the_assistants_undo_journal(client, ctx, fake_llm):

@@ -46,7 +46,9 @@ the error shown. Everything registered is removed when the plugin is switched of
 |---|---|
 | `api.settings` | current values of the plugin.json settings |
 | `api.command(name, fn, description)` | "/name args" in the chat → `fn(chat_id, args)` → short text (or None) |
-| `api.action(name, fn)` | the web part calls `t.call(name, payload)` → `fn(payload)` (sync or async) → JSON |
+| `api.action(name, fn, *, describe="", reads=False, confirm="")` | the web part calls `t.call(name, payload)` → `fn(payload)` (sync or async) → JSON. `describe` (one English line: what it takes and gives) makes the assistant find it in `app_routes`; no line = hidden from the assistant. `reads=True`: changes nothing, no journal. `confirm="question"`: the assistant asks the user first (creating, spending money). A paid action should also demand `confirmed: true` in its payload |
+| `api.on_export(fn(chat_id) -> dict \| None)` | what the plugin keeps with a chat goes into the chat's .jsonl as a `plugin` record (`{plugin, version, data}`, header `version: 2`). Never put vectors in it |
+| `api.on_import(fn(chat_id, data, id_map))` | after a chat file was imported: the chat and messages exist, `id_map` is old message id → new. Rebuild what the file leaves out (vectors). A plugin that is off gets its data when switched on (kept as `import:<id>` in its storage). Skip a newer `data["version"]` than you know |
 | `api.on(event, fn, priority=)` | core events: `message.received` (message, chat), `chat.members_changed`, `prompt.built` (filter: messages, job), `chat.before_generate` (job), `generation.failed` … |
 | `api.storage(chat_id="")` | `.get/.set/.delete/.all` — JSON values, per chat (gone with the chat) or app-wide |
 | `api.add_message(chat_id, text, role="system", name=, hidden=False, to_model=True, extra=)` | a message at the end of the chat, owner = the plugin |
@@ -165,6 +167,14 @@ t.on("job", (e) => ...);   // {owner, key, running, queued, paused, done, total,
 askText, toast, close}` are the page's own parts, so do not bring your own. The window is a full-height sheet on a
 phone (✕ always visible); buttons 44px, text 14px+, no native `<select>`. Call `t.refresh()` after your state changed.
 Example: `tavern/builtin_plugins/memory/web.js`.
+
+## Settings help and the model switch (2026-11-11)
+
+Every setting needs a `help` that a child understands: what changes when you flip it, everyday words, a tiny example.
+The page shows it FOLDED behind a small «Что это?», so write it freely and keep the number of settings small. The
+plugin card puts the permission «Разрешить дополнению пользоваться моделями (это тратит деньги)» first: while it is off
+the plugin's `connection` and `model` settings are hidden. A `model` setting with `connection_key` is reset to empty
+when that connection changes (a model of another service is never kept).
 
 ## Composer helper (2026-11-07)
 

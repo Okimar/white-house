@@ -206,6 +206,14 @@ def check_settings(fields: list[dict[str, Any]], raw: Any, current: dict[str, An
         if key not in known:
             raise PluginError(f"У дополнения нет настройки {key!r}")
         out[key] = coerce(known[key], value)
+    # a model belongs to its connection: when the connection changes and the model is not set in the same save, the
+    # saved model is dropped (= the new connection's own model), so a model of another service is never kept
+    for f in fields:
+        link = f.get("connection_key")
+        if f["type"] == "model" and link and link in raw and f["key"] not in raw:
+            before = current.get(link, known[link]["default"]) if link in known else ""
+            if out.get(link, "") != before:
+                out[f["key"]] = f["default"]
     return out
 
 

@@ -213,16 +213,42 @@ function SettingField({ field, value, onSave, plugin }) {
     onBlur=${() => { const v = number ? Number(draft) : draft; if (v !== value) onSave(v); }} /></label>`;
 }
 
+// Help of a setting: folded by default, a small «Что это?» that opens (owner's rule 2026-11-11).
+function Help({ text }) {
+  if (!text) return null;
+  return html`<details class="plugin-help"><summary>Что это?</summary><div class="muted">${text}</div></details>`;
+}
+
+const MODEL_TYPES = ["connection", "model"];
+
+// The settings to show: while the plugin may not use models, its connection / model fields are hidden (they would
+// promise something the permission forbids).
+export function visibleSettings(fields, modelsAllowed) {
+  return fields.filter((f) => modelsAllowed || !MODEL_TYPES.includes(f.type));
+}
+
+const MODELS_HELP = "Дополнение само ходит к модели, например чтобы коротко пересказать главу. Каждый такой запрос "
+  + "стоит денег у вашего сервиса. Пока галочка снята, дополнение к моделям не обращается вообще, а выбор модели "
+  + "для него спрятан. Пример: снимите галочку, и «Память++» перестанет делать пересказы, но векторы и поиск по "
+  + "словам продолжат работать.";
+const ASK_HELP = "Перед каждым запросом к модели появится вопрос, разрешать ли его. Пример: вы увидите «Память++ "
+  + "хочет пересказать главу» и нажмёте «Да» или «Нет». Так надёжнее, но вопросов будет много.";
+const LIMIT_HELP = "Сколько денег дополнение может потратить за день и за месяц. 0 значит без предела. Пример: "
+  + "поставьте 0,5 в день, и когда дополнение потратит полдоллара, оно остановится до завтра.";
+
 function Access({ plugin, settings, onSave }) {
   const a = plugin.access;
   const code = settings && settings.currency.code ? settings.currency.code : "$";
   const num = (v) => Math.max(0, parseFloat(String(v).replace(",", ".")) || 0);
   return html`<div class="plugin-access" data-slot="plugin-access">
     <label><input type="checkbox" checked=${a.models} onChange=${(e) => onSave({ models: e.target.checked })} />
-      может обращаться к моделям</label>
+      Разрешить дополнению пользоваться моделями (это тратит деньги)</label>
+    <${Help} text=${MODELS_HELP} />
+    ${!a.models && html`<p class="muted">Чтобы выбрать модель, разрешите дополнению пользоваться моделями.</p>`}
     ${a.models && html`
       <label><input type="checkbox" checked=${a.ask} onChange=${(e) => onSave({ ask: e.target.checked })} />
-        спрашивать меня перед каждым запросом</label>
+        Спрашивать меня перед каждым запросом</label>
+      <${Help} text=${ASK_HELP} />
       <div class="row">
         <label>Лимит в день, ${code} <input type="number" min="0" step="0.01" value=${a.day}
           onChange=${(e) => onSave({ day: num(e.target.value) })} /></label>
@@ -231,11 +257,15 @@ function Access({ plugin, settings, onSave }) {
         <label>запросов на один ответ <input type="number" min="0" step="1" value=${a.per_reply}
           onChange=${(e) => onSave({ per_reply: Math.round(num(e.target.value)) })} /></label>
       </div>
-      <p class="muted">0 — без лимита. Лимиты в день и месяц считают только то, что потратило это дополнение.</p>`}
-    ${settings && html`<p class="muted" data-slot="plugin-spent">${`Потрачено сегодня: ${money(plugin.spent.day.cost,
-      settings)} (запросов ${plugin.spent.day.requests}), за месяц: ${money(plugin.spent.month.cost, settings)} ` +
-      `(запросов ${plugin.spent.month.requests})`}</p>`}
+      <${Help} text=${LIMIT_HELP} />`}
   </div>`;
+}
+
+function Spent({ plugin, settings }) {
+  if (!settings) return null;
+  return html`<p class="muted" data-slot="plugin-spent">${`Потрачено сегодня: ${money(plugin.spent.day.cost,
+    settings)} (запросов ${plugin.spent.day.requests}), за месяц: ${money(plugin.spent.month.cost, settings)} ` +
+    `(запросов ${plugin.spent.month.requests})`}</p>`;
 }
 
 function PluginCard({ plugin, spending, onChanged, onError }) {
@@ -289,12 +319,13 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
       ${plugin.description && html`<p>${plugin.description}</p>`}
       ${plugin.uses.length > 0 && html`<p class="muted">Заявляет: ${plugin.uses.map((u) => USES[u] || u).join("; ")}</p>`}
       ${plugin.commands.length > 0 && html`<p class="muted">Команды: ${plugin.commands.map((c) => "/" + c).join(", ")}</p>`}
-      ${plugin.settings.length > 0 && html`<h3>Настройки</h3>
-        <div class="plugin-settings">${plugin.settings.map((f) => html`<div key=${f.key}>
-          <${SettingField} field=${f} value=${plugin.values[f.key]} plugin=${plugin} onSave=${(v) => saveSetting(f.key, v)} />
-          ${f.help && html`<div class="muted">${f.help}</div>`}</div>`)}</div>`}
       <h3>Модели</h3>
       <${Access} plugin=${plugin} settings=${spending} onSave=${saveAccess} />
+      <${Spent} plugin=${plugin} settings=${spending} />
+      ${plugin.settings.length > 0 && html`<h3>Настройки</h3>
+        <div class="plugin-settings">${visibleSettings(plugin.settings, plugin.access.models).map((f) => html`<div key=${f.key}>
+          <${SettingField} field=${f} value=${plugin.values[f.key]} plugin=${plugin} onSave=${(v) => saveSetting(f.key, v)} />
+          <${Help} text=${f.help} /></div>`)}</div>`}
       <div class="row">
         ${github && html`<button disabled=${busy} onClick=${checkUpdate}>Проверить обновления</button>`}
         ${update && (update.update

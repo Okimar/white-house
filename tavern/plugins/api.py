@@ -89,9 +89,29 @@ class PluginAPI:
         """A chat command: "/name args". `fn(chat_id, args)` returns a short text for the user (or None)."""
         self._manager.add_command(self.id, self._name(name), fn, description)
 
-    def action(self, name: str, fn: Callable[..., Any]) -> None:
-        """Called by the plugin's web part: `t.call(name, payload)` -> `fn(payload)` -> JSON."""
+    def action(self, name: str, fn: Callable[..., Any], *, describe: str = "", reads: bool = False,
+               confirm: str = "") -> None:
+        """Called by the plugin's web part: `t.call(name, payload)` -> `fn(payload)` -> JSON.
+
+        The assistant finds an action through `app_routes` only when it has a `describe` (one line: what it takes
+        and gives, in English, for a model). `reads=True`: it changes nothing, so the assistant does not journal it
+        and does not wait for replies being written. `confirm`: the assistant must ask the user first, with this
+        question («Создать мини-карточку …?»); the model adds its own words as `what`."""
         self._manager.actions[(self.id, self._name(name))] = fn
+        self._manager.action_info[(self.id, self._name(name))] = {
+            "describe": describe[:600], "reads": bool(reads), "confirm": confirm[:300]}
+
+    def on_export(self, fn: Callable[[str], dict[str, Any] | None]) -> None:
+        """What this plugin keeps with a chat goes into the chat's .jsonl file: `fn(chat_id)` returns a JSON-able
+        dict, or None for nothing. Never put vectors in it (rebuild them after an import). The record carries the
+        plugin's version (`manifest["version"]`) so a newer plugin can read an older file."""
+        self._manager.exporters[self.id] = fn
+
+    def on_import(self, fn: Callable[[str, dict[str, Any], dict[str, str]], None]) -> None:
+        """`fn(chat_id, data, id_map)` after a chat file was read: the new chat exists with its messages;
+        `id_map` is old message id -> new message id. A plugin that is switched off when the file comes gets its
+        data kept and is handed it the next time it is switched on (key `import:<id>` in its storage)."""
+        self._manager.importers[self.id] = fn
 
     def notify(self, name: str, **data: Any) -> None:
         """Tell this plugin's web part on every open page: `t.onNotice(name, fn)` gets `data`."""

@@ -11,11 +11,14 @@
 // M6: the «Лица» tab: mini-cards of side characters (this chat's, or all with a search): name, aliases and card (saving
 // locks it), ★ «Любимое», «Использовать в этом чате», lock, versions, «Объединить с…», «Сделать настоящим персонажем»
 // (asks first, then opens the new card through t.openCharacter), «Удалить» / «Вернуть».
+// M7: «Разобрать весь чат…» (the price first, then progress). M8: the «Документы» tab (add a file, price, attach to this chat,
+// chapters with «Вся глава», delete).
 export default function setup(t) {
   let cache = { chatId: "", view: null, state: null, job: null };
   let layersTick = 0; // bumped by the notice «layers»: the «Развитие» tab loads again
   let threadsTick = 0; // bumped by the notice «threads»: the «Слово и нити» tab loads again
   let facesTick = 0; // bumped by the notice «faces»: the «Лица» tab loads again
+  let docsTick = 0; // bumped by the notice «docs»: the «Документы» tab loads again
   let focusId = "";
   let loading = false;
 
@@ -85,11 +88,13 @@ export default function setup(t) {
         <p class="muted memory-hint">${!state ? "Загрузка…" : !state.enabled
           ? "Выключена: ничего не считается и в промпт не добавляется."
           : describe(state, job)}</p>
+        ${state && html`<${Bulk} ui=${ui} chatId=${chatId} state=${state} busy=${busy} setBusy=${setBusy} />`}
         <div class="tabs" role="tablist">
           <button role="tab" aria-selected=${tab === "chapters"} onClick=${() => setTab("chapters")}>Главы</button>
           <button role="tab" aria-selected=${tab === "layers"} onClick=${() => setTab("layers")}>Развитие</button>
           <button role="tab" aria-selected=${tab === "threads"} onClick=${() => setTab("threads")}>Слово и нити</button>
           <button role="tab" aria-selected=${tab === "faces"} onClick=${() => setTab("faces")}>Лица</button>
+          <button role="tab" aria-selected=${tab === "docs"} onClick=${() => setTab("docs")}>Документы</button>
         </div>
         ${cache.error && !view && html`<p class="muted" role="alert">${cache.error}</p>`}
         ${view && tab === "chapters" && html`<${Chapters} ui=${ui} view=${view} open=${open} setOpen=${setOpen} busy=${busy}
@@ -97,6 +102,7 @@ export default function setup(t) {
         ${tab === "layers" && html`<${Layers} ui=${ui} chatId=${chatId} tick=${layersTick} />`}
         ${tab === "threads" && html`<${Threads} ui=${ui} chatId=${chatId} tick=${threadsTick} />`}
         ${tab === "faces" && html`<${Faces} ui=${ui} chatId=${chatId} tick=${facesTick} />`}
+        ${tab === "docs" && html`<${Docs} ui=${ui} chatId=${chatId} tick=${docsTick} />`}
       </div>`;
     },
   });
@@ -602,6 +608,162 @@ export default function setup(t) {
     </li>`;
   }
 
+  // M7: «Разобрать весь чат»: the price first, then the work in the background with progress.
+  function Help({ ui, text }) {
+    const { html } = ui;
+    return html`<details class="plugin-help"><summary>Что это?</summary><div class="muted">${text}</div></details>`;
+  }
+
+  function priceLines(e) {
+    const lines = [];
+    if (e.steps) for (const s of e.steps) lines.push(`${s.name}: ${s.count} запр.`);
+    if (e.embed_tokens) lines.push(`векторы: ${e.embed_tokens} токенов`);
+    return lines;
+  }
+
+  function Bulk({ ui, chatId, state, busy, setBusy }) {
+    const { html, useState, useEffect } = ui;
+    const [info, setInfo] = useState(null);
+    const load = async () => {
+      try { const got = await t.call("bulk_state", { chat_id: chatId }); if (t.chatId() === chatId) setInfo(got); } catch (e) { /* the line stays empty */ }
+    };
+    useEffect(() => { load(); }, [chatId, state && state.job && state.job.running, state && state.job && state.job.done]);
+    const start = async () => {
+      setBusy(true);
+      try {
+        const e = await t.call("bulk_estimate", { chat_id: chatId });
+        const body = [
+          `В чате ${e.messages} сообщений. Сначала нужно разобрать: ${e.chapters_new + e.chapters_now} глав.`,
+          ...priceLines(e),
+          `Цена: ${e.price_text}${e.model ? ` (модель ${e.model})` : ""}. Это оценка, настоящая сумма будет видна по ходу.`,
+          e.off.length ? `Не включено и не тратит ничего: ${e.off.join(", ")}.` : "",
+        ].filter(Boolean).join("\n");
+        if (!(await ui.ask(body, { ok: "Разобрать", cancel: "Не сейчас" }))) return;
+        setInfo(await t.call("bulk_start", { chat_id: chatId, confirmed: true }));
+        reload();
+      } catch (e) {
+        ui.toast(e.message, "error");
+      } finally {
+        setBusy(false);
+      }
+    };
+    const stop = async () => {
+      setBusy(true);
+      try { setInfo(await t.call("bulk_stop", { chat_id: chatId })); reload(); } catch (e) { ui.toast(e.message, "error"); } finally { setBusy(false); }
+    };
+    const running = info && info.on;
+    return html`<div class="memory-bulk" data-slot="memory-bulk">
+      ${!running && html`<button disabled=${busy} onClick=${start}>Разобрать весь чат…</button>`}
+      ${running && html`<div class="memory-actions"><button disabled=${busy} onClick=${stop}>Остановить разбор</button></div>`}
+      ${info && info.steps.length > 0 && (running || info.finished) && html`<p class="muted memory-hint" role="status">
+        ${running ? "Разбор идёт в фоне. " : "Разбор закончен. "}${info.steps.map((s) => `${s.name}: ${s.done} из ${s.total}`).join("; ")}.
+        ${info.spent ? ` Потрачено: ${info.spent.text} (${info.spent.requests} запр.), прикидка была ${info.estimate}.` : ""}</p>`}
+      <${Help} ui=${ui} text="Кнопка проходит по всему старому или импортированному чату: режет его на главы, пересказывает их и ведёт всё остальное, что вы включили в настройках дополнения. Перед началом вы увидите цену. Пример: чат на 500 сообщений, вы нажали кнопку, прочитали «около 0,4 $» и согласились. Работа идёт сама и уступает вам: когда вы пишете, она ждёт." />
+    </div>`;
+  }
+
+  // M8: documents given to the memory
+  function toBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  }
+
+  function Docs({ ui, chatId, tick }) {
+    const { html, useState, useEffect } = ui;
+    const [data, setData] = useState(null);
+    const [error, setError] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [open, setOpen] = useState("");
+    const load = async () => {
+      try {
+        const got = await t.call("docs", { chat_id: chatId });
+        if (t.chatId() === chatId) { setData(got); setError(""); }
+      } catch (e) { setError(e.message); }
+    };
+    useEffect(() => { load(); }, [chatId, tick]);
+    const call = async (action, payload = {}) => {
+      setBusy(true);
+      try { const got = await t.call(action, { chat_id: chatId, ...payload }); await load(); return got || {}; }
+      catch (e) { ui.toast(e.message, "error"); return null; }
+      finally { setBusy(false); }
+    };
+    const price = async (doc, e) => {
+      const body = [`«${doc.title}»: ${e.chapters} глав, около ${e.tokens} токенов.`,
+        `Пересказы: ${e.summary_requests} запросов к модели${e.model ? ` (${e.model})` : ""}; векторы: ${e.embed_tokens} токенов.`,
+        `Цена: ${e.price_text}. Это оценка.`].join("\n");
+      return ui.ask(body, { ok: "Разобрать", cancel: "Пока не надо" });
+    };
+    const begin = async (doc) => {
+      const e = await call("doc_estimate", { doc_id: doc.id });
+      if (e && await price(doc, e)) await call("doc_start", { doc_id: doc.id, confirmed: true });
+    };
+    const add = async (event) => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = "";
+      if (!file) return;
+      setBusy(true);
+      try {
+        const got = await t.call("doc_add", { chat_id: chatId, name: file.name, data: toBase64(await file.arrayBuffer()) });
+        await load();
+        if (await price(got.doc, got.estimate)) await t.call("doc_start", { doc_id: got.doc.id, confirmed: true });
+        await load();
+      } catch (e) { ui.toast(e.message, "error"); } finally { setBusy(false); }
+    };
+    const remove = async (doc) => {
+      if (await ui.ask(`Удалить «${doc.title}» из памяти? Прикрепления и вся работа над ним пропадут.`, { ok: "Удалить", danger: true })) {
+        await call("doc_delete", { doc_id: doc.id });
+      }
+    };
+    if (!data) return html`<p class="muted" role=${error ? "alert" : "status"}>${error || "Загрузка…"}</p>`;
+    return html`<div class="memory-chapters" data-slot="memory-docs">
+      <p class="muted memory-hint">Книга или длинный текст, из которого чат может вспоминать. Файл .txt, .md или .docx режется на главы, главы пересказываются; чат видит только те документы, которые прикреплены к нему.</p>
+      <label class="memory-file"><span>Добавить документ…</span><input type="file" accept=".txt,.md,.docx" disabled=${busy} onChange=${add} /></label>
+      <${Help} ui=${ui} text="Документ можно прикрепить к нескольким чатам: он лежит один раз, а ищется из каждого. Пока документ не разобран, он ищется только по словам; после разбора ещё и по смыслу. Пример: вы отдали памяти роман, прикрепили к чату про его героев, и когда в разговоре всплывёт название города, в запрос к модели попадёт пересказ нужной главы. Разбор стоит денег, сначала вы увидите цену." />
+      ${data.docs.length === 0 && html`<p class="muted">Документов пока нет.</p>`}
+      <ul class="memory-list">
+        ${data.docs.map((d) => html`<li key=${d.id} class="memory-chapter">
+          <div class="memory-sheet">
+            <strong>${d.title}</strong>
+            <p class="muted">${d.chapters} глав, пересказов ${d.summarized} из ${d.chapters}. ${{
+              cut: d.started ? "Ждёт разбора." : "Нарезан, не разобран (ищется по словам).",
+              working: d.job && d.job.paused ? "Пауза: идёт ваш запрос." : "Разбирается в фоне…",
+              ready: "Готов.", failed: "Не всё удалось.",
+            }[d.state] || ""} ${d.error || ""}</p>
+            <label class="memory-field"><input type="checkbox" checked=${d.attached} disabled=${busy}
+              onChange=${(e) => call(e.target.checked ? "doc_attach" : "doc_detach", { doc_id: d.id })} /> Показывать в этом чате</label>
+            <div class="memory-actions">
+              ${(!d.started || d.state === "failed") && html`<button disabled=${busy} onClick=${() => begin(d)}>Разобрать…</button>`}
+              ${d.started && d.state === "working" && html`<button disabled=${busy} onClick=${() => call("doc_stop", { doc_id: d.id })}>Остановить</button>`}
+              <button disabled=${busy} aria-expanded=${open === d.id} onClick=${() => setOpen(open === d.id ? "" : d.id)}>Главы</button>
+              <button disabled=${busy} onClick=${() => remove(d)}>Удалить</button>
+            </div>
+            ${open === d.id && html`<${DocChapters} ui=${ui} docId=${d.id} tick=${tick + d.summarized} />`}
+          </div></li>`)}
+      </ul>
+    </div>`;
+  }
+
+  function DocChapters({ ui, docId, tick }) {
+    const { html, useState, useEffect } = ui;
+    const [view, setView] = useState(null);
+    useEffect(() => { t.call("doc_view", { doc_id: docId }).then(setView).catch((e) => ui.toast(e.message, "error")); }, [docId, tick]);
+    if (!view) return html`<p class="muted" role="status">Загрузка…</p>`;
+    const whole = async (c, on) => {
+      try { setView(await t.call("doc_chapter", { chapter_id: c.id, whole: on })); } catch (e) { ui.toast(e.message, "error"); }
+    };
+    return html`<ul class="memory-versions">
+      ${view.chapters.map((c) => html`<li key=${c.id}>
+        <strong>${c.number}. ${c.title || "без названия"}</strong>
+        <span class="muted">${c.tokens} токенов</span>
+        <p class="muted">${c.summary || (c.error ? c.error : "Пересказа пока нет.")}</p>
+        <label class="memory-field"><input type="checkbox" checked=${c.whole} onChange=${(e) => whole(c, e.target.checked)} /> Вся глава</label>
+        <${Help} ui=${ui} text="Когда глава нашлась, в запрос идёт её пересказ или нужный отрывок. С этой галочкой идёт вся глава целиком (до 3 000 токенов). Пример: глава с важным письмом, которое надо цитировать слово в слово." />
+      </li>`)}
+    </ul>`;
+  }
+
   function describe(state, job) {
     const parts = [];
     if (!state.connected) parts.push("нет подключения для векторов (Настройки → Промпт): отрывки ищутся только по словам");
@@ -854,6 +1016,7 @@ export default function setup(t) {
   t.onNotice("threads", (data) => {
     if (!data || data.chat_id === t.chatId()) { threadsTick += 1; t.refresh(); }
   });
+  t.onNotice("docs", () => { docsTick += 1; t.refresh(); });
   t.onNotice("faces", () => { facesTick += 1; t.refresh(); }); // faces are app-wide: every open chat reloads them
 
   t.composerButton({

@@ -574,6 +574,8 @@ input.num { width: 4.5em; }
 .plugin-access .row { align-items: flex-end; }
 .plugin-access .row label { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .plugin-access input[type="number"] { width: 8em; }
+.plugin-help summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: 14px; color: var(--muted); }
+.plugin-help > div { font-size: 14px; padding: 0 0 8px; }
 .plugins form.grow { flex: 1 1 320px; flex-wrap: nowrap; }
 .plugins form.grow input { flex: 1; min-width: 0; }
 .error { color: var(--danger); }

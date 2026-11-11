@@ -43,7 +43,7 @@ from tavern.core.assembly import Extra
 from tavern.core.prompt import estimate_tokens
 from tavern.services import character_tree
 
-from . import chapters, faces, layers, pieces, search, store, threads
+from . import chapters, docs, faces, layers, pieces, search, store, threads
 
 MAX_OFFERS = 40  # chapter / piece offers per reply at most (the assembler sends only what was left out and fits)
 SCAN_CHARS = 4000
@@ -68,6 +68,9 @@ def tail(history: list[dict[str, Any]], max_context: int, percent: float, minimu
     return taken[-1], set(taken)
 
 
+_DOC_CACHE = docs.DocVectorCache()  # used when the caller keeps none (tests)
+
+
 def budget(settings: dict[str, Any], max_context: int) -> int:
     """The memory's own budget: `memory_percent` of the window, but never less than `memory_tokens` (M4: a fixed 1500
     fitted only one summary and the plot in a large window)."""
@@ -87,7 +90,10 @@ def wants_meaning(api: Any, value: bool = False, chat: dict[str, Any] | None = N
     if not chat or not store.is_enabled(api.ctx.db, chat["id"]):
         return None
     model = api.vectors_model()
-    return True if model and store.vector_count(api.ctx.db, chat["id"], model) > 0 else None
+    if not model:
+        return None
+    mine = store.vector_count(api.ctx.db, chat["id"], model) > 0
+    return True if mine or docs.has_vectors(api.ctx.db, chat["id"], model) else None
 
 
 @lru_cache(maxsize=4096)
@@ -105,7 +111,8 @@ class Offer:
     hits: dict[str, tuple[str, str]] = field(default_factory=dict)  # extra source -> (chapter id, form) to remember
 
 
-async def contribute(api: Any, cache: store.VectorCache, job: Any, pending: dict[str, Any] | None = None) -> None:
+async def contribute(api: Any, cache: store.VectorCache, job: Any, pending: dict[str, Any] | None = None,
+                     docs_cache: docs.DocVectorCache | None = None) -> None:
     """The `chat.before_generate` handler: tail, candidates, scoring, extras."""
     ctx = api.ctx
     db = ctx.db
@@ -123,6 +130,7 @@ async def contribute(api: Any, cache: store.VectorCache, job: Any, pending: dict
     scan = scan_texts(history, meaning_messages)
     threads.contribute(api, cache, job, history, scan)  # M5: the speaker's word
     faces.contribute(api, cache, job, history, scan)  # M6: the side characters this reply is about
+    docs.contribute(api, docs_cache or _DOC_CACHE, job, scan)  # M8: documents attached to this chat
     if not job.max_context_tokens:
         return
     tail_from, tail_ids = tail(history, job.max_context_tokens, float(settings["tail_percent"]),

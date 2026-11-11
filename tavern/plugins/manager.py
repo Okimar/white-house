@@ -114,6 +114,9 @@ class PluginManager:
         self.errors: dict[str, str] = {}
         self.commands: dict[str, tuple[str, Callable[..., Any], str]] = {}  # name -> (plugin, fn, description)
         self.actions: dict[tuple[str, str], Callable[..., Any]] = {}
+        self.action_info: dict[tuple[str, str], dict[str, Any]] = {}  # describe / reads / confirm (api.action)
+        self.exporters: dict[str, Callable[[str], dict[str, Any] | None]] = {}
+        self.importers: dict[str, Callable[[str, dict[str, Any], dict[str, str]], None]] = {}
         self.asks: dict[str, Ask] = {}
         self.transport: httpx.AsyncBaseTransport | None = None  # tests swap the network out
 
@@ -278,6 +281,7 @@ class PluginManager:
             self.errors[item.id] = f"Не запустилось: {message}"
             return False
         log.info("Plugin %s %s started", item.id, item.manifest["version"])
+        self._run_pending_imports(item.id)
         return True
 
     def _migrate(self, item: Found) -> None:
@@ -320,6 +324,9 @@ class PluginManager:
             del self.commands[name]
         for key in [k for k in self.actions if k[0] == plugin_id]:
             del self.actions[key]
+            self.action_info.pop(key, None)
+        self.exporters.pop(plugin_id, None)
+        self.importers.pop(plugin_id, None)
         if loaded is None:
             return
         for fn in reversed(loaded.api._unload):
@@ -618,6 +625,62 @@ class PluginManager:
         self.ctx.chats.get_chat(chat_id)  # 404 for a wrong chat before the plugin sees it
         result = await self._call(plugin_id, f"/{name}", fn, chat_id, args.strip())
         return {"handled": True, "text": result if isinstance(result, str) else ""}
+
+    # -- chat files (ADR 0019 point E) ----------------------------------------------------------
+
+    def export_records(self, chat_id: str) -> list[dict[str, Any]]:
+        """The `plugin` records of a chat's file: one per switched-on plugin that has something to say."""
+        out = []
+        for plugin_id, fn in list(self.exporters.items()):
+            try:
+                data = fn(chat_id)
+            except Exception:  # noqa: BLE001 - a plugin's failure must not break the export
+                log.exception("Plugin %s failed while exporting chat %s", plugin_id, chat_id)
+                continue
+            if data:
+                loaded = self.loaded.get(plugin_id)
+                version = str(loaded.api.manifest.get("version", "0")) if loaded else "0"
+                out.append({"plugin": plugin_id, "version": version, "data": data})
+        return out
+
+    def import_records(self, chat_id: str, records: list[dict[str, Any]], id_map: dict[str, str]) -> None:
+        """Hand each record to its plugin. A plugin that is off (or not installed) gets it kept for later."""
+        for record in records:
+            plugin_id = record["plugin"]
+            fn = self.importers.get(plugin_id)
+            if fn is None:
+                self.ctx.plugin_repo.data_set(plugin_id, chat_id, f"import:{plugin_id}",
+                                              {"record": record, "id_map": id_map})
+                continue
+            self._import_one(plugin_id, fn, chat_id, record, id_map)
+
+    def _import_one(self, plugin_id: str, fn: Callable[..., Any], chat_id: str, record: dict[str, Any],
+                    id_map: dict[str, str]) -> bool:
+        try:
+            fn(chat_id, record["data"], id_map)
+            return True
+        except Exception:  # noqa: BLE001 - the chat itself is imported; the plugin's part is skipped
+            log.exception("Plugin %s failed while importing chat %s", plugin_id, chat_id)
+            return False
+
+    def _run_pending_imports(self, plugin_id: str) -> None:
+        """Data that came with a chat file while the plugin was off: given now that it has started."""
+        fn = self.importers.get(plugin_id)
+        if fn is None:
+            return
+        key = f"import:{plugin_id}"
+        for row in self.ctx.db.fetchall("SELECT chat_id FROM plugin_data WHERE plugin_id = ? AND key = ?",
+                                        (plugin_id, key)):
+            chat_id = row["chat_id"]
+            kept = self.ctx.plugin_repo.data_get(plugin_id, chat_id, key)
+            self.ctx.plugin_repo.data_delete(plugin_id, chat_id, key)
+            if not kept or "record" not in kept:
+                continue
+            try:
+                self.ctx.chats.get_chat(chat_id)
+            except NotFound:
+                continue
+            self._import_one(plugin_id, fn, chat_id, kept["record"], kept.get("id_map", {}))
 
     async def call_action(self, plugin_id: str, name: str, payload: dict[str, Any]) -> Any:
         fn = self.actions.get((plugin_id, name))

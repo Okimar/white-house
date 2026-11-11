@@ -50,6 +50,7 @@ CLOSED_WRITES = (
     (re.compile(r"^/skills"), "the assistant reads skills (read_skill) but never changes its own instructions"),
 )
 ASK_FIRST = re.compile(r"/(delete-by-numbers)$")
+PLUGIN_ACTION = re.compile(r"^/plugins/([^/]+)/actions/([^/]+)$")
 # POST routes that only look (they change no rows): they do not wait for replies being written.
 READ_POSTS = ("/regex/try", "/regex/display")
 
@@ -199,10 +200,21 @@ def _request_args(args: dict[str, Any]) -> tuple[str, str, dict[str, str], Any]:
     return method, path, {str(k): str(v) for k, v in query.items()}, args.get("body")
 
 
+def _action_info(ctx: Any, method: str, path: str) -> dict[str, Any]:
+    """What a plugin declared about the action this request calls (api.action: describe, reads, confirm)."""
+    found = PLUGIN_ACTION.match(path) if method == "POST" else None
+    if found is None or ctx.plugins is None:
+        return {}
+    return ctx.plugins.action_info.get((found.group(1), found.group(2)), {})
+
+
 def _ask_app_call(env: Env, args: dict[str, Any]) -> str:
     method, path, _, _ = _request_args(args)
     if method == "DELETE" or ASK_FIRST.search(path):
         return str(args.get("what") or f"{method} {path}")
+    confirm = _action_info(env.ctx, method, path).get("confirm")
+    if confirm:  # a plugin's action that must be allowed by the user (e.g. making a mini-card)
+        return str(args.get("what") or confirm)
     return ""
 
 
@@ -213,7 +225,7 @@ async def app_call(env: Env, args: dict[str, Any]) -> Outcome:
     kwargs: dict[str, Any] = {"params": query}
     if body is not None and method != "GET":
         kwargs["json"] = body
-    if method == "GET" or path in READ_POSTS:
+    if method == "GET" or path in READ_POSTS or _action_info(env.ctx, method, path).get("reads"):
         response = await client.request(method, "/api" + path, **kwargs)
         return Outcome({"status": response.status_code, "data": _answer(response)})
     await wait_quiet(env)
@@ -235,9 +247,23 @@ def _answer(response: httpx.Response) -> Any:
     return f"[{kind or 'binary'}, {len(response.content)} bytes]"
 
 
+def _plugin_action_lines(ctx: Any) -> list[str]:
+    """The actions of switched-on plugins that describe themselves (api.action(..., describe=)), one line each."""
+    if ctx.plugins is None:
+        return []
+    out = []
+    for (plugin_id, name), info in sorted(ctx.plugins.action_info.items()):
+        if not info.get("describe"):
+            continue
+        marks = (" [reads only]" if info.get("reads") else "") + (" [asks the user first]" if info.get("confirm") else "")
+        out.append(f"POST /plugins/{plugin_id}/actions/{name} — {info['describe']}{marks}")
+    return out
+
+
 async def app_routes(env: Env, args: dict[str, Any]) -> Outcome:
     words = str(args.get("filter") or "").lower().split()
     lines = [f"{m} {p} — {d}" if d else f"{m} {p}" for m, p, d in _routes()]
+    lines += _plugin_action_lines(env.ctx)
     if words:
         lines = [line for line in lines if all(w in line.lower() for w in words)]
     return Outcome("\n".join(lines) or "nothing matches")

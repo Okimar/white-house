@@ -15,14 +15,19 @@ ADR 0019 holds the whole design; this file only wires it.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from typing import Any
 
+from tavern.core.background import JobGaveUp
 from tavern.errors import AppError
 from tavern.services import cast
 
-from . import actions, chapters, faces, inject, layers, pieces, store, threads, work
+from . import actions, bulk, catalog, chapters, docs, faces, inject, layers, pieces, store, threads, transfer, work
 
 WAKE_DELAY = 2.0  # seconds a chat's job waits after an event, so edits that follow each other are worked together
+RATE_RETRY = 120.0  # seconds after which a bulk run or a document that gave up on rate limits is woken again
+RESUME_DELAY = 5.0  # seconds after start when unfinished bulk runs and documents are woken (a restart loses nothing)
 WAKE_EVENTS = ("message.received", "message.added", "message.edited", "message.excluded", "message.deleted",
                "message.swipe_selected", "chat.branch_selected")
 
@@ -30,8 +35,14 @@ WAKE_EVENTS = ("message.received", "message.added", "message.edited", "message.e
 def setup(api: Any) -> None:
     db = api.ctx.db
     cache = store.VectorCache()
+    docs_cache = docs.DocVectorCache()
     pending: dict[str, Any] = {}  # reply id -> chapters offered to it (inject.record_hits)
     timers: dict[str, asyncio.TimerHandle] = {}  # chat id -> the next pass after a failed summary's backoff
+
+    def reg(name: str, fn: Any) -> None:
+        """api.action with what the assistant is told (catalog.py): describe, reads, confirm."""
+        describe, reads, confirm = catalog.ACTIONS.get(name, ("", False, ""))
+        api.action(name, fn, describe=describe, reads=reads, confirm=confirm)
 
     def stop_timers() -> None:
         for handle in timers.values():
@@ -39,6 +50,7 @@ def setup(api: Any) -> None:
         timers.clear()
 
     api.on_unload(cache.clear)
+    api.on_unload(docs_cache.clear)
     api.on_unload(stop_timers)
 
     def wake(chat_id: str | None, delay: float | None = None) -> None:
@@ -47,7 +59,12 @@ def setup(api: Any) -> None:
             return
 
         async def job(ctx: Any) -> None:
-            retry = await work.run(api, chat_id, ctx, cache)
+            try:
+                retry = await work.run(api, chat_id, ctx, cache)
+            except JobGaveUp:
+                if bulk.is_on(api, chat_id):  # a whole-chat run waits out the rate limit and goes on (progress is kept)
+                    later(chat_id, RATE_RETRY)
+                raise
             if retry is not None:
                 later(chat_id, retry)
 
@@ -96,7 +113,7 @@ def setup(api: Any) -> None:
     api.on("meaning.wanted", lambda value=False, chat=None, **_: inject.wants_meaning(api, value, chat))
 
     async def before_generate(job: Any) -> None:
-        await inject.contribute(api, cache, job, pending)
+        await inject.contribute(api, cache, job, pending, docs_cache)
 
     api.on("chat.before_generate", before_generate, priority=50)
 
@@ -205,7 +222,7 @@ def setup(api: Any) -> None:
         api.ctx.chats.get_chat(chat_id)  # NotFound for a wrong chat
         return chat_id
 
-    api.action("chapters", view)
+    reg("chapters", view)
     def _message(payload: dict[str, Any], path: list[dict[str, Any]]) -> str:
         """A message of the open branch by `message_id`, or by its number in the chat (`number`, what the page shows)."""
         if isinstance(payload.get("message_id"), str) and payload["message_id"]:
@@ -216,24 +233,24 @@ def setup(api: Any) -> None:
             raise AppError("Нет сообщения с таким номером на этой ветке", code="memory_chapter", status=409)
         return found
 
-    api.action("split", hand(lambda c, path, p, st, me: chapters.split(db, st, c, path, _message(p, path), me)))
-    api.action("merge", hand(lambda c, path, p, st, me: chapters.merge(db, st, c, path, _text(p, "chapter_id"), me)))
-    api.action("move_border", hand(lambda c, path, p, st, me: chapters.move_border(
+    reg("split", hand(lambda c, path, p, st, me: chapters.split(db, st, c, path, _message(p, path), me)))
+    reg("merge", hand(lambda c, path, p, st, me: chapters.merge(db, st, c, path, _text(p, "chapter_id"), me)))
+    reg("move_border", hand(lambda c, path, p, st, me: chapters.move_border(
         db, st, c, path, _text(p, "chapter_id"), _message(p, path), me)))
-    api.action("remove", hand(lambda c, path, p, st, me: chapters.remove(db, st, c, path, _text(p, "chapter_id"))))
-    api.action("restore", hand(lambda c, path, p, st, me: chapters.restore(db, st, c, path, _text(p, "chapter_id"), me)))
-    api.action("accept", hand(lambda c, path, p, st, me: chapters.accept(db, st, c, path, _text(p, "chapter_id"), me)))
-    api.action("edit", hand(lambda c, path, p, st, me: chapters.edit(
+    reg("remove", hand(lambda c, path, p, st, me: chapters.remove(db, st, c, path, _text(p, "chapter_id"))))
+    reg("restore", hand(lambda c, path, p, st, me: chapters.restore(db, st, c, path, _text(p, "chapter_id"), me)))
+    reg("accept", hand(lambda c, path, p, st, me: chapters.accept(db, st, c, path, _text(p, "chapter_id"), me)))
+    reg("edit", hand(lambda c, path, p, st, me: chapters.edit(
         db, st, c, path, _text(p, "chapter_id"), title=p.get("title"),
         whole=p.get("whole") if "whole" in p else None)))
-    api.action("undo", hand(lambda c, path, p, st, me: chapters.undo(db, st)))
+    reg("undo", hand(lambda c, path, p, st, me: chapters.undo(db, st)))
 
     # M3: summaries, the plot, members (actions.py)
     def text_hand(fn: Any) -> Any:
         return hand(lambda c, path, p, st, me: fn(db, c, path, p, st))
 
     for name in ("summary_edit", "summary_lock", "summary_restore", "plot_edit", "plot_lock", "plot_restore"):
-        api.action(name, text_hand(getattr(actions, name)))
+        reg(name, text_hand(getattr(actions, name)))
 
     def on_chat(payload: dict[str, Any]) -> str:
         chat_id = _chat_id(payload)
@@ -265,16 +282,16 @@ def setup(api: Any) -> None:
         store.set_member(db, chat_id, character_id, **values)
         return {"members": members_of(chat_id)}
 
-    api.action("resummarize", resummarize)
-    api.action("plot_rebuild", plot_rebuild)
-    api.action("member_set", member_set)
-    api.action("summary_versions", lambda p: {"versions": actions.summary_versions(
+    reg("resummarize", resummarize)
+    reg("plot_rebuild", plot_rebuild)
+    reg("member_set", member_set)
+    reg("summary_versions", lambda p: {"versions": actions.summary_versions(
         db, _chat_id(p), _text(p, "chapter_id"))})
-    api.action("plot_versions", lambda p: {"versions": actions.plot_versions(
+    reg("plot_versions", lambda p: {"versions": actions.plot_versions(
         db, _chat_id(p), api.ctx.chats.active_path(_chat_id(p)))})
-    api.action("state", state)
-    api.action("set_enabled", set_enabled)
-    api.action("vectorize", vectorize)
+    reg("state", state)
+    reg("set_enabled", set_enabled)
+    reg("vectorize", vectorize)
 
     # M4: «Развитие» layers and «Сейчас:» lines (layers.py)
     def layer_hand(fn: Any) -> Any:
@@ -288,7 +305,7 @@ def setup(api: Any) -> None:
         return run
 
     for name in ("layer_edit", "layer_lock", "layer_restore", "now_edit", "now_delete"):
-        api.action(name, layer_hand(getattr(layers, name)))
+        reg(name, layer_hand(getattr(layers, name)))
 
     def layers_view(payload: dict[str, Any]) -> dict[str, Any]:
         chat_id = _chat_id(payload)
@@ -305,11 +322,11 @@ def setup(api: Any) -> None:
         api.notify("layers", chat_id=chat_id)
         return {"written": written, **layers.view(api, chat_id, api.storage(chat_id))}
 
-    api.action("layers", layers_view)
-    api.action("layer_versions", lambda p: {"versions": layers.layer_versions(api, _chat_id(p), p)})
-    api.action("layer_chats", lambda p: {"chats": layers.transfer_chats(api, _chat_id(p), p)})
-    api.action("layer_transfer", layer_transfer)
-    api.action("now_write", now_write)
+    reg("layers", layers_view)
+    reg("layer_versions", lambda p: {"versions": layers.layer_versions(api, _chat_id(p), p)})
+    reg("layer_chats", lambda p: {"chats": layers.transfer_chats(api, _chat_id(p), p)})
+    reg("layer_transfer", layer_transfer)
+    reg("now_write", now_write)
 
     # M5: «Слово и нити» (threads.py)
     def thread_hand(fn: Any) -> Any:
@@ -323,13 +340,13 @@ def setup(api: Any) -> None:
         return run
 
     for name in ("thread_edit", "thread_status", "thread_lock", "thread_delete", "thread_restore", "thread_add"):
-        api.action(name, thread_hand(getattr(threads, name)))
+        reg(name, thread_hand(getattr(threads, name)))
 
     def threads_view(payload: dict[str, Any]) -> dict[str, Any]:
         chat_id = _chat_id(payload)
         return threads.view(api, chat_id, api.storage(chat_id))
 
-    api.action("threads", threads_view)
+    reg("threads", threads_view)
 
     # M6: «Лица», mini-cards of side characters (faces.py). Faces are app-wide; a hand edit goes into the undo log of the
     # chat whose window made it.
@@ -345,7 +362,7 @@ def setup(api: Any) -> None:
 
     for name in ("face_edit", "face_lock", "face_favourite", "face_use", "face_restore", "face_delete",
                  "face_undelete", "face_merge"):
-        api.action(name, face_hand(getattr(faces, name)))
+        reg(name, face_hand(getattr(faces, name)))
 
     def faces_view(payload: dict[str, Any]) -> dict[str, Any]:
         chat_id = _chat_id(payload)
@@ -357,6 +374,185 @@ def setup(api: Any) -> None:
         api.notify("faces", chat_id=chat_id)
         return {"made": made, **faces.view(api, chat_id, api.storage(chat_id), payload)}
 
-    api.action("faces", faces_view)
-    api.action("face_versions", lambda p: {"versions": faces.face_versions(api, p)})
-    api.action("face_make_real", face_make_real)
+    reg("faces", faces_view)
+    reg("face_versions", lambda p: {"versions": faces.face_versions(api, p)})
+    reg("face_make_real", face_make_real)
+
+    def face_add(payload: dict[str, Any]) -> dict[str, Any]:
+        """A new mini-card (the assistant asks the user first: catalog.py `confirm`)."""
+        chat_id = on_chat(payload)
+        made = faces.face_add(api, chat_id, payload, api.storage(chat_id))
+        api.notify("faces", chat_id=chat_id)
+        return {"made": made, **faces.view(api, chat_id, api.storage(chat_id), payload)}
+
+    reg("face_add", face_add)
+
+    # M7: memory in the chat file (transfer.py)
+    api.on_export(lambda chat_id: transfer.export(api, chat_id))
+
+    def on_import(chat_id: str, data: dict[str, Any], id_map: dict[str, str]) -> None:
+        if transfer.import_data(api, chat_id, data, id_map):
+            api.notify("chapters", chat_id=chat_id)
+            wake(chat_id, delay=1.0)  # the vectors are not in the file: the job makes them
+
+    api.on_import(on_import)
+
+    # M7: «Разобрать весь чат» (bulk.py)
+    def confirmed(payload: dict[str, Any]) -> None:
+        if payload.get("confirmed") is not True:
+            raise AppError("Сначала покажите цену и спросите, продолжать ли", code="memory_confirm", status=409)
+
+    def bulk_estimate(payload: dict[str, Any]) -> dict[str, Any]:
+        return bulk.estimate(api, _chat_id(payload))
+
+    def bulk_start(payload: dict[str, Any]) -> dict[str, Any]:
+        chat_id = _chat_id(payload)
+        confirmed(payload)
+        if not api.ctx.chats.active_path(chat_id):
+            raise AppError("В чате ещё нет сообщений", code="memory_empty", status=409)
+        found = bulk.start(api, chat_id)
+        wake(chat_id, delay=0.2)
+        return {"estimate": found, **bulk.state(api, chat_id)}
+
+    def bulk_stop(payload: dict[str, Any]) -> dict[str, Any]:
+        chat_id = _chat_id(payload)
+        bulk.stop(api, chat_id)
+        api.ctx.jobs.cancel(api.id, f"chat:{chat_id}")
+        return bulk.state(api, chat_id)
+
+    reg("bulk_estimate", bulk_estimate)
+    reg("bulk_start", bulk_start)
+    reg("bulk_stop", bulk_stop)
+    reg("bulk_state", lambda p: bulk.state(api, _chat_id(p)))
+
+    # M8: documents (docs.py)
+    def wake_doc(doc_id: str, delay: float = 0.2) -> None:
+        async def job(ctx: Any) -> None:
+            try:
+                await docs.run(api, doc_id, ctx, work.Clients(api, None, ctx))
+            except JobGaveUp:
+                later_doc(doc_id, RATE_RETRY)
+                raise
+
+        api.job(f"doc:{doc_id}", job, delay=delay)
+
+    def later_doc(doc_id: str, seconds: float) -> None:
+        old = timers.pop("doc:" + doc_id, None)
+        if old is not None:
+            old.cancel()
+
+        def fire() -> None:
+            timers.pop("doc:" + doc_id, None)
+            wake_doc(doc_id, 0.1)
+
+        timers["doc:" + doc_id] = asyncio.get_running_loop().call_later(max(1.0, seconds), fire)
+
+    def doc_item(doc: dict[str, Any], chat_id: str = "") -> dict[str, Any]:
+        rows = docs.chapter_rows(db, doc["id"])
+        mine = {d["id"] for d in docs.attached(db, chat_id)} if chat_id else set()
+        return {"id": doc["id"], "title": doc["title"], "source_name": doc["source_name"], "state": doc["state"],
+                "started": doc["started"], "with_summaries": doc["with_summaries"], "error": doc["error"],
+                "tokens": doc["tokens"], "chapters": len(rows),
+                "summarized": len(docs.summaries_of(db, doc["id"])), "attached": doc["id"] in mine,
+                "job": api.job_status(f"doc:{doc['id']}")}
+
+    def docs_view(payload: dict[str, Any]) -> dict[str, Any]:
+        chat_id = _chat_id(payload) if payload.get("chat_id") else ""
+        return {"docs": [doc_item(d, chat_id) for d in docs.all_docs(db)], "percent": api.settings.get("docs_percent")}
+
+    def doc_view(payload: dict[str, Any]) -> dict[str, Any]:
+        doc = docs.get(db, _text(payload, "doc_id"))
+        sums = docs.summaries_of(db, doc["id"])
+        return {"doc": doc_item(doc), "chapters": [
+            {"id": c["id"], "number": c["number"], "title": c["title"], "tokens": c["tokens"], "whole": c["whole"],
+             "cut_by": c["cut_by"], "error": c["error"], "summary": (sums.get(c["id"]) or {}).get("text", "")}
+            for c in docs.chapter_rows(db, doc["id"])]}
+
+    async def doc_add(payload: dict[str, Any]) -> dict[str, Any]:
+        """The page sends the file as base64 (`data`), the assistant may send `text` (a .txt). Cut and stored, no money."""
+        name = str(payload.get("name") or "document.txt")
+        if isinstance(payload.get("data"), str):
+            try:
+                raw = base64.b64decode(payload["data"], validate=False)
+            except (binascii.Error, ValueError):
+                raise AppError("Файл не прочитался", code="bad_request") from None
+        elif isinstance(payload.get("text"), str):
+            raw = payload["text"].encode("utf-8")
+        else:
+            raise AppError("Нужен файл (data) или текст (text)", code="bad_request")
+        doc = await docs.add_from_bytes(api, name, raw, str(payload.get("title") or ""))
+        if payload.get("chat_id"):
+            docs.attach(db, _chat_id(payload), doc["id"])
+        api.notify("docs", doc_id=doc["id"])
+        return {"doc": doc_item(doc, payload.get("chat_id") or ""), "estimate": docs.estimate(api, doc["id"])}
+
+    def doc_estimate(payload: dict[str, Any]) -> dict[str, Any]:
+        doc = docs.get(db, _text(payload, "doc_id"))
+        return docs.estimate(api, doc["id"], payload.get("with_summaries") is not False)
+
+    def doc_start(payload: dict[str, Any]) -> dict[str, Any]:
+        doc = docs.get(db, _text(payload, "doc_id"))
+        confirmed(payload)
+        with_summaries = payload.get("with_summaries") is not False
+        db.execute(f"UPDATE {docs.DOCS} SET started = 1, with_summaries = ? WHERE id = ?", (int(with_summaries), doc["id"]))
+        for c in docs.chapter_rows(db, doc["id"]):
+            db.execute(f"UPDATE {docs.DOC_CHAPTERS} SET tries = 0, error = '' WHERE id = ?", (c["id"],))
+        wake_doc(doc["id"])
+        return doc_item(docs.get(db, doc["id"]))
+
+    def doc_stop(payload: dict[str, Any]) -> dict[str, Any]:
+        doc = docs.get(db, _text(payload, "doc_id"))
+        db.execute(f"UPDATE {docs.DOCS} SET started = 0 WHERE id = ?", (doc["id"],))
+        api.ctx.jobs.cancel(api.id, f"doc:{doc['id']}")
+        return doc_item(docs.get(db, doc["id"]))
+
+    def doc_link(attach: bool) -> Any:
+        def run(payload: dict[str, Any]) -> dict[str, Any]:
+            chat_id = _chat_id(payload)
+            (docs.attach if attach else docs.detach)(db, chat_id, _text(payload, "doc_id"))
+            return docs_view({"chat_id": chat_id})
+        return run
+
+    def doc_delete(payload: dict[str, Any]) -> dict[str, Any]:
+        doc_id = _text(payload, "doc_id")
+        api.ctx.jobs.cancel(api.id, f"doc:{doc_id}")
+        docs.delete(db, doc_id)
+        docs_cache.clear()
+        return {"deleted": doc_id}
+
+    def doc_chapter(payload: dict[str, Any]) -> dict[str, Any]:
+        """«Вся глава» on or off, or a new title, for one chapter of a document."""
+        row = db.fetchone(f"SELECT id, doc_id FROM {docs.DOC_CHAPTERS} WHERE id = ?", (_text(payload, "chapter_id"),))
+        if row is None:
+            raise AppError("Такой главы нет", code="not_found", status=404)
+        if "whole" in payload:
+            db.execute(f"UPDATE {docs.DOC_CHAPTERS} SET whole = ? WHERE id = ?", (int(bool(payload["whole"])), row["id"]))
+        if isinstance(payload.get("title"), str):
+            db.execute(f"UPDATE {docs.DOC_CHAPTERS} SET title = ? WHERE id = ?", (payload["title"].strip()[:120], row["id"]))
+        return doc_view({"doc_id": row["doc_id"]})
+
+    reg("docs", docs_view)
+    reg("doc_view", doc_view)
+    reg("doc_add", doc_add)
+    reg("doc_estimate", doc_estimate)
+    reg("doc_start", doc_start)
+    reg("doc_stop", doc_stop)
+    reg("doc_attach", doc_link(True))
+    reg("doc_detach", doc_link(False))
+    reg("doc_delete", doc_delete)
+    reg("doc_chapter", doc_chapter)
+
+    def resume() -> None:
+        """After a start: whole-chat runs and documents that were working are woken (a restart loses nothing)."""
+        timers.pop("resume", None)
+        for row in db.fetchall("SELECT chat_id FROM plugin_data WHERE plugin_id = ? AND key = ?", (api.id, bulk.KEY)):
+            if bulk.is_on(api, row["chat_id"]):
+                wake(row["chat_id"], delay=0.2)
+        for doc in docs.all_docs(db):
+            if doc["started"] and doc["state"] in ("working", "failed", "cut"):
+                wake_doc(doc["id"])
+
+    try:
+        timers["resume"] = asyncio.get_running_loop().call_later(RESUME_DELAY, resume)
+    except RuntimeError:
+        pass  # no event loop yet (a sync start): nothing to resume

@@ -547,3 +547,21 @@ def face_make_real(api: Any, chat_id: str, payload: dict[str, Any]) -> dict[str,
     character = ctx.characters.create(data, spec=spec)
     store.put_face(ctx.db, {**face, "character_id": character["id"], "updated_at": now_iso()})
     return {"character_id": character["id"], "name": character["name"]}
+
+
+def face_add(api: Any, chat_id: str, payload: dict[str, Any], storage: Any) -> dict[str, Any]:
+    """A NEW mini-card made by hand (or by the assistant, after the user said yes): name, card, other names; locked,
+    linked to this chat. The same person already known here (by name or alias) is refused: edit that card instead."""
+    db = api.ctx.db
+    name = _clean(payload.get("name"), MAX_NAME)
+    card = str(payload.get("card") or "").strip()[:MAX_CARD]
+    if not name or not card:
+        raise AppError("Нужны имя и мини-карточка", code="bad_request")
+    for known in known_here(db, chat_id):
+        if not known["deleted"] and same_person(known, name):
+            raise FaceError(f"«{known['name']}» уже есть среди лиц этого чата: измените ту карточку")
+    aliases = _aliases(payload.get("aliases") or [], name)
+    row = store.new_face(name, card, aliases=aliases, by="hand", origin=chat_id, locked=True)
+    store.put_face(db, row, version_by="hand")
+    store.link_face(db, row["id"], chat_id, None)
+    return {"face_id": row["id"], "name": name}

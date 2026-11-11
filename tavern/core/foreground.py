@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from typing import Any, TypeVar
@@ -40,6 +41,11 @@ class Foreground:
         self._idle: asyncio.Event | None = None  # made on first use, inside the running loop
         self._steps: set[asyncio.Task[Any]] = set()
         self._preempted: set[asyncio.Task[Any]] = set()
+        # ADR 0019 R2: a cancelled request may still be billed, so a step cancelled `quiet_after` times in a row
+        # waits `quiet_seconds` of real quiet before it is made again (a reply in that time restarts the wait)
+        self._last_busy = 0.0  # monotonic time user work last started or ended
+        self.quiet_after = 3
+        self.quiet_seconds = 20.0
 
     @property
     def active(self) -> bool:
@@ -60,6 +66,7 @@ class Foreground:
     def enter(self) -> None:
         """User work starts: background steps in flight are cancelled at once. Never waits."""
         self._count += 1
+        self._last_busy = time.monotonic()
         if self._idle is not None:
             self._idle.clear()
         if self._enabled():
@@ -70,6 +77,7 @@ class Foreground:
 
     def leave(self) -> None:
         self._count = max(0, self._count - 1)
+        self._last_busy = time.monotonic()
         if self._count == 0 and self._idle is not None:
             self._idle.set()
 
@@ -86,10 +94,25 @@ class Foreground:
         while self.active:
             await self._event().wait()
 
-    async def run_background(self, factory: Callable[[], Awaitable[T]]) -> T:
-        """Run one step of background work, giving way to user work (see the module docstring)."""
+    async def run_background(self, factory: Callable[[], Awaitable[T]],
+                             on_cancel: Callable[[int, bool], None] | None = None) -> T:
+        """Run one step of background work, giving way to user work (see the module docstring).
+
+        `on_cancel(times, quiet)` tells how often this step was cancelled in a row, and whether it now waits the
+        quiet window (called again with quiet=False when it starts)."""
+        cancelled = 0
         while True:
             await self.wait_idle()
+            if cancelled >= self.quiet_after:
+                if on_cancel is not None:
+                    on_cancel(cancelled, True)
+                left = self._last_busy + self.quiet_seconds - time.monotonic()
+                if left > 0:
+                    await asyncio.sleep(left)
+                    continue  # look again: a reply may have come meanwhile
+                cancelled = 0
+                if on_cancel is not None:
+                    on_cancel(0, False)
             task = asyncio.ensure_future(factory())
             self._steps.add(task)
             try:
@@ -103,5 +126,8 @@ class Foreground:
                 self._preempted.discard(task)
                 if task.cancelled():
                     log.debug("Background step cancelled for user work, will be redone")
+                    cancelled += 1
+                    if on_cancel is not None:
+                        on_cancel(cancelled, False)
                     continue
             return task.result()

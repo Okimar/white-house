@@ -25,7 +25,8 @@ def _export_rows(ctx: Any, chat_id: str) -> str:
                              chat_notes=ctx.notes.list("chat", chat_id),
                              message_notes=ctx.notes.attached(chat_id),
                              swipe_metas=[[v["meta"] for v in row] for row in versions],
-                             members=ctx.members.list(chat_id))
+                             members=ctx.members.list(chat_id),
+                             plugins=ctx.plugins.export_records(chat_id))
 
 
 async def export_chat(request: Request) -> PlainTextResponse:
@@ -104,6 +105,8 @@ async def import_chat(request: Request) -> JSONResponse:
                          title=str(note.get("title") or ""), note_id=note.get("note_id"))
     leaf = id_map.get(source.get("leaf_id"))
     ctx.chats.set_leaf(chat["id"], leaf)
+    # what plugins keep with a chat (ADR 0019 point E): after the messages exist, with the old -> new id map
+    ctx.plugins.import_records(chat["id"], imported["plugins"], id_map)
     return JSONResponse({"chat": ctx.chats.get_chat(chat["id"])}, status_code=201)
 
 
