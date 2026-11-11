@@ -39,3 +39,8 @@ the app) saying that safe mode is on and how to leave it.
   That is the intended price of "updates break nothing".
 - The stamp reads all of `web/` (about 0.7 MB) at startup.
 - `core/theme.js` now awaits one request at load (`/api/look`); if it fails the address alone decides.
+- (2026-11-11, owner's bug) The parked record only tells what is *still* off: `look.settle` drops the parts that
+  are on again (a theme picked by hand, by the assistant, by an undo or a copy), and `/api/look` names the theme
+  that is on instead, so the notice never says «стандартный вид» while another look shows. The page asks again
+  when the theme choice changes. A theme script's setup is watched: nodes it adds to `<head>`/`<body>` and
+  classes it adds to `<html>`/`<body>` are removed when the theme is switched off, even if its undo forgets them.

@@ -10,6 +10,8 @@
 // Events: "chat" {chatId, characterId, characterName}, "generation" {running},
 //         "message" {role, text}, "send" {text}.
 
+import { parkedShown, parkedText } from "./lookNotice.js";
+
 async function fetchLook() {
   try {
     const reply = await fetch("/api/look", { credentials: "same-origin" });
@@ -25,7 +27,7 @@ const bus = new EventTarget();
 // State-like events are replayed to late subscribers: a script loads after the chat opened.
 const STICKY = new Set(["chat", "generation"]);
 const lastDetail = new Map();
-let active = { key: null, cleanup: null, controller: null };
+let active = { key: null, cleanup: null, controller: null, added: [], classes: [] };
 
 export function emit(type, detail) {
   if (STICKY.has(type)) lastDetail.set(type, detail);
@@ -83,12 +85,34 @@ export function applyCachedLook() {
 function stopScript() {
   if (active.controller) active.controller.abort();
   const cleanup = active.cleanup;
+  const added = active.added;
+  const classes = active.classes;
   active.cleanup = null;
   active.controller = null;
+  active.added = [];
+  active.classes = [];
   if (typeof cleanup === "function") {
     try { cleanup(); } catch (e) { console.error("Theme cleanup failed", e); }
   }
   for (const layer of document.querySelectorAll(".scene, .overlay-layer")) layer.replaceChildren();
+  // What the script's setup put outside its two layers (a moon on <body>, a <style> in <head>, a class on
+  // <html>) goes too, even when its own undo forgot it: a theme switched off must leave nothing on screen.
+  for (const node of added) { if (node.isConnected) node.remove(); }
+  for (const [target, name] of classes) target.classList.remove(name);
+}
+
+// The app's own nodes at the top of <body> are never a theme's, whenever they were made.
+const APP_NODES = new Set(["root", "menu-host", "select-host", "suggest-host"]);
+function topNodes() { return [...document.head.children, ...document.body.children]; }
+function classesOf() { return [document.documentElement, document.body].map((t) => [t, new Set(t.classList)]); }
+function addedSince(nodes, classes) {
+  const added = topNodes().filter((n) => !nodes.has(n) && !APP_NODES.has(n.id)
+    && !(n.dataset && n.dataset.slot === "look-notices"));
+  const newClasses = [];
+  for (const [target, had] of classes) {
+    for (const name of target.classList) if (!had.has(name)) newClasses.push([target, name]);
+  }
+  return { added, newClasses };
 }
 
 // theme: summary from /api/themes. runScript: the user allowed this exact script (or built-in).
@@ -150,7 +174,17 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
     const module = await import(`/themes/${theme.id}/${theme.script}?v=${theme.script_sha256}`);
     if (active.controller !== controller) return; // another theme was applied meanwhile
     if (typeof module.default !== "function") throw new Error("script.js must export default function setup(t)");
-    const cleanup = await module.default(api);
+    const nodesBefore = new Set(topNodes());
+    const classesBefore = classesOf();
+    let cleanup;
+    try {
+      cleanup = await module.default(api);
+    } finally {
+      // Taken also when setup failed half way: fail() -> stopScript() then removes what it managed to add.
+      const { added, newClasses } = addedSince(nodesBefore, classesBefore);
+      if (active.controller === controller) { active.added = added; active.classes = newClasses; }
+      else { for (const n of added) n.remove(); for (const [t, c] of newClasses) t.classList.remove(c); }
+    }
     if (active.controller !== controller) { // switched away while setup was running
       if (typeof cleanup === "function") cleanup();
       return;
@@ -214,14 +248,16 @@ function safeBar() {
   return bar;
 }
 
+let parkedNode = null; // the notice on screen, so syncLookNotice can take it away or change its words
+let noticeBox = null;
+
 function parkedBar() {
-  const p = LOOK.parked;
   const bar = el("div", BAR);
   bar.setAttribute("role", "alert");
   bar.dataset.slot = "look-parked-bar";
-  const what = p.theme ? `«${p.theme_name || p.theme}»` : p.characters ? "свои темы персонажей" : "стили сторонних дополнений";
-  bar.appendChild(el("span", "", `White House обновился, и ваше прежнее оформление ${what} отключено: `
-    + "оно писалось под старый вид и могло сломать меню. Ничего не удалено, сейчас включён стандартный вид."));
+  const text = el("span", "", parkedText(LOOK.parked));
+  text.dataset.part = "text";
+  bar.appendChild(text);
   const actions = el("span", "display:flex;flex-wrap:wrap;gap:8px");
   const warning = el("div", "flex-basis:100%;display:none;opacity:.9",
     "Внимание: прежнее оформление может сломать меню. Если так случится, откройте безопасный режим "
@@ -237,24 +273,48 @@ function parkedBar() {
   });
   const ok = button("Понятно", async () => {
     try { await post("/api/look/dismiss"); } catch (e) { /* the notice may come back once more */ }
-    bar.remove();
+    dropParked();
   });
   actions.append(ask, confirm, ok);
   bar.append(actions, warning);
+  parkedNode = bar;
   return bar;
+}
+
+function dropParked() {
+  if (parkedNode) parkedNode.remove();
+  parkedNode = null;
+  if (noticeBox && !noticeBox.children.length) {
+    noticeBox.remove();
+    noticeBox = null;
+    document.documentElement.style.setProperty("--notice-h", "0px");
+  }
+}
+
+// The page's theme choice changed (picked in «Оформление», by the assistant, an undo): ask the server again,
+// so the notice does not keep saying «отключено» about a look that is on now, nor «стандартный вид» about another.
+export async function syncLookNotice() {
+  if (!parkedNode) return;
+  const fresh = await fetchLook();
+  if (!fresh || !("parked" in fresh)) return; // no answer: leave the notice as it is
+  LOOK.parked = fresh.parked;
+  if (!parkedShown(fresh)) { dropParked(); return; }
+  const text = parkedNode.querySelector('[data-part="text"]');
+  if (text) text.textContent = parkedText(fresh.parked);
 }
 
 function mountNotices() {
   if (!document.body) return;
   const bars = [];
   if (SAFE_MODE) bars.push(safeBar());
-  if (LOOK.parked && !LOOK.parked.seen) bars.push(parkedBar());
+  if (parkedShown(LOOK)) bars.push(parkedBar());
   if (!bars.length) return;
   const hideOld = document.createElement("style");
   hideOld.textContent = ".safe-banner{display:none!important}"; // this bar replaces the page's own safe-mode line
   document.head.appendChild(hideOld);
   const box = el("div", "position:fixed;top:0;left:0;right:0;z-index:100000");
   box.dataset.slot = "look-notices";
+  noticeBox = box;
   for (const bar of bars) box.appendChild(bar);
   document.body.appendChild(box);
   // The bar must not cover the menu: the page is pushed down by its height (styles.css uses --notice-h).

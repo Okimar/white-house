@@ -98,3 +98,21 @@ def test_list_never_goes_past_the_right_edge() -> None:
     got = place(box={"top": 100, "bottom": 144, "left": 700}, natural=200, width=300,
                 view={"top": 0, "height": 1280}, pageWidth=768)
     assert got["left"] + 300 <= 768 - 8
+
+
+def parked_text(parked: dict | None) -> dict:
+    return run_module(
+        'import { parkedText, parkedShown } from "./core/lookNotice.js";'
+        f"const p = {json.dumps(parked)};"
+        "console.log(JSON.stringify({ text: parkedText(p), shown: parkedShown({ parked: p }) }))"
+    )
+
+
+@needs_node
+def test_the_parked_notice_says_standard_only_when_it_is_on() -> None:
+    plain = parked_text({"theme": "night", "theme_name": "Ночной сад", "now_theme": "default", "seen": False})
+    assert "«Ночной сад» отключено" in plain["text"] and "стандартный вид" in plain["text"] and plain["shown"]
+    other = parked_text({"theme": "night", "theme_name": "Ночной сад", "now_theme": "sakura", "now_theme_name": "Сакура"})
+    assert "стандартный" not in other["text"] and "«Сакура»" in other["text"]
+    assert parked_text({"theme": "night", "seen": True})["shown"] is False
+    assert parked_text(None) == {"text": "", "shown": False}

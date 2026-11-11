@@ -169,3 +169,54 @@ def test_a_later_update_keeps_what_an_earlier_one_parked(ctx):
 def test_nothing_parked_without_user_plugin_styles(ctx):
     ctx.plugins.start()
     assert look.check_upgrade(ctx, "v1") is None and look.css_off(ctx) == set()
+
+
+def test_a_theme_picked_again_by_hand_is_no_longer_reported_as_switched_off(ctx):
+    # Regression: the notice said «отключено, сейчас включён стандартный вид» while the old theme showed. The theme
+    # had been turned on again by hand (or by the assistant, an undo, a copy) and a later start that parks nothing
+    # new left the notice as it was.
+    mine = custom_look(ctx)
+    look.check_upgrade(ctx, "new")
+    ctx.settings.set("theme", mine)                        # picked again in «Оформление»
+    parked = look.status(ctx)["parked"]
+    assert parked["theme"] is None and parked["characters"] == 1   # the character's own theme is still off
+    ctx.settings.set("character_themes", {"c1": mine, "c2": "sakura"})
+    assert look.status(ctx)["parked"] is None and look.parked(ctx) is None
+    assert look.check_upgrade(ctx, "new") is None           # same files: nothing parked again
+    assert look.status(ctx)["parked"] is None
+
+
+def test_the_notice_names_the_theme_that_is_on_instead(ctx):
+    custom_look(ctx)
+    look.check_upgrade(ctx, "new")
+    parked = look.status(ctx)["parked"]
+    assert parked["now_theme"] == "default"
+    ctx.settings.set("theme", "sakura")                    # another theme, not the parked one
+    parked = look.status(ctx)["parked"]
+    assert parked["theme"] and parked["now_theme"] == "sakura" and parked["now_theme_name"] == "Сакура"
+
+
+def test_plugin_styles_keep_the_notice_until_restored(ctx):
+    mine = custom_look(ctx)
+    plugin_with_css(ctx)
+    look.check_upgrade(ctx, "new")
+    ctx.settings.set("theme", mine)
+    ctx.settings.set("character_themes", {"c1": mine, "c2": "sakura"})
+    parked = look.status(ctx)["parked"]
+    assert parked and parked["plugin_css"] == 1 and parked["theme"] is None
+    assert look.css_off(ctx) == {"mine"}
+    look.restore(ctx)
+    assert look.css_off(ctx) == set() and ctx.settings.get("theme") == mine
+
+
+async def test_after_the_update_the_page_gets_the_standard_look_and_restore_brings_it_back(client, ctx):
+    mine = custom_look(ctx)
+    look.check_upgrade(ctx, "new")
+    settings = (await client.get("/api/settings")).json()
+    assert "theme" not in settings and settings.get("character_themes") == {"c2": "sakura"}
+    state = (await client.get("/api/look")).json()["parked"]
+    assert state["theme"] == mine and state["now_theme"] == "default"
+    await client.post("/api/look/dismiss")                 # «Понятно»: the standard look stays
+    assert "theme" not in (await client.get("/api/settings")).json()
+    await client.put("/api/settings", json={"theme": mine})  # picked again by hand
+    assert (await client.get("/api/look")).json()["parked"]["theme"] is None

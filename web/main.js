@@ -4,7 +4,7 @@ import { Select } from "./components/Select.js";
 import { html, render, useState, useEffect, useCallback, useRef } from "./vendor/preact-htm.mjs";
 import { api } from "./core/api.js";
 import { useChat } from "./core/chat.js";
-import { applyCachedLook, applyTheme, emit } from "./core/theme.js";
+import { applyCachedLook, applyTheme, emit, syncLookNotice } from "./core/theme.js";
 import { scriptAllowed } from "./components/Themes.js";
 import { VirtualList } from "./components/VirtualList.js";
 import { Message } from "./components/Message.js";
@@ -245,6 +245,14 @@ function App() {
   useEffect(() => {
     if (theme) applyTheme(theme, { runScript, onScriptError: onError });
   }, [theme && theme.id, theme && theme.script_sha256, theme && theme.base, runScript]);
+  // The notice «оформление отключено» follows the choice: a theme picked again by hand is on, so the notice goes.
+  const themeChoice = JSON.stringify([settings.theme || "", settings.character_themes || {}]);
+  const firstChoice = useRef(null);
+  useEffect(() => {
+    if (!loaded) return;
+    if (firstChoice.current === null) { firstChoice.current = themeChoice; return; } // the notice was drawn for this one
+    if (themeChoice !== firstChoice.current) { firstChoice.current = themeChoice; syncLookNotice().catch(() => {}); }
+  }, [loaded, themeChoice]);
 
   // Events for theme effects. They are fired after the theme applied, so a fresh script sees them.
   useEffect(() => {

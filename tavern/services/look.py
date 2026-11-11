@@ -126,6 +126,34 @@ def parked(ctx) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def settle(ctx) -> dict[str, Any] | None:
+    """Forget the parked parts that are on again, so the notice never says «switched off» about a look that
+    shows. A theme comes back on not only through «Вернуть прежний вид»: picked by hand in «Оформление», by the
+    assistant, by an undo or a restored copy. Without this the notice stayed (a later update that does not
+    touch the page files parks nothing new) and claimed the standard look while the old theme was on."""
+    saved = parked(ctx)
+    if saved is None:
+        return None
+    left = dict(saved)
+    theme = saved.get("theme")
+    if theme and ctx.settings.get("theme") == theme:
+        left.pop("theme")
+    chosen = ctx.settings.get("character_themes") or {}
+    per_character = saved.get("character_themes") or {}
+    still = {k: v for k, v in per_character.items() if chosen.get(k) != v}
+    if per_character and still != per_character:
+        if still:
+            left["character_themes"] = still
+        else:
+            left.pop("character_themes")
+    if not (left.get("theme") or left.get("character_themes") or left.get("plugin_css")):
+        ctx.settings.delete(KEY_PARKED)
+        return None
+    if left != saved:
+        ctx.settings.set(KEY_PARKED, left)
+    return left
+
+
 def restore(ctx) -> dict[str, Any]:
     """Switch the parked look back on. Themes that no longer exist are skipped."""
     saved = parked(ctx)
@@ -156,9 +184,10 @@ def set_safe_mode(ctx, on: bool) -> None:
 
 
 def status(ctx, *, run_safe: bool = False) -> dict[str, Any]:
-    saved = parked(ctx)
+    saved = settle(ctx)
     persistent = bool(ctx.settings.get(KEY_SAFE))
     names = {t["id"]: t["name"] for t in ctx.themes.list()}
+    current = ctx.settings.get("theme") or "default"
     return {
         "safe_mode": persistent or run_safe,
         "safe_persistent": persistent,
@@ -170,5 +199,8 @@ def status(ctx, *, run_safe: bool = False) -> dict[str, Any]:
             "theme_name": names.get(saved.get("theme"), saved.get("theme")),
             "characters": len(saved.get("character_themes") or {}),
             "plugin_css": len(css_off(ctx)),
+            # what is on instead: the notice says «стандартный вид» only when it is true
+            "now_theme": current,
+            "now_theme_name": names.get(current, current),
         },
     }
