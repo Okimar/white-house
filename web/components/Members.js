@@ -33,6 +33,27 @@ const OTHERS = [
   ["full", "Полные карточки всех (с глубиной и важностью)"],
 ];
 
+// «Заменить»: every character, with a search; the chosen one takes the member's place (settings stay, the
+// messages the member wrote are re-pointed on the server).
+function CharacterPicker({ member, characters, taken, onPick, onClose }) {
+  const [query, setQuery] = useState("");
+  useEscape(onClose);
+  const found = characters.filter((c) => c.id !== member.character_id
+    && (c.name || "").toLowerCase().includes(query.trim().toLowerCase()));
+  return html`<div class="overlay ask-overlay" ...${backdrop(onClose)}>
+    <div class="dialog stack group-picker" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заменить персонажа">
+      <strong class="dialog-name" title=${member.name}>Заменить: ${member.name}</strong>
+      <input type="search" value=${query} placeholder="Поиск по имени" aria-label="Поиск персонажа"
+        onInput=${(e) => setQuery(e.target.value)} />
+      <ul class="list">
+        ${found.length === 0 && html`<li class="muted">Никого не нашлось</li>`}
+        ${found.map((c) => html`<li key=${c.id}><button class="item" title=${c.name} disabled=${taken.has(c.id)}
+          onClick=${() => onPick(c.id)}>${c.name}${taken.has(c.id) ? " (уже в чате)" : ""}</button></li>`)}
+      </ul>
+      <div class="row"><span class="spacer"></span><button onClick=${onClose}>Закрыть</button></div>
+    </div></div>`;
+}
+
 export function Members({ chat, characters, settings, generators = [], onClose, onChanged, onEditCharacter, onAnswer,
   onError }) {
   const [members, setMembers] = useState(null); // null until loaded: «пока нет персонажей» must not flash
@@ -45,6 +66,8 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
   const [presets, setPresets] = useState([]);
   const [adding, setAdding] = useState("");
   const [blurbs, setBlurbs] = useState({}); // typed, not saved yet: a re-render must not wipe them
+  const [talk, setTalk] = useState({}); // talkativeness typed or dragged, not saved yet (by member key)
+  const [replacing, setReplacing] = useState(null); // the member whose «Заменить» picker is open
 
   useEscape(onClose);
   const loadMembers = () => {
@@ -60,10 +83,22 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
   // A failed save puts the controls back to what the server has.
   const apply = (promise) => promise.then((d) => { setMembers(d.members); onChanged(); })
     .catch((e) => { setMembers((list) => list && [...list]); onError(e.message); });
-  const change = (m, patch) => apply(api.put(`/chats/${chat.id}/members/${m.character_id}`, patch));
+  // A member is addressed by `slot_id`: its character id, or the id of an empty place (an imported character
+  // this install does not have: no card, never speaks).
+  const change = (m, patch) => apply(api.put(`/chats/${chat.id}/members/${m.slot_id}`, patch));
+  const replace = (m, characterId) => {
+    setReplacing(null);
+    apply(api.post(`/chats/${chat.id}/members/${m.slot_id}/replace`, { character_id: characterId }));
+  };
+  const saveTalk = (m, raw) => {
+    const value = Math.max(0, Math.min(100, Math.round(Number(raw))));
+    setTalk((t) => { const { [m.slot_id]: _, ...rest } = t; return rest; });
+    if (Number.isFinite(value) && value !== m.talkativeness) return change(m, { talkativeness: value });
+    return undefined;
+  };
   const remove = async (m) => {
     if (await ask(`Убрать «${m.name}» из чата? Сам персонаж останется.`, { ok: "Убрать", danger: true, skip: "member" })) {
-      apply(api.del(`/chats/${chat.id}/members/${m.character_id}`));
+      apply(api.del(`/chats/${chat.id}/members/${m.slot_id}`));
     }
   };
   const add = () => {
@@ -77,6 +112,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
     .then(onChanged).catch((e) => onError(e.message));
 
   const outside = characters.filter((c) => !(members || []).some((m) => m.character_id === c.id));
+  const taken = new Set((members || []).map((m) => m.character_id).filter(Boolean));
   const globalPreset = presets.find((p) => p.id === (settings.active_preset || "default"));
 
   return html`
@@ -90,23 +126,29 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         <ul class="members">
           ${members && members.length === 0 && html`<li class="muted">В чате пока нет персонажей. Добавьте их ниже.</li>`}
           ${(members || []).map((m) => html`
-            <li key=${m.character_id} class=${"member" + (m.is_me ? " me" : "")} data-slot="member">
+            <li key=${m.slot_id} class=${"member" + (m.is_me ? " me" : "") + (m.empty ? " empty" : "")} data-slot="member">
               <div class="row member-head">
                 ${m.has_avatar && html`<img class="msg-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
-                <strong>${m.name}</strong>
+                <strong class=${m.empty ? "muted" : ""}>${m.name}</strong>
+                ${m.empty && html`<span class="badge muted" data-slot="member-empty">нет персонажа</span>`}
                 ${m.is_me && html`<span class="badge">это я</span>`}
-                ${m.character_id === chat.character_id && html`<span class="badge">главный</span>`}
+                ${m.character_id && m.character_id === chat.character_id && html`<span class="badge">главный</span>`}
                 <span class="spacer"></span>
-                ${!m.is_me && html`<${IconButton} icon="message-circle-reply" label="Пусть ответит"
+                <button data-slot="member-replace" onClick=${() => setReplacing(m)}>Заменить</button>
+                ${!m.is_me && !m.empty && html`<${IconButton} icon="message-circle-reply" label="Пусть ответит"
                   onClick=${() => onAnswer(m.character_id)} />`}
-                <${IconButton} icon="pencil" label="Карточка персонажа" onClick=${() => onEditCharacter(m.character_id)} />
+                ${!m.empty && html`<${IconButton} icon="pencil" label="Карточка персонажа"
+                  onClick=${() => onEditCharacter(m.character_id)} />`}
                 <${IconButton} icon="x" label="Убрать из чата" onClick=${() => remove(m)} />
               </div>
+              ${m.empty && html`<p class="hint">Это пустое место: в чате был персонаж «${m.name}», а карточки здесь нет.
+                Он не отвечает и не попадает в промпт, его реплики остаются под этим именем. Нажмите «Заменить» и
+                выберите своего персонажа: настройки места сохранятся, а прежние реплики станут его репликами.</p>`}
 
-              <h3 class="member-part">Роль в чате</h3>
+              ${!m.empty && html`<h3 class="member-part">Роль в чате</h3>
               <label class="check"><input type="checkbox" checked=${m.is_me}
                 onChange=${(e) => change(m, { is_me: e.target.checked })} /> это я</label>
-              <p class="hint">Персонаж, которого играете вы. Его карточка идёт модели как «ваша».</p>
+              <p class="hint">Персонаж, которого играете вы. Его карточка идёт модели как «ваша».</p>`}
               ${m.is_me && html`<label class="check"><input type="checkbox" checked=${m.model_may_write}
                   onChange=${(e) => change(m, { model_may_write: e.target.checked })} /> модель может писать за него</label>
                 <p class="hint">${m.model_may_write
@@ -116,20 +158,31 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
               ${!m.is_me && html`
                 <h3 class="member-part">Как говорит</h3>
                 <div data-slot="member-speaking">
-                  <label class="stack">Разговорчивость: ${m.talkativeness}%
-                    <input type="range" min="0" max="100" step="10" value=${m.talkativeness}
-                      onChange=${(e) => change(m, { talkativeness: Number(e.target.value) })} /></label>
+                  <div class="stack" data-slot="member-talkativeness">
+                    <span>Разговорчивость, %</span>
+                    <div class="row">
+                      <input type="range" min="0" max="100" step="1" value=${talk[m.slot_id] ?? m.talkativeness}
+                        aria-label=${`Разговорчивость ${m.name}`} style="flex: 1; min-width: 120px; min-height: var(--tap)"
+                        onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
+                        onChange=${(e) => saveTalk(m, e.target.value)} />
+                      <input type="number" min="0" max="100" step="1" inputmode="numeric"
+                        value=${talk[m.slot_id] ?? m.talkativeness} aria-label=${`Разговорчивость ${m.name}, число`}
+                        style="width: 76px; font-size: 16px"
+                        onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
+                        onChange=${(e) => saveTalk(m, e.target.value === "" ? m.talkativeness : e.target.value)} />
+                    </div>
+                  </div>
                   <p class="hint">Насколько охотно вступает в разговор, когда никого не назвали по имени.</p>
                   <label class="check"><input type="checkbox" checked=${m.muted}
                     onChange=${(e) => change(m, { muted: e.target.checked })} /> молчит</label>
                   <p class="hint">Не отвечает сам и не попадает в промпт, пока снова не включите.</p>
                 </div>
                 <label class="stack" data-slot="member-blurb">Коротко о нём для остальных
-                  <input value=${blurbs[m.character_id] ?? m.blurb} maxLength="500"
+                  <input value=${blurbs[m.slot_id] ?? m.blurb} maxLength="500"
                     placeholder="Например: старый кузнец, ворчит"
-                    onInput=${(e) => setBlurbs((b) => ({ ...b, [m.character_id]: e.target.value }))}
+                    onInput=${(e) => setBlurbs((b) => ({ ...b, [m.slot_id]: e.target.value }))}
                     onChange=${(e) => change(m, { blurb: e.target.value }).then(() => setBlurbs((b) => {
-                      const { [m.character_id]: _, ...rest } = b;
+                      const { [m.slot_id]: _, ...rest } = b;
                       return rest;
                     }))} /></label>
                 <p class="hint">Одна строка, которую видят остальные, если выбрано «имена и короткие описания».</p>`}
@@ -152,6 +205,8 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                 влияет). Важность: 1 — самый важный; при нехватке места первыми убираются карточки с большим числом.</p>
             </li>`)}
         </ul>
+        ${replacing && html`<${CharacterPicker} member=${replacing} characters=${characters} taken=${taken}
+          onPick=${(id) => replace(replacing, id)} onClose=${() => setReplacing(null)} />`}
         <div class="row">
           <${Select} value=${adding} onChange=${(e) => setAdding(e.target.value)} aria-label="Персонаж">
             <option value="">Выберите персонажа</option>

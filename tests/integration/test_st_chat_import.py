@@ -66,11 +66,13 @@ async def test_a_sillytavern_chat_imports_with_swipes_thinking_and_names(client,
     response = await _import(client, _st_file(30, filler=20_000).encode("utf-8"))
     assert response.status_code == 201, response.text
     chat = response.json()["chat"]
-    assert chat["character_id"] == char["id"]
+    assert chat["character_id"] is None  # never linked by name (see test_member_slots.py)
+    assert response.json()["empty_members"] == ["Char"]
     assert "Универсальный рассказчик" in chat["title"]
     path = ctx.chats.active_path(chat["id"])
     assert len(path) == 61
-    assert path[0]["role"] == "assistant" and path[0]["character_id"] == char["id"]
+    assert path[0]["role"] == "assistant" and path[0]["character_id"] is None
+    assert path[0]["name"] == "Char"
     assert path[1]["role"] == "user" and path[1]["name"] == "SKRIPTY"
     assert path[1]["content"].startswith("[c4]" + BLANK)
     assert [v["content"] for v in ctx.chats.list_swipes(path[0]["id"])][1] == "Greeting 1 for {{user}}.\r\n\r\nMore."

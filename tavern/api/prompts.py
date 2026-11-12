@@ -28,7 +28,8 @@ async def list_members(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     chat_id = request.path_params["id"]
     ctx.chats.get_chat(chat_id)
-    return JSONResponse({"members": ctx.members.list(chat_id)})
+    # with the empty places (`empty: true`, no character_id): the members window shows and replaces them
+    return JSONResponse({"members": ctx.members.list(chat_id, include_empty=True)})
 
 
 async def add_member(request: Request) -> JSONResponse:
@@ -47,6 +48,15 @@ async def update_member(request: Request) -> JSONResponse:
         raise BadRequest(f"Unknown fields: {', '.join(sorted(unknown))}")
     members = await cast.update_member(
         ctx_of(request), request.path_params["id"], request.path_params["character_id"], body
+    )
+    return JSONResponse({"members": members})
+
+
+async def replace_member(request: Request) -> JSONResponse:
+    body = await json_body(request)
+    members = await cast.replace_member(
+        ctx_of(request), request.path_params["id"], request.path_params["character_id"],
+        field(body, "character_id", str),
     )
     return JSONResponse({"members": members})
 
@@ -207,6 +217,7 @@ routes = [
     Route("/chats/{id}/members", add_member, methods=["POST"]),
     Route("/chats/{id}/members/{character_id}", update_member, methods=["PUT"]),
     Route("/chats/{id}/members/{character_id}", remove_member, methods=["DELETE"]),
+    Route("/chats/{id}/members/{character_id}/replace", replace_member, methods=["POST"]),
     Route("/presets", list_presets, methods=["GET"]),
     Route("/presets", create_preset, methods=["POST"]),
     Route("/presets/import/st", import_st_preset, methods=["POST"]),

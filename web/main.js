@@ -207,7 +207,8 @@ function App() {
     },
   };
   const loadMembers = () => chatId
-    ? api.get(`/chats/${chatId}/members`).then((d) => setMembers(d.members)).catch((e) => { if (e.status !== 404) onError(e.message); })
+    ? api.get(`/chats/${chatId}/members`).then((d) => setMembers(d.members.filter((m) => m.character_id))) // empty places have no card and never speak
+      .catch((e) => { if (e.status !== 404) onError(e.message); })
     : setMembers([]);
   // After each reply too: a plugin or an agent may have brought a character into the scene.
   useEffect(() => { if (!chat.running) loadMembers(); }, [chatId, chat.running]);
@@ -343,6 +344,13 @@ function App() {
       const data = await created.json();
       await refresh();
       open(data.chat.id);
+      if (data.empty_members?.length) {
+        const names = data.empty_members.map((n) => `«${n}»`).join(", ");
+        const toMembers = await ask(`В чате были персонажи, которых нет или имя совпадает: ${names}. Они оставлены пустыми `
+          + "местами. Нажмите «Заменить» в участниках чата и выберите своего персонажа: тогда прежние реплики станут его репликами.",
+        { ok: "Открыть участников", cancel: "Позже" });
+        if (toMembers) setShowMembers(true);
+      }
     } catch (e) {
       onError(e.message);
     }

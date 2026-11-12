@@ -43,7 +43,7 @@ _UNDOABLE = ("(COALESCE(json_array_length(a.undo, '$.rows'), 0) + COALESCE(json_
 KINDS = {
     "characters": "персонаж", "character_blocks": "пузырь", "block_links": "связь пузырей",
     "lorebooks": "лорбук", "lorebook_uses": "подключение лорбука", "chats": "чат", "messages": "сообщение",
-    "swipes": "вариант ответа", "chat_members": "участник чата", "presets": "пресет", "prompt_pieces": "кусок промпта",
+    "swipes": "вариант ответа", "chat_members": "участник чата", "chat_member_slots": "пустое место участника", "presets": "пресет", "prompt_pieces": "кусок промпта",
     "connections": "подключение", "settings": "настройка", "author_notes": "заметка", "message_notes": "заметка к сообщению",
     "instruct_templates": "шаблон", "skills": "инструкция", "plugins": "дополнение", "plugin_data": "данные дополнения",
     "character_versions": "версия персонажа", "character_steps": "шаг истории персонажа",

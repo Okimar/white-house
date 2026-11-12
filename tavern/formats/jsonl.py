@@ -103,7 +103,9 @@ def import_chat_jsonl(source: str | Iterable[str]) -> dict[str, Any]:
                 raise ValueError("Invalid JSONL plugin record")
             plugins.append(value)
         elif kind == "member":
-            if not isinstance(value, dict) or not isinstance(value.get("character_id"), str):
+            # an empty place (no character here) has `character_id: null` and keeps the name
+            if not isinstance(value, dict) or not (isinstance(value.get("character_id"), str) or (
+                    value.get("character_id") is None and isinstance(value.get("name"), str))):
                 raise ValueError("Invalid JSONL member")
             members.append(value)
         elif kind == "swipe_meta":

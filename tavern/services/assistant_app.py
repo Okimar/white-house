@@ -85,6 +85,9 @@ HINTS = {
     "PUT /chats/{id}/members/{character_id}": "{depth?, importance?, is_me?, model_may_write?, talkativeness?, "
                                               "muted?, blurb?}",
     "DELETE /chats/{id}/members/{character_id}": "take a character out of the chat",
+    "POST /chats/{id}/members/{character_id}/replace": "{character_id} — the chosen character takes this member's "
+                                                       "place (settings stay, its messages move to the new one); "
+                                                       "the key may be an empty place (`empty: true`, no character)",
     "GET /settings": "the app settings",
     "PUT /settings": "{key: value, ...} — user_name, active_connection, active_preset, default_me, "
                      "notes_display, retrieval, lorebooks, ...",

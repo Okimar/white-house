@@ -83,7 +83,11 @@ async def test_import_skips_members_and_authors_this_install_does_not_have(clien
     response = await client.post("/api/chats/import.jsonl", content=exported)
     assert response.status_code == 201
     new_id = response.json()["chat"]["id"]
-    assert [m["name"] for m in (await client.get(f"/api/chats/{new_id}/members")).json()["members"]] == ["Ann"]
+    # the missing character is not dropped: it stays as an empty place under its name (no card, never speaks)
+    listed = (await client.get(f"/api/chats/{new_id}/members")).json()["members"]
+    assert [(m["name"], m["empty"]) for m in listed] == [("Ann", False), ("Bob", True)]
+    assert [m["name"] for m in ctx.members.list(new_id)] == ["Ann"]
+    assert response.json()["empty_members"] == ["Bob"]
     last = ctx.chats.active_path(new_id)[-1]
     assert (last["name"], last["character_id"]) == ("Bob", None)
 

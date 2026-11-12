@@ -7,6 +7,11 @@ the same checks apply everywhere. Every change fires the action event
 
 The chat's main character (`chats.character_id`, used to name replies and for {{char}}) is kept
 pointing at a member that is not "me": the first such member if the old one left.
+
+Empty places (`chat_member_slots`): a character of an imported chat that has no card here. The place keeps the
+original name and the member settings, never speaks and is not in the prompt; «Заменить» (`replace_member`) turns
+it, or any member, into the chosen character and re-points the messages it wrote. Only the members window asks
+for them (`ctx.members.list(chat_id, include_empty=True)`); every other reader gets real members only.
 """
 
 from __future__ import annotations
@@ -63,7 +68,7 @@ async def _changed(ctx: AppContext, chat_id: str) -> list[dict[str, Any]]:
     _fix_primary(ctx, chat_id)
     members = ctx.members.list(chat_id)
     await ctx.events.emit("chat.members_changed", chat_id=chat_id, members=members)
-    return members
+    return ctx.members.list(chat_id, include_empty=True)
 
 
 def add_member_now(ctx: AppContext, chat_id: str, character_id: str, **options: Any) -> dict[str, Any]:
@@ -75,16 +80,46 @@ def add_member_now(ctx: AppContext, chat_id: str, character_id: str, **options: 
     return member
 
 
-def restore_members(ctx: AppContext, chat_id: str, rows: list[dict[str, Any]], main: str | None) -> None:
+def add_empty_now(ctx: AppContext, chat_id: str, name: str, **options: Any) -> dict[str, Any]:
+    """An empty place with the original name (no card linked), without the event, for chat import."""
+    ctx.chats.get_chat(chat_id)
+    name = name.strip()
+    if not name:
+        raise AppError("An empty place needs a name", code="bad_member")
+    options.pop("is_me", None)
+    return ctx.members.add_slot(chat_id, name, **_check({k: v for k, v in options.items() if k != "position"}))
+
+
+def restore_members(
+    ctx: AppContext, chat_id: str, rows: list[dict[str, Any]], main: str | None, names: list[str] = (),
+) -> list[str]:
     """The cast of an imported chat: the file's members this install has. A file without any of
-    them (older format, other install) gets what a new chat gets: `main` and the default "me"."""
+    them (older format, other install) gets what a new chat gets: `main` and the default "me".
+    A member this install does not have becomes an empty place under its original name, and so does
+    each of `names` (authors of a SillyTavern chat: never linked to a character by name). Returns the
+    names of the empty places, for the warning."""
+    empty: list[str] = []
     for row in rows:
         options = {k: row[k] for k in ("depth", "importance", "is_me", "model_may_write", "talkativeness",
                                        "muted", "blurb") if k in row}
         try:
+            if not row.get("character_id"):
+                raise NotFound("no character in the file's row")
             add_member_now(ctx, chat_id, row["character_id"], **options)
-        except (NotFound, AppError):  # that character is not here, or a field this version cannot read
+        except NotFound:  # that character is not here: its place stays, named as in the file
+            name = str(row.get("name") or "").strip()
+            if name and not row.get("is_me"):
+                try:
+                    add_empty_now(ctx, chat_id, name, **options)
+                    empty.append(name)
+                except AppError:
+                    pass
+        except AppError:  # a field this version cannot read
             continue
+    for name in names:
+        if name.strip() and not any(name.strip().casefold() == e.casefold() for e in empty):
+            add_empty_now(ctx, chat_id, name)
+            empty.append(name.strip())
     current = ctx.members.list(chat_id)
     if not any(not m["is_me"] for m in current) and main:
         add_member_now(ctx, chat_id, main)
@@ -95,6 +130,7 @@ def restore_members(ctx: AppContext, chat_id: str, rows: list[dict[str, Any]], m
                 add_member_now(ctx, chat_id, default_me, is_me=True)
             except NotFound:
                 pass  # the default character was deleted: the chat simply has no "me"
+    return empty
 
 
 async def add_member(ctx: AppContext, chat_id: str, character_id: str, **options: Any) -> list[dict[str, Any]]:
@@ -106,7 +142,24 @@ async def update_member(
     ctx: AppContext, chat_id: str, character_id: str, changes: dict[str, Any]
 ) -> list[dict[str, Any]]:
     ctx.chats.get_chat(chat_id)
-    ctx.members.update(chat_id, character_id, _check(changes))
+    try:
+        ctx.members.update(chat_id, character_id, _check(changes))
+    except ValueError as exc:  # an empty place cannot be "me"
+        raise AppError("Пустое место нельзя назначить «этим я»: сначала замените его персонажем",
+                       code="bad_member") from exc
+    return await _changed(ctx, chat_id)
+
+
+async def replace_member(ctx: AppContext, chat_id: str, key: str, character_id: str) -> list[dict[str, Any]]:
+    """«Заменить»: the chosen character takes the place of a member or an empty place in this chat. Its
+    settings stay, the messages it wrote now belong to the new character. `key` is the old character's id
+    or the id of the empty place."""
+    chat = ctx.chats.get_chat(chat_id)
+    ctx.characters.get(character_id)
+    old = ctx.members.get(chat_id, key)
+    ctx.members.replace(chat_id, key, character_id)
+    if old["character_id"] and chat["character_id"] == old["character_id"]:
+        ctx.chats.set_character(chat_id, character_id)
     return await _changed(ctx, chat_id)
 
 

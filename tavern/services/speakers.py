@@ -103,7 +103,7 @@ def save_settings(ctx: AppContext, chat_id: str, raw: Any) -> dict[str, Any]:
 
 
 def characters(members: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [m for m in members if not m["is_me"]]
+    return [m for m in members if not m["is_me"] and m.get("character_id")]  # an empty place never speaks
 
 
 def several(members: list[dict[str, Any]]) -> bool:

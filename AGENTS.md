@@ -76,7 +76,10 @@ tavern/                 Python package (backend)
   api/                  HTTP routes (chats + SSE, characters + settings, connections, themes,
                         assets); static.py serves /themes/{id}/{path} and /assets/{name}; thin, no logic
   services/chat.py      use cases: create chat, send, continue, impersonate, regenerate, stop
-  services/cast.py      chat members (depth, importance, "me", may the model write for me); used by
+  services/cast.py      chat members (depth, importance, "me", may the model write for me); empty places for imported
+                        characters without a card (table chat_member_slots, never speak, not in the prompt; «Заменить» =
+                        `replace_member` keeps settings and re-points messages; `members.list(include_empty=True)` only
+                        for the members window and export); used by
                         UI, agents and the assistant alike; fires chat.members_changed
   services/speakers.py  who speaks next in a chat (many characters is the normal state, not a mode):
                         by name / talkativeness, in turns, the model decides, manual; muted

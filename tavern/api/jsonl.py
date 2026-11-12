@@ -27,7 +27,7 @@ def _export_rows(ctx: Any, chat_id: str) -> str:
                              chat_notes=ctx.notes.list("chat", chat_id),
                              message_notes=ctx.notes.attached(chat_id),
                              swipe_metas=[[v["meta"] for v in row] for row in versions],
-                             members=ctx.members.list(chat_id),
+                             members=ctx.members.list(chat_id, include_empty=True),
                              plugins=ctx.plugins.export_records(chat_id))
 
 
@@ -81,13 +81,21 @@ async def import_chat(request: Request) -> JSONResponse:
     imported, from_st = _read_file(await request.body())
     ctx = ctx_of(request)
     source = imported["chat"]
-    by_name = {c["name"].strip().casefold(): c["id"] for c in ctx.characters.list() if c.get("name")}
+    slot_names: list[str] = []
     if from_st:
-        # names, not ids: the speaking character becomes the chat's character when this install has one by that name
-        character_id = by_name.get(imported["character_name"].casefold())
+        # Never linked by name (a character here with the same name is another one): every author of the file
+        # becomes an empty place under its name; «Заменить» in the members window links a real character.
+        character_id = None
+        user = str(imported.get("user_name") or "").strip().casefold()
         for item in imported["messages"]:
-            if item["role"] == "assistant":
-                item["character_id"] = by_name.get(str(item.get("name", "")).strip().casefold())
+            name = str(item.get("name") or "").strip()
+            item["character_id"] = None
+            if (item["role"] == "assistant" and name and name.casefold() != user
+                    and name.casefold() not in {n.casefold() for n in slot_names}):
+                slot_names.append(name)
+        header = str(imported.get("character_name") or "").strip()
+        if header and header.casefold() not in {n.casefold() for n in slot_names}:
+            slot_names.append(header)
         title = _file_title(request) or imported["character_name"] or "Чат из SillyTavern"
         source = {**source, "title": title}
     character_id = source.get("character_id") if not from_st else character_id
@@ -101,7 +109,7 @@ async def import_chat(request: Request) -> JSONResponse:
         title=str(source.get("title") or "Imported chat"),
         meta=source.get("meta") if isinstance(source.get("meta"), dict) else {},
     )
-    cast.restore_members(ctx, chat["id"], imported["members"], character_id)
+    empty = cast.restore_members(ctx, chat["id"], imported["members"], character_id, slot_names)
     id_map: dict[str, str] = {}
     known = {character["id"] for character in ctx.characters.list()}
     # Stable by depth: the same order as the export, so swipe rows still line up with messages.
@@ -148,7 +156,7 @@ async def import_chat(request: Request) -> JSONResponse:
     ctx.chats.set_leaf(chat["id"], leaf)
     # what plugins keep with a chat (ADR 0019 point E): after the messages exist, with the old -> new id map
     ctx.plugins.import_records(chat["id"], imported["plugins"], id_map)
-    return JSONResponse({"chat": ctx.chats.get_chat(chat["id"])}, status_code=201)
+    return JSONResponse({"chat": ctx.chats.get_chat(chat["id"]), "empty_members": empty}, status_code=201)
 
 
 routes = [
