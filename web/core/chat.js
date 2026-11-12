@@ -4,17 +4,12 @@ import { spendingChanged } from "./spending.js";
 import { api, followRun } from "./api.js";
 import { emit } from "./theme.js";
 import { notify } from "./notify.js";
+import { dropPending, makePending, settle, upsertById } from "./pending.js";
 
 const PAGE = 50;
 const EMPTY = { chat: null, messages: [], hasMore: false, running: false };
 
-function upsert(list, message) {
-  const i = list.findIndex((m) => m.id === message.id);
-  if (i < 0) return [...list, message];
-  const copy = list.slice();
-  copy[i] = message;
-  return copy;
-}
+const upsert = upsertById;
 
 export function useChat(chatId, onError) {
   const [state, setState] = useState(EMPTY);
@@ -25,6 +20,8 @@ export function useChat(chatId, onError) {
   stateRef.current = state;
   const closeRef = useRef(null);
   const loadingOlder = useRef(false);
+  const chatRef = useRef(chatId);
+  chatRef.current = chatId;
 
   const stopFollowing = () => {
     if (closeRef.current) closeRef.current();
@@ -67,8 +64,8 @@ export function useChat(chatId, onError) {
           ...s,
           running: false,
           messages: event.message
-            ? upsert(s.messages, event.message)
-            : s.messages.filter((m) => m.id !== replyId),
+            ? upsert(dropPending(s.messages), event.message)
+            : dropPending(s.messages).filter((m) => m.id !== replyId),
         }));
       }
       if (event.type === "error") onError(event.error.message);
@@ -79,13 +76,13 @@ export function useChat(chatId, onError) {
     closeRef.current = followRun(runId, (event) => {
       if (event.type === "turn_start") {
         setState((s) => ({ ...s, running: true,
-          messages: event.user_message ? upsert(s.messages, event.user_message) : s.messages }));
+          messages: event.user_message ? settle(s.messages, event.user_message) : s.messages }));
       } else if (event.type === "start") {
         replyId = event.message.id;
         setStreams((s) => ({ ...s, [replyId]: { text: "", thinking: "" } }));
         setState((s) => {
           let messages = s.messages;
-          if (event.user_message) messages = upsert(messages, event.user_message);
+          if (event.user_message) messages = settle(messages, event.user_message);
           return { ...s, running: true, messages: upsert(messages, event.message) };
         });
       } else if (event.type === "delta" || event.type === "reasoning") {
@@ -160,11 +157,25 @@ export function useChat(chatId, onError) {
     }, [chatId, onError]),
     // replyRole: who the generated message is saved as (user / assistant / system).
     // images: picture names from the library, sent with the message for the model to see.
+    // author: the name shown on the message while the server has not confirmed it.
+    // The message appears at once as a temporary one (core/pending.js); the server's replaces it in place, and a
+    // failure removes it (the caller gets false and puts the text back).
     // With two or more characters and the order "manual" only the message is saved (no run): the user picks who answers.
-    send: (text, replyRole = "assistant", images = []) => guard(api.post(`/chats/${chatId}/send`,
-      { text, reply_role: replyRole, images }).then((r) => r.run_id
-        ? follow(r.run_id)
-        : setState((s) => ({ ...s, messages: upsert(s.messages, r.message) })))),
+    send: async (text, replyRole = "assistant", images = [], author = "") => {
+      const temp = makePending(stateRef.current.messages, { text, images, name: author });
+      const sentIn = chatId;
+      setState((s) => ({ ...s, messages: [...s.messages, temp] }));
+      const result = await guard(api.post(`/chats/${chatId}/send`,
+        { text, reply_role: replyRole, images }).then((r) => {
+        if (chatRef.current !== sentIn) return undefined; // another chat is open now: its page reattaches to the run
+        if (r.run_id) return follow(r.run_id);
+        return setState((s) => ({ ...s, messages: settle(s.messages, r.message) }));
+      }));
+      if (result === false && chatRef.current === sentIn) {
+        setState((s) => ({ ...s, messages: dropPending(s.messages, temp.id) }));
+      }
+      return result;
+    },
     // speaker: the character who writes it ("ответь ты"); default the chat's order.
     continue: (role = "assistant", speaker = null) => guard(api.post(`/chats/${chatId}/continue`,
       speaker ? { role, speaker } : { role }).then((r) => follow(r.run_id))),

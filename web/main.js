@@ -604,7 +604,8 @@ function App() {
             ${chat.messages.filter((m) => !m.hidden).length === 0 && html`<div class="empty" data-slot="empty">
               <${EmptyNote} title="Сообщений пока нет" hint="Напишите первое сообщение внизу." /></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
-              onReachTop=${chat.loadOlder} resetKey=${chatId} jumpTo=${jumpTo} />
+              onReachTop=${chat.loadOlder} resetKey=${chatId} jumpTo=${jumpTo}
+              stickTo=${(chat.messages.find((m) => m.pending) || {}).vkey || null} />
             <div class="chat-actions" data-slot="chat-actions">
               <button disabled=${chat.running} onClick=${() => chat.continue(role)}
                 title="Модель напишет следующее сообщение без вашей реплики">Продолжить</button>
@@ -656,7 +657,10 @@ function App() {
               onSend=${(text, images) => {
                 if (isCommand(text) && !images.length) return runCommand(text);
                 emit("send", { text });
-                return chat.send(text, role, images);
+                // The name the server will give the message (the chat's «me» character, else the setting), so the
+                // temporary message is replaced without a visible change.
+                const me = members.find((m) => m.is_me);
+                return chat.send(text, role, images, (me && me.name) || settings.user_name || "User");
               }}
               onStop=${chat.stop} onError=${onError} />`
           : html`<div class="empty" data-slot="empty">

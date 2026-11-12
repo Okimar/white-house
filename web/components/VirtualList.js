@@ -3,6 +3,9 @@
 //  - heights are measured with ResizeObserver, unmeasured items use an estimate;
 //  - stays pinned to the bottom while new text streams in, unless the user scrolled up;
 //  - when older items are prepended, the visible content does not jump.
+// An item's identity is `item.vkey || item.id`: a temporary message (core/pending.js) and the real one that replaces
+// it share the `vkey`, so the row keeps its node and measured height. `stickTo` (a vkey) scrolls to the bottom when it
+// appears: the user just sent that message.
 import { html, useState, useRef, useLayoutEffect, useEffect, useCallback } from "../vendor/preact-htm.mjs";
 
 const ESTIMATE = 90;
@@ -11,13 +14,15 @@ const STICK_PX = 48;
 const LOAD_MORE_PX = 400;
 const JUMP_MS = 800;
 
-export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo }) {
+const keyOf = (item) => item.vkey || item.id;
+
+export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, stickTo = null }) {
   const box = useRef(null);
   const jump = useRef(null); // { id, until }: keep this item at the top while heights above are measured
   useLayoutEffect(() => {
     if (jumpTo) jump.current = { id: jumpTo.id, until: Date.now() + JUMP_MS };
   }, [jumpTo]);
-  const heights = useRef(new Map()); // item id -> measured height
+  const heights = useRef(new Map()); // item key -> measured height
   const stuck = useRef(true); // pinned to the bottom
   const anchor = useRef(null); // { id, offset } of the first item before an update
   const [, redraw] = useState(0);
@@ -30,6 +35,12 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
   const userScrolling = () => touching.current || Date.now() < userUntil.current;
   const markUser = (ms) => { userUntil.current = Date.now() + ms; };
 
+  // The user just sent a message: show it even when the list was scrolled up. Declared before the layout effect
+  // below, which then sees `stuck` and scrolls.
+  useLayoutEffect(() => {
+    if (stickTo) { stuck.current = true; jump.current = null; }
+  }, [stickTo]);
+
   // Unmeasured items are guessed from the measured ones, so corrections stay small.
   let sum = 0;
   for (const h of heights.current.values()) sum += h;
@@ -39,7 +50,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
   let total = 0;
   for (const item of items) {
     offsets.push(total);
-    total += heightOf(item.id);
+    total += heightOf(keyOf(item));
   }
 
   // Latest layout, readable from event handlers that outlive a single render.
@@ -47,8 +58,8 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
   layout.current = { items, offsets, heightOf };
   const captureAnchor = (top) => {
     const { items: list, offsets: offs, heightOf: h } = layout.current;
-    const first = list.findIndex((item, i) => offs[i] + h(item.id) > top);
-    return first >= 0 ? { id: list[first].id, offset: offs[first] - top } : null;
+    const first = list.findIndex((item, i) => offs[i] + h(keyOf(item)) > top);
+    return first >= 0 ? { id: keyOf(list[first]), offset: offs[first] - top } : null;
   };
 
   const observer = useRef(null);
@@ -89,7 +100,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
     } else if (stuck.current) {
       el.scrollTop = el.scrollHeight;
     } else if (anchor.current) {
-      const idx = items.findIndex((i) => i.id === anchor.current.id);
+      const idx = items.findIndex((i) => keyOf(i) === anchor.current.id);
       if (idx > 0 && Math.abs(offsets[idx] - anchor.current.offset - el.scrollTop) > 1) {
         el.scrollTop = offsets[idx] - anchor.current.offset;
       }
@@ -114,7 +125,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
     return () => resize.disconnect();
   }, []);
 
-  const from = Math.max(0, items.findIndex((_, i) => offsets[i] + heightOf(items[i].id) > viewport.top - OVERSCAN_PX));
+  const from = Math.max(0, items.findIndex((_, i) => offsets[i] + heightOf(keyOf(items[i])) > viewport.top - OVERSCAN_PX));
   let to = from;
   while (to < items.length && offsets[to] < viewport.top + viewport.height + OVERSCAN_PX) to++;
   const start = items.length ? offsets[from] : 0;
@@ -132,7 +143,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo })
       onWheel=${(e) => { markUser(200); if (e.deltaY < 0) stuck.current = false; }}>
       <div style=${{ height: start + "px" }}></div>
       ${items.slice(from, to).map((item) => html`
-        <div class="vitem" key=${item.id} data-id=${item.id} ref=${measure}>${renderItem(item)}</div>
+        <div class="vitem" key=${keyOf(item)} data-id=${keyOf(item)} ref=${measure}>${renderItem(item)}</div>
       `)}
       <div style=${{ height: end + "px" }}></div>
     </div>

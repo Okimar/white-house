@@ -13,6 +13,9 @@
 // With spending shown under messages (`spend` = the spending settings), a small line says what this
 // version cost ("≈" = the service gave no counts, or the reply was stopped).
 // Regex rules (stage 11): `shown` is how the rules make the text look on screen (core/regex.js); the saved text is untouched.
+// A message just sent and not yet confirmed by the server (`message.pending`, core/pending.js) shows the text only: its
+// buttons keep their place but are hidden and inert (the row does not change height), no role menu, no plugin parts;
+// they work when the server's message takes its place.
 // Plugins add buttons to the header and plain-text lines under the text (core/plugins.js).
 import { html, useEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { MAX_SHOWN, setNotesShown, useNotesShown } from "../core/notesShown.js";
@@ -82,13 +85,14 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
   const [saving, setSaving] = useState(false);
+  const pending = Boolean(message.pending);
   const streaming = streamText !== null && streamText !== undefined;
   const text = streaming ? streamText : message.content;
   const meta = message.swipe_meta || {};
   const thinking = streaming ? streamThinking : meta.reasoning;
   const role = roleOf(message.role);
   // On the last reply a new version of it; on the user's own last message a new reply to it (main.js).
-  const canRegenerate = isLast && !busy;
+  const canRegenerate = isLast && !busy && !pending;
   const fallbackName = { user: "Вы", assistant: "Персонаж", system: "Система" }[message.role];
 
   // The draft stays open until the server has it: a failed save must not lose the text.
@@ -162,9 +166,9 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   const status = [excluded && "exclude", notes.length > 0 && "notes"].filter(Boolean);
   const { bar, menu } = splitActions(available, { mode: actionsMode, pinned, status });
   const describe = (id) => ({ ...MESSAGE_ACTIONS.find((a) => a.id === id), ...actions[id] });
-  const pluginButtons = streaming ? [] : plugins.messageButtons;
+  const pluginButtons = streaming || pending ? [] : plugins.messageButtons;
   const titleOf = (b) => (typeof b.title === "function" ? b.title(message) : b.title);
-  const pluginMenu = streaming ? [] : messageMenuItems(message);
+  const pluginMenu = streaming || pending ? [] : messageMenuItems(message);
   const menuItems = () => [
     ...menu.map(describe),
     ...pluginMenu.map((m) => ({ icon: m.icon || "", emoji: true, label: m.label, onClick: () => m.onClick(message) })),
@@ -173,20 +177,20 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     }))),
   ];
 
-  const dividers = streaming ? [] : messageDividers(message);
+  const dividers = streaming || pending ? [] : messageDividers(message);
   const row = html`<div class="msg-row" data-slot="message-row">
     ${showHiddenHere && hidden.length > 0 && html`<${NoteColumn} notes=${hidden} side="left" few=${few}
       onHide=${hide} onMore=${more} />`}
     <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (excluded ? " msg-excluded" : "")}
       data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}
-      data-excluded=${excluded ? "true" : "false"}>
+      data-excluded=${excluded ? "true" : "false"} data-pending=${pending ? "true" : "false"}>
       <header data-slot="message-header">
-        ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy}
+        ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy || pending}
           aria-label=${"Выбрать сообщение " + (message.depth + 1)} onChange=${() => onSelect(message.id)} />`}
         <span class="msg-num" data-slot="message-number" title="Номер сообщения">${message.depth + 1}</span>
         ${avatar && !avatarFailed && html`<img class="msg-avatar" data-slot="message-avatar" src=${avatar}
           alt="" loading="lazy" onError=${() => setAvatarFailed(true)} />`}
-        <${IconButton} icon=${role.icon} class="role-icon" disabled=${busy} aria-haspopup="menu"
+        <${IconButton} icon=${role.icon} class="role-icon" disabled=${busy || pending} aria-haspopup="menu"
           label=${"Модель видит это как сообщение от: " + role.label + ". Нажмите, чтобы сменить"}
           onClick=${(e) => pickRole(e.currentTarget)} />
         <strong class="msg-name" data-slot="message-name">${message.name || fallbackName}</strong>
@@ -199,7 +203,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
               onClick=${() => onSwipe(message.id, message.active_swipe + 1)} />
           </span>`}
         <span class="spacer"></span>
-        ${editing === null && !streaming && html`<span class="msg-actions" data-slot="message-actions">
+        ${editing === null && !streaming && html`<span class="msg-actions" data-slot="message-actions"
+          style=${pending ? { visibility: "hidden" } : null} inert=${pending ? true : null} aria-hidden=${pending ? "true" : null}>
           ${bar.map((id) => {
             const a = describe(id);
             return html`<${IconButton} key=${id} icon=${a.icon} label=${a.label} disabled=${a.disabled}
@@ -231,7 +236,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
             open=${thinkingDisplay === "open" || (streaming && !text)}>
             <summary><${Icon} name="brain" /> Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text">${thinking}</div>
           </details>`}
-          ${messageTrees(message).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
+          ${(pending ? [] : messageTrees(message)).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
             ${meta.images.map((name) => html`<a key=${name} href=${"/assets/" + encodeURIComponent(name)} target="_blank"
               rel="noopener"><img src=${"/assets/" + encodeURIComponent(name)} alt="картинка" loading="lazy" /></a>`)}
@@ -241,9 +246,9 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           ${excluded && html`<div class="msg-excluded-note muted" data-slot="message-excluded"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
           <div class=${"body" + (shown && shown.pending ? " regex-pending" : "")} data-slot="message-body">${shown && shown.nodes
             ? html`<${RegexNodes} nodes=${shown.nodes} />` : shown && !shown.pending ? shown.text : text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
-          ${typeof meta.regex_before === "string" && !streaming && onRegexUndo && html`<div class="msg-regex-note muted" data-slot="message-regex-note">
+          ${typeof meta.regex_before === "string" && !streaming && !pending && onRegexUndo && html`<div class="msg-regex-note muted" data-slot="message-regex-note">
             Текст изменён регекс-правилом. <button type="button" class="link" onClick=${() => onRegexUndo(message.id)}>Вернуть как было</button></div>`}
-          ${!streaming && messageExtras(message).map((line, i) => html`<div key=${line.owner + i} class="msg-plugin"
+          ${!streaming && !pending && messageExtras(message).map((line, i) => html`<div key=${line.owner + i} class="msg-plugin"
             data-slot="message-plugin" data-plugin=${line.owner}>${line.text}</div>`)}
           ${spend && spend.show.message && meta.usage && !streaming && html`<div class="msg-usage muted"
             data-slot="message-usage" title=${usageTitle(meta.usage)}>${usageLine(meta.usage, spend)}</div>`}`}
