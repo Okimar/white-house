@@ -84,6 +84,26 @@ async def test_a_failed_variant_does_not_sink_the_reply(client, ctx, fake_llm):
     assert reply["swipe_count"] == 1 and reply["content"] == "Echo: hi"
 
 
+async def test_a_reply_to_the_last_user_message_gets_variants_like_a_send(client, ctx, fake_llm):
+    # «Другой вариант» on the user's own last message: continue answers it as if it were just sent.
+    chat, _ = await setup(client)
+    added = await client.post(f"/api/chats/{chat['id']}/messages", json={"text": "hi", "role": "user"})
+    assert added.status_code == 201, added.text
+    run_id = (await client.post(f"/api/chats/{chat['id']}/continue", json={"role": "assistant"})).json()["run_id"]
+    await asyncio.wait([ctx.runs.get(run_id).task], timeout=10)
+    messages = (await client.get(f"/api/chats/{chat['id']}/messages")).json()["messages"]
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+    assert messages[-1]["swipe_count"] == 4 and messages[-1]["content"] == "Echo: hi"
+
+
+async def test_continue_after_a_reply_stays_one_request(client, ctx, fake_llm):
+    chat, _ = await setup(client)
+    await client.post(f"/api/chats/{chat['id']}/messages", json={"text": "hello", "role": "assistant"})
+    run_id = (await client.post(f"/api/chats/{chat['id']}/continue", json={"role": "assistant"})).json()["run_id"]
+    await asyncio.wait([ctx.runs.get(run_id).task], timeout=10)
+    assert len(fake_llm.requests) == 1
+
+
 async def test_off_sends_one_request(client, ctx, fake_llm):
     chat, _ = await setup(client)
     await client.put("/api/parallel", json={"enabled": False, "targets": []})

@@ -149,6 +149,7 @@ SETTING_TYPES = {
     "embedding_connection": str,  # connection used for meaning vectors
     "auto_vectors": bool,  # vectorize changed green bubbles by itself (needs embedding_connection); default off
     "background_yield": bool,  # background work (vectorization) stops while a reply runs, then resumes; default on
+    "regex_live": bool,  # regex rules that change the saved text also work on a reply while it is written; default off
     "notes_display": str,  # notes beside a message: "few" (2 + "ещё N", default) or "all"
     "thinking_display": str,  # a reply's «Размышление»: "folded" (default), "open" or "hidden"
     "message_actions": str,  # a message's buttons: "menu" (a "…" list, default) or "always" (all on its panel)
@@ -167,7 +168,7 @@ SETTING_CHOICES = {
     "thinking_display": ("folded", "open", "hidden"),
     "message_actions": ("menu", "always"),
 }
-MESSAGE_BUTTONS = frozenset({"edit", "regenerate", "branches", "prompt", "exclude", "notes", "delete"})
+MESSAGE_BUTTONS = frozenset({"edit", "copy", "regenerate", "branches", "prompt", "exclude", "notes", "delete"})
 
 
 async def get_settings(request: Request) -> JSONResponse:

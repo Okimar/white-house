@@ -1,6 +1,8 @@
 // One chat message: number, role, text, swipe arrows and its actions. Text is rendered as plain text
 // (never as HTML), so a model or a card cannot inject markup.
 // The role icon shows who the model takes the message from; pressing it opens a role menu.
+// «Копировать» copies the shown version's text (no thinking). «Другой вариант» is on the last message: a new
+// version of a reply, or a new reply to the user's own message.
 // Actions: by default in a "…" list at the side; the setting message_actions = "always" keeps them all on the
 // panel, and message_pinned lists those kept on the panel in any mode (core/messageActions.js).
 // Author's notes kept after the message hang beside it: visible ones on the right (folded once
@@ -22,6 +24,8 @@ import { MessageTree } from "./PluginTree.js";
 import { Icon, IconButton } from "./Icon.js";
 import { MenuButton, openMenu } from "./Menu.js";
 import { ask } from "./Dialogs.js";
+import { copyText } from "../core/clipboard.js";
+import { notify } from "../core/notify.js";
 import { RegexNodes } from "./Regex.js";
 
 function usageTitle(u) {
@@ -83,7 +87,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   const meta = message.swipe_meta || {};
   const thinking = streaming ? streamThinking : meta.reasoning;
   const role = roleOf(message.role);
-  const canRegenerate = isLast && message.role !== "user" && !busy;
+  // On the last reply a new version of it; on the user's own last message a new reply to it (main.js).
+  const canRegenerate = isLast && !busy;
   const fallbackName = { user: "Вы", assistant: "Персонаж", system: "Система" }[message.role];
 
   // The draft stays open until the server has it: a failed save must not lose the text.
@@ -132,7 +137,13 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   const excluded = Boolean(message.exclude_from_prompt);
   const actions = {
     edit: { disabled: busy, onClick: () => setEditing(message.content) },
-    regenerate: { onClick: onRegenerate },
+    copy: {
+      onClick: async () => {
+        if (await copyText(message.content || "")) notify("Скопировано", "ok");
+        else notify("Не удалось скопировать", "error");
+      },
+    },
+    regenerate: { onClick: () => onRegenerate(message) },
     branches: { disabled: busy, onClick: () => onBranches(message.id) },
     prompt: { onClick: () => onPrompt(message) },
     exclude: {

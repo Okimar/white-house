@@ -2,6 +2,7 @@
 // Settings: message_actions = "menu" (default) or "always"; message_pinned = ids kept on the panel in any mode.
 export const MESSAGE_ACTIONS = [
   { id: "edit", label: "Изменить", icon: "pencil" },
+  { id: "copy", label: "Копировать", icon: "copy" },
   { id: "regenerate", label: "Другой вариант", icon: "refresh-cw" },
   { id: "branches", label: "Ветки", icon: "git-branch" },
   { id: "prompt", label: "Что видела модель", icon: "eye" },

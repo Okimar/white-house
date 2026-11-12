@@ -7,35 +7,14 @@ import { roleOf } from "./roles.js";
 import { Icon, IconButton } from "./Icon.js";
 import { Pending } from "./State.js";
 import { notify } from "../core/notify.js";
+import { copyText } from "../core/clipboard.js";
 import { backdrop, useEscape } from "../core/keys.js";
 
 const PREVIEW = 400;
 const ROLE_ICONS = { user: "user", assistant: "bot", system: "terminal" };
 
-// Over plain http (White House opened by a LAN address from a phone) navigator.clipboard does not exist:
-// the older way is a temporary text field and execCommand.
-function copyByField(text) {
-  const field = document.createElement("textarea");
-  field.value = text;
-  field.setAttribute("readonly", "");
-  field.style.position = "fixed";
-  field.style.top = "0";
-  field.style.opacity = "0";
-  document.body.appendChild(field);
-  field.select();
-  try { return document.execCommand("copy"); } catch { return false; } finally { field.remove(); }
-}
-
 async function copy(text, onError) {
-  let done = false;
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      done = true;
-    }
-  } catch { /* try the older way */ }
-  if (!done) done = copyByField(text);
-  if (done) notify("Скопировано", "ok");
+  if (await copyText(text)) notify("Скопировано", "ok");
   else onError("Не удалось скопировать");
 }
 

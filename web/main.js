@@ -496,7 +496,7 @@ function App() {
     onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
-    onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${chat.regenerate}
+    onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${(m) => (m.role === "user" ? chat.continue(role) : chat.regenerate())}
     onBranches=${openBranches} onPrompt=${setPromptOf}
     onExclude=${(id, on) => api.put(`/messages/${id}`, { exclude_from_prompt: on }).then(() => chat.reload())
       .catch((e) => onError(e.message))} />`;

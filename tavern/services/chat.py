@@ -193,6 +193,8 @@ def start_continue(ctx: AppContext, chat_id: str, role: str = "assistant", speak
 
     role="user" is impersonation: the model writes the user's next message. `speaker`: the
     character who writes it ("ответь ты"); default: the chat's order ("manual" acts as natural).
+    After the user's own message this is the reply to it, as if it were just sent (the page's
+    «Другой вариант» on a last user message): parallel requests are allowed then, as for a send.
     """
     _check_role(role)
     chat = ctx.chats.get_chat(chat_id)
@@ -200,6 +202,7 @@ def start_continue(ctx: AppContext, chat_id: str, role: str = "assistant", speak
     connection = resolve_connection(ctx, chat)
     if chat["leaf_id"] is None and role != "user" and not speaker:
         raise Conflict("Nothing to continue", code="nothing_to_continue")
+    answers_user = chat["leaf_id"] is not None and ctx.chats.get_message(chat["leaf_id"])["role"] == "user"
     if _round_wanted(ctx, chat, role, speaker):
         return _start_turn(ctx, chat, connection, replies=1, warning=spending.guard(ctx))
     speaker, ask = _pick(ctx, chat, role, speaker, ctx.chats.active_path(chat_id))
@@ -209,7 +212,8 @@ def start_continue(ctx: AppContext, chat_id: str, role: str = "assistant", speak
         chat_id, role=role, content="", parent_id=chat["leaf_id"], name=name, character_id=character_id,
     )
     return _launch(ctx, chat, connection, reply, swipe_idx=0, new_swipe=False,
-                   user_message=None, instruction=_instruction_for(role), warning=warning, ask_speaker=ask)
+                   user_message=None, instruction=_instruction_for(role), allow_parallel=answers_user,
+                   warning=warning, ask_speaker=ask)
 
 
 def _round_wanted(ctx: AppContext, chat: dict[str, Any], role: str, speaker: str | None) -> bool:

@@ -46,6 +46,55 @@ def test_pinned_and_status_stay_on_the_panel_in_the_menu_mode() -> None:
 
 
 @needs_node
+def test_every_message_button_can_be_pinned_and_copy_comes_after_edit() -> None:
+    from tavern.api.characters import MESSAGE_BUTTONS
+
+    ids = run_module(
+        'import { MESSAGE_ACTIONS } from "./core/messageActions.js";'
+        "console.log(JSON.stringify(MESSAGE_ACTIONS.map((a) => a.id)))"
+    )
+    assert set(ids) == MESSAGE_BUTTONS
+    assert ids[:2] == ["edit", "copy"]
+
+
+def copy_with(setup: str) -> object:
+    return run_module(
+        'import { copyText } from "./core/clipboard.js";'
+        f"{setup}"
+        "console.log(JSON.stringify({ ok: await copyText('привет'), log: globalThis.log || [] }))"
+    )
+
+
+FAKE_DOCUMENT = (
+    "globalThis.log = [];"
+    "const field = { style: {}, setAttribute() {}, select() { log.push('select'); }, remove() { log.push('remove'); } };"
+    "globalThis.document = { createElement: () => field, body: { appendChild: () => log.push('append') },"
+    "  execCommand: (c) => { log.push(c + ':' + field.value); return EXEC; } };"
+)
+
+
+@needs_node
+def test_copy_uses_the_clipboard_on_a_secure_page() -> None:
+    got = copy_with(
+        "globalThis.isSecureContext = true; globalThis.log = [];"
+        "Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async (t) => log.push(t) } } });"
+    )
+    assert got == {"ok": True, "log": ["привет"]}
+
+
+@needs_node
+def test_copy_falls_back_to_a_text_field_over_plain_http() -> None:
+    got = copy_with("globalThis.isSecureContext = false;" + FAKE_DOCUMENT.replace("EXEC", "true"))
+    assert got == {"ok": True, "log": ["append", "select", "copy:привет", "remove"]}
+
+
+@needs_node
+def test_copy_says_no_when_both_ways_fail() -> None:
+    got = copy_with("globalThis.isSecureContext = false;" + FAKE_DOCUMENT.replace("EXEC", "false"))
+    assert got["ok"] is False and got["log"][-1] == "remove"
+
+
+@needs_node
 def test_every_icon_named_in_the_page_exists() -> None:
     known = set(run_module(
         'import { ICONS } from "./vendor/lucide-icons.mjs"; console.log(JSON.stringify(Object.keys(ICONS)))'
