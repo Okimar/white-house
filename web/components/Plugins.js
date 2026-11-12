@@ -390,7 +390,7 @@ export function Plugins({ onError }) {
     ${data.server_off && html`<p class="warn">White House запущен без дополнений: они не работают.</p>`}
     <div class="row">
       <button disabled=${installing} onClick=${() => picker.current && picker.current.click()}>Установить из файла</button>
-      <input ref=${picker} type="file" accept=".zip,.tavern-plugin" hidden
+      <input ref=${picker} type="file" hidden
         onChange=${(e) => { if (e.target.files[0]) fromFile(e.target.files[0]); e.target.value = ""; }} />
       <form class="row grow" onSubmit=${fromUrl}>
         <label class="stack">Ссылка на GitHub

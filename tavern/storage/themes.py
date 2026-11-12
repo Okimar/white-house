@@ -491,7 +491,7 @@ def read_theme_zip(blob: bytes) -> tuple[dict[str, Any], dict[str, bytes]]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(blob))
     except zipfile.BadZipFile:
-        raise ThemeError("Not a theme file (expected a .tavern-theme / zip archive)") from None
+        raise ThemeError("Это не тема: ожидался файл .tavern-theme (zip-архив)") from None
     with archive:
         # Skip OS junk (.DS_Store, __MACOSX); traversal like "../x" is not junk and fails below.
         entries = [

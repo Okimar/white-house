@@ -2,6 +2,7 @@
 // panel; "top" = a drop-down under the menu bar (main.js), one section at a time like on a phone.
 // On a phone it is a sheet under the top bar showing one section (`section`), chosen by the small icons
 // in the bar. A press on a character only opens its list of actions: a new chat is an explicit choice.
+// The chat import picker has no `accept`: Android greys out .jsonl (no MIME type there); the server checks the file.
 import { html, useRef } from "../vendor/preact-htm.mjs";
 import { LorebookShelf } from "./Lorebooks.js";
 import { GroupedItems } from "./Groups.js";
@@ -65,7 +66,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
             { icon: "upload", label: "Импорт чата", onClick: () => chatFileInput.current.click() },
           ]} />
         </div>
-        <input ref=${chatFileInput} type="file" accept=".jsonl,.json,application/x-ndjson,application/json,text/plain" hidden
+        <input ref=${chatFileInput} type="file" hidden
           onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
         ${chats.length === 0 && html`<${EmptyNote} hint="Чатов пока нет. Новый чат начинается с персонажа: нажмите на него в разделе «Персонажи»." />`}
         <${GroupedItems} kind="chat" items=${chats} idOf=${(c) => c.id} labelOf=${(c) => c.title} activeId=${chatId}

@@ -90,7 +90,10 @@ export function Skills({ onError }) {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file || !(await discardOk())) return;
-    await imported({ text: await file.text(), filename: file.name });
+    const text = await file.text();
+    // No `accept` on the picker (Android greys out .md), so a wrong file is caught here.
+    if (text.includes("\u0000")) throw new Error("Это не текстовый файл: нужна инструкция в формате .md (SKILL.md)");
+    await imported({ text, filename: file.name });
   });
   const save = () => act(async () => {
     const { name, title, description, body, audience } = draft;
@@ -133,7 +136,7 @@ export function Skills({ onError }) {
           <button disabled=${busy || !link.trim()} onClick=${fromLink}><${Icon} name="download" /> Загрузить</button>
         </div>
         <button onClick=${() => fileInput.current && fileInput.current.click()} disabled=${busy}><${Icon} name="upload" /> Загрузить из файла</button>
-        <input ref=${fileInput} type="file" accept=".md,text/markdown,text/plain" hidden onChange=${fromFile} />
+        <input ref=${fileInput} type="file" hidden onChange=${fromFile} />
         <p class="hint">Подходят инструкции в формате Claude Code (SKILL.md). Загружается только текст, ничего не запускается;
           файлы, на которые ссылается инструкция, не переносятся. Ссылка открывается через защищённую загрузку: адреса вашей
           сети и этого устройства закрыты.</p>

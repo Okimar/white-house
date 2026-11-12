@@ -122,7 +122,7 @@ def test_zip_bomb_is_cut_off(store: ThemeStore) -> None:
 
 
 def test_not_a_zip(store: ThemeStore) -> None:
-    with pytest.raises(ThemeError, match="Not a theme file"):
+    with pytest.raises(ThemeError, match="Это не тема"):
         store.import_zip(b"hello")
 
 

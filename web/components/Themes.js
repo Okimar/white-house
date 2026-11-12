@@ -280,7 +280,7 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
       ${themes.map((t) => html`<${ThemeCard} key=${t.id} theme=${t} active=${t.id === current}
         onPick=${pick} onCopy=${copy} onDelete=${remove} onVersions=${showVersions} />`)}
     </div>
-    <input ref=${fileInput} type="file" accept=".tavern-theme,.zip,application/zip" hidden
+    <input ref=${fileInput} type="file" hidden
       onChange=${(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importFile(f); }} />
     <div class="row">
       <button onClick=${() => fileInput.current.click()}>Установить тему из файла</button>
