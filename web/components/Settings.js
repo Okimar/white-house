@@ -200,7 +200,7 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           onChanged=${onChanged} onError=${onError} />`}
 
         ${tab === "connections" && html`<${Connections} onChanged=${onChanged} onError=${onError} />`}
-        ${tab === "regex" && html`<${RegexTab} onError=${onError} />`}
+        ${tab === "regex" && html`<${RegexTab} onError=${onError} settings=${settings} onSave=${saveSetting} />`}
         ${tab === "skills" && html`<${Skills} onError=${onError} />`}
         ${tab === "spending" && html`<${SpendingSettings} onError=${onError} />`}
         ${tab === "plugins" && html`<${Plugins} onError=${onError} />`}

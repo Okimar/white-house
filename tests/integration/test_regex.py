@@ -638,3 +638,59 @@ async def test_the_assistant_cannot_clear_the_global_rules(ctx):
 
     with pytest.raises(ToolError, match="только человек"):
         assistant_app._check("POST", "/regex/clear", {"scope": "global"})
+
+
+# --- «Применять сразу, пока модель пишет» (setting regex_live) ------------------------------------
+
+
+async def test_live_setting_is_off_by_default_and_saved_text_rules_wait_for_the_end(client):
+    _, chat_id = await setup(client)
+    await add(client, "/old/", "new", when="stored")
+    assert (await client.get("/api/settings")).json().get("regex_live") is None
+    streaming = await display(client, chat_id, "an old tale", stream=True)
+    assert streaming["changed"] is False and streaming["text"] == "an old tale"
+    summary = (await client.get(f"/api/regex/summary?chat_id={chat_id}")).json()
+    assert summary["live"] is False
+
+
+async def test_live_setting_shows_saved_text_rules_while_streaming_only(client):
+    _, chat_id = await setup(client)
+    await add(client, "/old/", "new", when="stored")
+    await add(client, "/tale/", "story", when="display")
+    off = (await client.get(f"/api/regex/summary?chat_id={chat_id}")).json()
+    assert (await client.put("/api/settings", json={"regex_live": True})).status_code == 200
+    on = (await client.get(f"/api/regex/summary?chat_id={chat_id}")).json()
+    assert on["live"] is True and on["display"] == 1 and on["stamp"] != off["stamp"]
+    streaming = await display(client, chat_id, "an old tale", stream=True)
+    assert streaming["text"] == "an new story" and streaming["changed"] is True
+    finished = await display(client, chat_id, "an old tale")  # a finished message: the display rule only
+    assert finished["text"] == "an old story"
+    user = await display(client, chat_id, "an old tale", role="user", stream=True)
+    assert user["text"] == "an new story"  # the rule's own places decide (user and assistant by default)
+    assert (await client.put("/api/settings", json={"regex_live": False})).status_code == 200
+    assert (await display(client, chat_id, "an old tale", stream=True))["text"] == "an old story"
+
+
+async def test_live_setting_keeps_order_and_depth_of_saved_text_rules(client):
+    _, chat_id = await setup(client)
+    await client.put("/api/settings", json={"regex_live": True})
+    await add(client, "/a/", "b", when="stored")
+    await add(client, "/b/", "c", when="display")
+    await add(client, "/c/", "d", when="stored", places=["user"])
+    streaming = await display(client, chat_id, "a", stream=True)
+    assert streaming["text"] == "c"  # a -> b (saved-text rule), b -> c (display rule): list order; the user-only rule is skipped
+    assert (await display(client, chat_id, "a", stream=False))["text"] == "a"
+
+
+async def test_live_setting_does_not_touch_the_stored_text(client, ctx):
+    _, chat_id = await setup(client)
+    await client.put("/api/settings", json={"regex_live": True})
+    await add(client, "/old/", "new", when="stored")
+    assert (await display(client, chat_id, "old", stream=True))["text"] == "new"
+    # `stored()` still decides what is saved: the rule runs once there
+    assert regex_service.stored(ctx, chat_id, "old", "assistant") == ("new", "old")
+
+
+async def test_live_setting_rejects_a_non_boolean(client):
+    response = await client.put("/api/settings", json={"regex_live": "yes"})
+    assert response.status_code == 400

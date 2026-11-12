@@ -7,6 +7,9 @@ an imported card or preset wait for «Разрешить»).
 Four places, one pipeline each (all run in the worker process of core/regex_runner.py, never here):
 - display: what the page shows. Result {text, changed, nodes}: `nodes` is a cleaned HTML tree when a
   rule with «показывать как разметку» changed the text (core/safe_html.py). Cached by rules and text.
+  Rules «В самом сообщении» (stored) are applied to the text only when the reply is saved; with the setting
+  `regex_live` (default off) they are also applied to the text SHOWN while it is being written (items with
+  `stream`). Display only: what is stored is still changed once, at the end.
 - prompt: what the model gets. `prompt_texts()` rewrites the history (and lorebook entries) before
   core/assembly.py builds the prompt, so «Что видела модель» shows exactly the rewritten text. Runs on the
   message text AFTER `<thinking>` was split out of it and BEFORE the speaker's name and the old
@@ -46,6 +49,7 @@ MAX_TEXT = 400_000
 CACHE_ENTRIES = 3000
 PLACE_OF_ROLE = {"user": "user", "assistant": "assistant", "reasoning": "reasoning"}
 DEFAULT_CHAR = "Assistant"
+LIVE_SETTING = "regex_live"  # apply rules that change the text also to a reply while it is being written (default off)
 
 _cache: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
 _cache_lock = threading.Lock()  # display() runs in worker threads
@@ -379,16 +383,27 @@ def _recall(key: tuple) -> dict[str, Any] | None:
 # --- display ---------------------------------------------------------------------------------
 
 
+def live_on(ctx: AppContext) -> bool:
+    return bool(ctx.settings.get(LIVE_SETTING, False))
+
+
 def display_summary(ctx: AppContext, chat_id: str) -> dict[str, Any]:
+    """`display`: how many screen rules work in the chat; `live`: the setting is on and the chat has rules that
+    change the saved text, which the page then also asks about for a reply being written."""
     chat = ctx.chats.get_chat(chat_id)
     char, user = chat_names(ctx, chat)
     rules = rule_set(ctx, chat, char, user)
     shown = [i for i, r in enumerate(rules.rules) if r["when"] in ("display", "both")]
     parts = [f"{rules.finger[i]}{rules.rules[i]['places']}{rules.rules[i]['min_depth']}{rules.rules[i]['max_depth']}"
              for i in shown]
+    live = False
+    if live_on(ctx):
+        text_rules = [i for i, r in enumerate(rules.rules) if r["when"] == "stored"]
+        live = bool(text_rules)
+        parts += [f"live{rules.finger[i]}{rules.rules[i]['places']}" for i in text_rules]
     stamp = hashlib.blake2b("|".join(parts).encode(), digest_size=6).hexdigest()
     sensitive = any(rules.rules[i]["min_depth"] is not None or rules.rules[i]["max_depth"] is not None for i in shown)
-    return {"display": len(shown), "stamp": stamp, "depth_sensitive": sensitive, "broken": rules.broken}
+    return {"display": len(shown), "live": live, "stamp": stamp, "depth_sensitive": sensitive, "broken": rules.broken}
 
 
 def display(ctx: AppContext, chat_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -397,11 +412,18 @@ def display(ctx: AppContext, chat_id: str, items: list[dict[str, Any]]) -> dict[
     chat = ctx.chats.get_chat(chat_id)
     char, user = chat_names(ctx, chat)
     rules = rule_set(ctx, chat, char, user)
+    live = live_on(ctx)
     results: dict[str, dict[str, Any]] = {}
     jobs: list[tuple[str, dict[str, Any], list[int], tuple]] = []
     for item in items[:600]:
         text = item["text"][:MAX_TEXT]
-        picked = rules.pick(PLACE_OF_ROLE.get(item.get("role")), int(item.get("depth") or 0), "display")
+        place = PLACE_OF_ROLE.get(item.get("role"))
+        picked = rules.pick(place, int(item.get("depth") or 0), "display")
+        if live and item.get("stream"):
+            # the rules that change the saved text, as they will at the end (depth 0 like `stored`), in the list's order
+            extra = rules.pick(place, 0, "stored")
+            if extra:
+                picked = sorted({*picked, *extra})
         if not picked:
             results[item["id"]] = {"text": text, "changed": False, "nodes": None}
             continue

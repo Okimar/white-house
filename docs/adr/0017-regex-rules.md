@@ -124,3 +124,7 @@ global. The «Регекс» tab now shows preset and character rules first and 
 deletes the global rules, returns `{deleted}` and fires the usual `regex` notice; other scopes answer 400. The route is
 closed to the assistant (`CLOSED_WRITES`). The preset window shows a hint when global rules exist. How rules apply
 (global, preset, character) did not change.
+
+## Addendum (2026-11-12): live saved-text rules
+
+Setting `regex_live` (default off, Regex tab «Применять сразу, пока модель пишет»): `display()` also applies the rules «В самом сообщении» to items with `stream`, after the screen rules picked in the list order, depth 0 like `stored()`. Display only; the saved text is still changed once at the end. `display_summary()` returns `live` and puts those rules into the stamp, so the page asks again when the setting flips; with only such rules the page asks about streaming replies alone.

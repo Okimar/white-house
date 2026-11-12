@@ -3,7 +3,9 @@
 // and answers {text, changed, nodes}: `nodes` is a cleaned tree when a rule wrote HTML; Message builds elements
 // from it (components/Regex.js), never markup. This hook asks for the messages in view, remembers the answers,
 // and while a reply is being written asks again every STREAM_MS, showing the last answer in between so the text
-// does not jump back to the raw version. In safe mode (/?safe) the rules are not applied: the text is shown as stored.
+// does not jump back to the raw version. With the setting «Применять сразу, пока модель пишет» the server also
+// applies the rules that change the saved text to the reply being written (summary.live): a chat with only such
+// rules asks about streaming replies alone, the finished messages are shown as stored. In safe mode (/?safe) the rules are not applied: the text is shown as stored.
 import { useEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { api } from "./api.js";
 import { SAFE_MODE } from "./theme.js";
@@ -39,7 +41,8 @@ export function useRegexDisplay(chatId, messages, streams) {
     return () => window.removeEventListener("tavern:regex", load);
   }, [chatId]);
 
-  const on = Boolean(summary && summary.display > 0);
+  const screen = Boolean(summary && summary.display > 0);
+  const on = screen || Boolean(summary && summary.live);
   const lastDepth = messages.length ? messages[messages.length - 1].depth : 0;
   const keyOf = (m, text) => `${summary.stamp}|${m.id}|${hash(text)}|${summary.depth_sensitive ? lastDepth - m.depth : 0}`;
   const textOf = (m) => (streams && streams[m.id] ? streams[m.id].text : m.content) || "";
@@ -50,9 +53,11 @@ export function useRegexDisplay(chatId, messages, streams) {
     for (const m of messages) {
       if (!SHOWN_ROLES.has(m.role)) continue;
       const text = textOf(m);
+      const stream = Boolean(streams && streams[m.id]);
+      if (!screen && !stream) continue; // only «live» rules: finished messages are shown as stored
       const key = keyOf(m, text);
       if (done.current.has(key)) continue;
-      wanted.push({ key, id: key, m, text, stream: Boolean(streams && streams[m.id]) });
+      wanted.push({ key, id: key, m, text, stream });
     }
     if (!wanted.length) return undefined;
     const mine = ++token.current;
@@ -80,15 +85,17 @@ export function useRegexDisplay(chatId, messages, streams) {
       }
     }, wanted.some((w) => w.stream) ? STREAM_MS : 30);
     return () => clearTimeout(timer);
-  }, [on, summary && summary.stamp, messages, streams]);
+  }, [on, screen, summary && summary.stamp, messages, streams]);
 
   return (message, streamText) => {
     if (!on || failed.current || !SHOWN_ROLES.has(message.role)) return null;
-    const text = streamText !== null && streamText !== undefined ? streamText : message.content || "";
+    const streaming = streamText !== null && streamText !== undefined;
+    if (!screen && !streaming) return null;
+    const text = streaming ? streamText : message.content || "";
     const found = done.current.get(keyOf(message, text));
     if (found) return found.changed ? found : null;
     const before = last.current.get(message.id);
-    if (before && streamText !== null && streamText !== undefined) return before.changed ? before : null;
+    if (before && streaming) return before.changed ? before : null;
     return { pending: true };
   };
 }

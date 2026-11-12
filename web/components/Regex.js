@@ -311,7 +311,7 @@ export function RegexOwner({ scope, owner, onError }) {
 }
 
 // Settings tab «Регекс».
-export function RegexTab({ onError }) {
+export function RegexTab({ onError, settings, onSave }) {
   const loaded = useLoad(() => api.get("/regex"), []);
   useEffect(() => {
     const again = () => loaded.reload();
@@ -330,6 +330,11 @@ export function RegexTab({ onError }) {
       reload();
     } catch (e) { onError(e.message); }
   };
+  const live = Boolean(settings && settings.regex_live);
+  const setLive = async (on) => {
+    await onSave({ regex_live: on });
+    window.dispatchEvent(new Event("tavern:regex")); // the chat page asks the server again what it may change while a reply is written
+  };
   const group = (title, items, scope) => items.length > 0 && html`<div class="regex-group">
     <strong>${title}</strong>
     ${items.map((o) => html`<details key=${o.id} open=${o.pending > 0 || undefined}>
@@ -341,6 +346,11 @@ export function RegexTab({ onError }) {
       оформляют панели. Одно правило может менять то, что вы видите, то, что получает модель, или сам сохранённый текст.
       Порядок работы: сначала общие правила, потом правила пресета чата, потом правила персонажей чата. Внутри списка — сверху вниз.
       Правила персонажа и пресета удобнее открывать из их карточки. Общие правила спрятаны внизу: они действуют во всех чатах.</p>
+    <label class="check" data-slot="regex-live"><input type="checkbox" checked=${live}
+      onChange=${(e) => setLive(e.target.checked)} /> Применять сразу, пока модель пишет</label>
+    <p class="hint">Правила «В самом сообщении» обычно меняют текст один раз, когда ответ дописан. Если включить, вы будете
+      видеть изменённый текст уже во время набора. Сохранённый текст при этом по-прежнему меняется один раз, в конце.
+      Каждое обновление идёт на сервер, так что на слабом телефоне и с тяжёлыми правилами текст может появляться с задержкой.</p>
     ${group("Правила персонажей", characters, "character")}
     ${group("Правила пресетов", presets, "preset")}
     <div class="regex-group" data-slot="regex-global">
