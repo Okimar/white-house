@@ -153,6 +153,7 @@ SETTING_TYPES = {
     "notes_display": str,  # notes beside a message: "few" (2 + "ещё N", default) or "all"
     "thinking_display": str,  # a reply's «Размышление»: "folded" (default), "open" or "hidden"
     "message_actions": str,  # a message's buttons: "menu" (a "…" list, default) or "always" (all on its panel)
+    "chat_view": str,  # how messages look: "bubbles" (default) or "document" (no bubbles, a name line above the text); a chat may override it (chat meta)
     "message_pinned": list,  # ids of the buttons kept on the panel in any mode (web/core/messageActions.js)
     "notes_shown": int,  # how many of a message's notes the column shows before «Все заметки» (1..20, default 2)
     "skip_confirms": dict,  # delete questions turned off: key -> true (web/components/Dialogs.js SKIP_ASKS)
@@ -167,6 +168,7 @@ SETTING_CHOICES = {
     "notes_display": ("few", "all"),
     "thinking_display": ("folded", "open", "hidden"),
     "message_actions": ("menu", "always"),
+    "chat_view": ("bubbles", "document"),
 }
 MESSAGE_BUTTONS = frozenset({"edit", "copy", "regenerate", "branches", "prompt", "exclude", "notes", "delete"})
 

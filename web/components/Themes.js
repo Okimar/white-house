@@ -275,6 +275,15 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
     ${!SAFE_MODE && pending && !pending.error && html`<${ColorEditor} theme=${pending} onError=${onError}
       onSaved=${async (id, same) => { if (same) { reloadThemeCss(); await onChanged(); } else await save({ theme: id }); }} />`}
 
+    <h2>Вид чата</h2>
+    <${Select} value=${settings.chat_view || "bubbles"} aria-label="Как показывать сообщения чата"
+      onChange=${(e) => save({ chat_view: e.target.value })}>
+      <option value="bubbles">Пузыри: у каждого сообщения своя рамка</option>
+      <option value="document">Документ: сплошной текст, над каждым сообщением тонкая строка с именем</option>
+    </${Select}>
+    <p class="hint">Действует во всех чатах. Для одного чата вид можно выбрать в его меню «⋯» (пункты «Вид»).
+      «Документ» даёт тексту почти всю ширину экрана.</p>
+
     <h2>Темы</h2>
     <div class="theme-grid" data-slot="theme-grid">
       ${themes.map((t) => html`<${ThemeCard} key=${t.id} theme=${t} active=${t.id === current}

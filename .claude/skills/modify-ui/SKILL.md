@@ -141,3 +141,8 @@ Run `python -m pytest` (backend must stay green), update the table above if file
 - New localStorage keys: `tavern.menuMode`, `tavern.menuFolded`, `tavern.searchScope`, `tavern.settingsChoice`, `tavern.settingsView`. Wrap in try/catch like the others.
 - `api.get(path, signal)` and `api.post(path, body, signal)` take an AbortSignal; cancel outdated searches.
 - `Assistant` takes an `openMsg` prop (jump to a found message).
+
+## Chat view (Пузыри / Документ)
+
+- Setting `chat_view` ("bubbles" default / "document"; Settings > Оформление «Вид чата») and a per-chat override in chat meta `chat_view` (`PUT /chats/{id}/meta`, the chat «⋯» menu «Вид: …»). `main.js` puts `data-view` on `<main class="main">`; CSS under `.main[data-view="document"]` (no bubble, name line, 44px buttons overlapping the gap). `VirtualList` takes `layoutKey` and re-measures its rows when it changes.
+- Space around messages is four variables (`--chat-pad-x`, `--msg-gap`, `--msg-pad-x`, `--msg-pad-y`), smaller under 820px; themes may override them.

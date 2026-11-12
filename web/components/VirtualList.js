@@ -16,7 +16,7 @@ const JUMP_MS = 800;
 
 const keyOf = (item) => item.vkey || item.id;
 
-export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, stickTo = null }) {
+export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, stickTo = null, layoutKey = null }) {
   const box = useRef(null);
   const jump = useRef(null); // { id, until }: keep this item at the top while heights above are measured
   useLayoutEffect(() => {
@@ -85,6 +85,25 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
     stuck.current = true;
     anchor.current = null;
   }, [resetKey]);
+
+  // The look of the rows changed (chat view «Пузыри» / «Документ»): every cached height is stale, also those of rows
+  // out of the window. Measure the rows in the DOM now (the new CSS is already applied) and drop the rest to the
+  // estimate; the anchor below then keeps the first visible row where it was, and the scroll does not jump.
+  const seenLayout = useRef(layoutKey);
+  useLayoutEffect(() => {
+    if (seenLayout.current === layoutKey) return;
+    seenLayout.current = layoutKey;
+    const next = new Map();
+    const el = box.current;
+    if (el) {
+      for (const node of el.querySelectorAll(".vitem")) {
+        const h = Math.ceil(node.getBoundingClientRect().height);
+        if (h) next.set(node.dataset.id, h);
+      }
+    }
+    heights.current = next;
+    redraw((n) => n + 1);
+  }, [layoutKey]);
 
   // The anchor (first visible item and its offset from the viewport top) is taken at the END of
   // each commit, so when items are prepended the effect below still sees the previous layout.

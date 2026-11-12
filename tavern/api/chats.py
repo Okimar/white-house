@@ -92,8 +92,11 @@ async def rename_chat(request: Request) -> JSONResponse:
     return JSONResponse(ctx_of(request).chats.rename_chat(request.path_params["id"], title))
 
 
+CHAT_VIEWS = ("bubbles", "document")
+
+
 async def update_chat_meta(request: Request) -> JSONResponse:
-    """Per-chat options: connection_id, generator, preset_id."""
+    """Per-chat options: connection_id, generator, preset_id, chat_view ("bubbles" / "document"; empty = as in the settings)."""
     ctx = ctx_of(request)
     chat = ctx.chats.get_chat(request.path_params["id"])
     body = await json_body(request)
@@ -105,6 +108,14 @@ async def update_chat_meta(request: Request) -> JSONResponse:
                 meta[key] = value
             else:
                 meta.pop(key, None)
+    if "chat_view" in body:
+        view = field(body, "chat_view", str)
+        if view not in ("", *CHAT_VIEWS):
+            raise BadRequest(f"Field 'chat_view' must be one of: {', '.join(CHAT_VIEWS)} (or empty for the app setting)")
+        if view:
+            meta["chat_view"] = view
+        else:
+            meta.pop("chat_view", None)
     ctx.chats.update_meta(chat["id"], meta)
     return JSONResponse(ctx.chats.get_chat(chat["id"]))
 

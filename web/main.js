@@ -512,11 +512,21 @@ function App() {
     openAssistant();
   };
   const toggleSelecting = () => { setSelecting(!selecting); setSelected(new Set()); };
+  // How messages look: this chat's own choice (chat meta) or the app setting; «Пузыри» when neither is set.
+  const chatView = [chat.chat && chat.chat.meta && chat.chat.meta.chat_view, settings.chat_view].find((v) => v === "document" || v === "bubbles") || "bubbles";
+  const setChatView = (view) => api.put(`/chats/${chatId}/meta`, { chat_view: view })
+    .then(() => chat.refreshInfo()).catch((e) => onError(e.message));
+  const ownView = (chat.chat && chat.chat.meta && chat.chat.meta.chat_view) || "";
+  const viewItem = (view, label) => ({ icon: ownView === view ? "check" : view === "document" ? "book-open" : "message-square", label: "Вид: " + label,
+    disabled: ownView === view, onClick: () => setChatView(view) });
   const chatMenu = () => [
     { icon: "search", label: "Поиск по чату", onClick: () => setSearching(true), phone: true },
     { icon: "users", label: "Участники и пресет", onClick: () => setShowMembers(true), phone: true },
     { icon: "notebook-pen", label: "Заметки автора", onClick: () => setShowNotes(true), phone: true },
     { icon: "user", label: selecting ? "Закончить смену ролей" : "Сменить роли", onClick: toggleSelecting },
+    viewItem("bubbles", "Пузыри"),
+    viewItem("document", "Документ"),
+    { icon: "undo-2", label: "Вид: как в настройках", disabled: !ownView, onClick: () => setChatView("") },
     { icon: "download", label: "Скачать чат", href: `/api/chats/${chatId}/export.jsonl` },
   ].filter((item) => !item.phone || window.matchMedia("(max-width: 720px)").matches);
   return html`
@@ -532,7 +542,7 @@ function App() {
         onAssistant=${openAssistant} onSearch=${openSearch} settings=${settings} onError=${onError}
         mode=${menuMode} onFold=${menuMode === "side" ? () => { setSheet(null); setMenuFolded(true); } : null} />
       ${sheet && html`<${SheetKeys} onClose=${() => setSheet(null)} />`}
-      <main class="main" data-slot="chat" data-running=${chat.running ? "true" : "false"}>
+      <main class="main" data-slot="chat" data-view=${chatView} data-running=${chat.running ? "true" : "false"}>
         <div class="scene" data-slot="scene" aria-hidden="true"></div>
         ${menuMode === "top" && !menuFolded && html`<nav class="menubar only-wide" data-slot="menubar" aria-label="Меню">
           <${IconButton} icon="chevron-down" label="Свернуть меню" class="fold-menu" data-slot="fold-menu"
@@ -604,7 +614,7 @@ function App() {
             ${chat.messages.filter((m) => !m.hidden).length === 0 && html`<div class="empty" data-slot="empty">
               <${EmptyNote} title="Сообщений пока нет" hint="Напишите первое сообщение внизу." /></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
-              onReachTop=${chat.loadOlder} resetKey=${chatId} jumpTo=${jumpTo}
+              onReachTop=${chat.loadOlder} resetKey=${chatId} layoutKey=${chatView} jumpTo=${jumpTo}
               stickTo=${(chat.messages.find((m) => m.pending) || {}).vkey || null} />
             <div class="chat-actions" data-slot="chat-actions">
               <button disabled=${chat.running} onClick=${() => chat.continue(role)}
