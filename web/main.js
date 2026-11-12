@@ -333,11 +333,12 @@ function App() {
   const importChat = async (file) => {
     try {
       const created = await fetch("/api/chats/import.jsonl", {
-        method: "POST", headers: { "Content-Type": "application/x-ndjson" }, body: await file.text(),
+        method: "POST", body: await file.text(),
+        headers: { "Content-Type": "application/x-ndjson", "X-Filename": encodeURIComponent(file.name || "") },
       });
       if (!created.ok) {
-        const error = await created.json();
-        throw new Error(error.error?.message || "Не удалось импортировать чат");
+        const error = await created.json().catch(() => null); // a proxy's error page is not JSON
+        throw new Error(error?.error?.message || `Не удалось импортировать чат (ошибка ${created.status})`);
       }
       const data = await created.json();
       await refresh();

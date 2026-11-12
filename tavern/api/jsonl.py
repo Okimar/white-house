@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import unquote
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
@@ -12,6 +13,7 @@ from starlette.routing import Route
 from tavern.api.util import BadRequest, attachment, copy_before, ctx_of
 from tavern.errors import AppError, NotFound
 from tavern.formats.jsonl import export_chat_jsonl, import_chat_jsonl
+from tavern.formats.st_chat import is_st_chat, parse_st_chat
 from tavern.services import cast
 from tavern.services import notes as note_service
 from tavern.storage.repos.notes import NOTE_FIELDS
@@ -41,15 +43,54 @@ async def export_chat(request: Request) -> PlainTextResponse:
     )
 
 
+def _file_title(request: Request) -> str:
+    """The uploaded file's name (header `X-Filename`, URI-encoded) as a chat title: SillyTavern's
+    `Name_2026_11_04@03h21m31s689ms.jsonl` -> `Name 04.11.2026`."""
+    name = unquote(request.headers.get("x-filename", "")).rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    stem = re.sub(r"\.(jsonl|json|txt)$", "", name, flags=re.IGNORECASE).split("@", 1)[0]
+    match = re.match(r"^(.*?)_(\d{4})_(\d{2})_(\d{2})$", stem)
+    if match:
+        name, year, month, day = match.groups()
+        return f"{name.replace('_', ' ').strip()} {day}.{month}.{year}"[:120]
+    return stem.replace("_", " ").strip()[:120]
+
+
+def _read_file(body: bytes) -> tuple[dict[str, Any], bool]:
+    """Our own file or a SillyTavern one; a clear Russian message when neither can be read."""
+    try:
+        text = body.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise BadRequest("Файл чата не в кодировке UTF-8: это не файл чата White House или SillyTavern",
+                         code="invalid_jsonl") from exc
+    if not text.strip():
+        raise BadRequest("Файл чата пустой", code="invalid_jsonl")
+    if is_st_chat(text):
+        try:
+            return parse_st_chat(text), True
+        except ValueError as exc:
+            raise BadRequest(f"Не удалось прочитать чат SillyTavern: {exc}", code="invalid_jsonl") from exc
+    try:
+        return import_chat_jsonl(text), False
+    except ValueError as exc:
+        raise BadRequest("Не удалось прочитать файл чата: это не чат White House и не чат SillyTavern "
+                         f"(.jsonl). Подробности: {exc}", code="invalid_jsonl") from exc
+
+
 async def import_chat(request: Request) -> JSONResponse:
     await copy_before(request, "import-chat")
-    try:
-        imported = import_chat_jsonl((await request.body()).decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise BadRequest(str(exc), code="invalid_jsonl") from exc
+    imported, from_st = _read_file(await request.body())
     ctx = ctx_of(request)
     source = imported["chat"]
-    character_id = source.get("character_id")
+    by_name = {c["name"].strip().casefold(): c["id"] for c in ctx.characters.list() if c.get("name")}
+    if from_st:
+        # names, not ids: the speaking character becomes the chat's character when this install has one by that name
+        character_id = by_name.get(imported["character_name"].casefold())
+        for item in imported["messages"]:
+            if item["role"] == "assistant":
+                item["character_id"] = by_name.get(str(item.get("name", "")).strip().casefold())
+        title = _file_title(request) or imported["character_name"] or "Чат из SillyTavern"
+        source = {**source, "title": title}
+    character_id = source.get("character_id") if not from_st else character_id
     if character_id is not None:
         try:
             ctx.characters.get(character_id)

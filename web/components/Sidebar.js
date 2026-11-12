@@ -65,7 +65,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
             { icon: "upload", label: "Импорт чата", onClick: () => chatFileInput.current.click() },
           ]} />
         </div>
-        <input ref=${chatFileInput} type="file" accept=".jsonl,application/x-ndjson" hidden
+        <input ref=${chatFileInput} type="file" accept=".jsonl,.json,application/x-ndjson,application/json,text/plain" hidden
           onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
         ${chats.length === 0 && html`<${EmptyNote} hint="Чатов пока нет. Новый чат начинается с персонажа: нажмите на него в разделе «Персонажи»." />`}
         <${GroupedItems} kind="chat" items=${chats} idOf=${(c) => c.id} labelOf=${(c) => c.title} activeId=${chatId}
