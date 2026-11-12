@@ -1,6 +1,7 @@
 """The menu can sit on top or at the side and fold; theme slots stay. Source-level checks (no browser)."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[2] / "web"
@@ -51,6 +52,10 @@ def test_phone_top_bar_folds_and_keeps_home_and_settings():
     assert "setMenuFolded(true)" in main[main.index('data-slot="phone-fold"') - 200: main.index('data-slot="phone-fold"') + 200]
     # in the flow (never position: fixed/absolute), only at phone width
     block = css[css.index("Phone: the top bar folds"):]
+    block = block[: block.index("\n\n/*")]  # this section only: later sections may position their own things
+    assert ".topbar[data-folded=" in block
+    for rule in re.findall(r"([^{}]*(?:\.phone-folded|\.topbar\[data-folded)[^{}]*)\{([^}]*)\}", css):
+        assert "position:" not in rule[1], rule[0]
     assert "position:" not in block and "max-width: 720px" in block
 
 
