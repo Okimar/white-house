@@ -34,11 +34,12 @@ speaker) works in every order, for a muted member too.
 from __future__ import annotations
 
 import random
+import re
 from typing import Any
 
 from tavern.context import AppContext
 from tavern.core.llm import LLMClient
-from tavern.core.retrieval import keyword_pattern
+from tavern.core.retrieval import stem
 from tavern.errors import AppError, Conflict
 from tavern.providers.base import ChatMessage
 
@@ -133,12 +134,35 @@ def last_speaker(history: list[dict[str, Any]], members: list[dict[str, Any]]) -
     return None
 
 
+# Case endings a name takes in a sentence (Russian; English plural/possessive "s"). A name is matched by
+# itself or its stem with one of these, not by the stem with anything after it: «Ник» must not be found
+# in «никто», «Вера» in «верно», «Ли» in the particle «ли». Longest first so the alternation is greedy.
+NAME_ENDINGS = sorted({"а", "я", "у", "ю", "е", "ы", "и", "о", "ь", "ой", "ей", "ою", "ею", "ом", "ем", "ём",
+                       "ам", "ям", "ами", "ями", "ах", "ях", "ов", "ев", "s"}, key=len, reverse=True)
+
+
+def name_pattern(word: str) -> re.Pattern[str] | None:
+    """How a name's word is found in a message: the first letter as written (a capital stays a capital,
+    so common words that share the stem do not count), the rest in any case, then one case ending."""
+    words = re.findall(r"\w+", word)
+    if not words:
+        return None
+    word = words[0]
+    first = re.escape(word[0])
+    if word[0].isalpha() and word[0].lower() != word[0].upper():
+        first = re.escape(word[0]) if word[0].isupper() else f"[{re.escape(word[0])}{re.escape(word[0].upper())}]"
+    base = word[: max(len(stem(word)), 1)]
+    endings = "|".join(re.escape(e) for e in NAME_ENDINGS)
+    tail = f"(?:{re.escape(word[1:])}|{re.escape(base[1:])}(?:{endings})?)"
+    return re.compile(rf"(?<!\w){first}(?i:{tail})(?!\w)")
+
+
 def named(text: str, pool: list[dict[str, Any]]) -> list[str]:
-    """Members named in `text` (first word of the name, any ending), in the order they appear."""
+    """Members named in `text` (first word of the name with a case ending), in the order they appear."""
     found: list[tuple[int, str]] = []
     for member in pool:
         word = (member["name"].split() or [""])[0]
-        pattern = keyword_pattern(word) if word else None
+        pattern = name_pattern(word) if word else None
         match = pattern.search(text) if pattern else None
         if match:
             found.append((match.start(), member["character_id"]))

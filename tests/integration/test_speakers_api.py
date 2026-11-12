@@ -249,3 +249,33 @@ async def test_stop_in_the_middle_of_a_round_leaves_a_whole_chain(client, ctx, f
     assert path[1]["content"] == "go" and all(m["content"].strip() for m in path)
     chat = (await client.get(f"/api/chats/{chat_id}")).json()["chat"]
     assert chat["leaf_id"] == path[-1]["id"]
+
+
+# --- regression: in the natural order every character gets a turn ---------------------------------
+
+
+async def test_natural_order_lets_everyone_speak(client, ctx, fake_llm):
+    """Regression: the owner's chats had the first character answer every time. With 50/50/50
+    talkativeness and nobody named (the text only shares stems with names: «никто», «верно»)
+    several characters answer; 0 is never drawn; the slider value round-trips through the API."""
+    ann, bob, chat_id = await two_characters(client)
+    nik = await make_character(client, "Ник", description="Nik.")
+    await client.post(f"/api/chats/{chat_id}/members", json={"character_id": nik["id"]})
+
+    async def authors(times, text="Никто не знает, верно?"):
+        out = []
+        for _ in range(times):
+            await finish(ctx, await client.post(f"/api/chats/{chat_id}/send", json={"text": text}))
+            out.append((await messages(client, chat_id))[-1]["character_id"])
+        return out
+
+    assert len(set(await authors(18))) > 1
+
+    saved = await client.put(f"/api/chats/{chat_id}/members/{ann['id']}", json={"talkativeness": 0})
+    assert next(m for m in saved.json()["members"] if m["character_id"] == ann["id"])["talkativeness"] == 0
+    await client.put(f"/api/chats/{chat_id}/members/{nik['id']}", json={"talkativeness": 0})
+    await client.put(f"/api/chats/{chat_id}/members/{bob['id']}", json={"talkativeness": 100})
+    listed = (await client.get(f"/api/chats/{chat_id}/members")).json()["members"]
+    assert {m["character_id"]: m["talkativeness"] for m in listed} == {ann["id"]: 0, bob["id"]: 100, nik["id"]: 0}
+    assert set(await authors(8)) == {bob["id"]}  # 0 is never drawn, 100 always willing
+    assert set(await authors(2, "Ann, what do you say?")) == {ann["id"]}  # named: answers even at 0

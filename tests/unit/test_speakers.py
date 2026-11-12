@@ -61,3 +61,14 @@ def test_scene_lists_the_others_as_asked():
     assert scene(CAST, "a", "names") == [("Борис Петров", ""), ("Вера", "")]
     cast = [ANN, {**BORIS, "blurb": "кузнец"}, {**VERA, "muted": True}, ME]
     assert scene(cast, "a", "blurbs") == [("Борис Петров", "кузнец")]
+
+
+def test_common_words_that_share_a_name_stem_do_not_name_anyone():
+    """Regression: «Ник» was found in «никто», «Ли» in «ли», «Вера» in «верно», so that character
+    answered almost every message and talkativeness never got a say."""
+    cast = [member(n, n) for n in ("Ли", "Ник", "Вера", "Мира")]
+    assert named("Не знаю, ли он прав. Никто не пришёл, никогда. Верно, вернулся в мир", cast) == []
+    assert named("Ник, иди сюда; Вере скажи, Мирой займусь, Ли тоже", cast) == ["Ник", "Вера", "Мира", "Ли"]
+    assert named("Ann's hat and Алисой", [member("a", "Ann"), member("b", "Алиса")]) == ["a", "b"]
+    picks = {choose(defaults(), cast, [said("Никто не знает, верно ли это")], random.Random(s)) for s in range(40)}
+    assert len(picks) > 1  # nobody is named: talkativeness draws among all four
