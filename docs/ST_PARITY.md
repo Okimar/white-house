@@ -1,24 +1,48 @@
 # Совпадение с SillyTavern (ST_PARITY)
 
-Статус на 2026-11-13. Ниже сначала короткий русский текст для владельца, потом английские таблицы для агентов.
+Статус на 2026-11-14. Ниже сначала короткий русский текст для владельца, потом английские таблицы для агентов.
 
 ## Для владельца
 
 **Цель.** Те же вводные (пресет, карточка, лорбук, чат, регексы) дают тот же запрос к модели, что в SillyTavern, а значит и тот же ответ. Сейчас главная боль: один и тот же «джейлбрейк» в SillyTavern проходит, а у нас модель отказывается. Причина почти наверняка в разнице того, что именно уходит в запросе, а не в модели.
 
+**План (согласован 2026-11-14).** Цель: приложение лучше, а функции те же, что в SillyTavern.
+
+Решение принимается по каждой разнице отдельно:
+- у нас уже лучше: остаётся как есть и записывается как «отличается нарочно» (с одной строкой, почему);
+- у нас хуже: делаем как в ST;
+- непонятно, что лучше: спрашиваем владельца и показываем пример.
+
+Чем проверяем:
+- эталоны: запросы, которые ST реально отправил (`tests/fixtures/st_goldens/`), и тест «наш запрос = эталон»;
+- экзамен на настройках владельца: его пресет, карточка, лорбук и регексы в нашем приложении против ST;
+- живой ответ модели на том же запросе.
+
+Наши значения по умолчанию = значения ST по умолчанию: на телефоне нет папки ST, взять их неоткуда.
+
+| Волна | Что | Статус |
+|---|---|---|
+| 0 | Основа: эталоны, тест по ним, запись запроса (`capture.py`), сравнение (`compare_requests.py`), экзамен | идёт (эталоны и тест есть, экзамена нет) |
+| 1 | Путь владельца: макросы, начало истории («[Start a new Chat]»), слова вокруг карточки, персоны и примеров, параметры запроса из пресета | не начато |
+| 2 | Точность лорбука и заметок автора | не начато |
+| 3 | Длинные чаты: что выпадает из окна и точный подсчёт текста как в ST (на чистом Python, с запоминанием по сообщению) | не начато |
+| 4 | Прямые подключения Gemini и Claude | не начато |
+| 5 | Чего нет: «продолжить это сообщение», когда срабатывает блок пресета, режимы карточек в группе | не начато |
+| 6 | Текстовый режим | не начато |
+
 **Правила.**
-- Наши функции не выкидываем. Если ST делает иначе, добавляем переключатель или режим «как в ST», а наше поведение остаётся.
+- Наши функции не выкидываем. Где у нас лучше, остаётся наше; где хуже, делаем как в ST.
 - Код SillyTavern не копируем и не переписываем. Работаем «чистой комнатой»: отчёты описывают поведение словами, агенты по ним пишут своё. Папку с SillyTavern агенты, которые пишут код, не открывают.
 - Чаты и данные владельца агенты не читают. Сверяем на своих тестовых данных и на эталонах (см. этап 2).
 - Что сделано, но не видно на экране, так и помечаем: «не проверено на экране».
 
-**Этапы.**
+**Этапы описи** (разбивка до плана волн; остаётся как карта по областям).
 
 | Этап | Что | Статус |
 |---|---|---|
 | 0 | Приборы: `tavern/devtools/capture.py` (снять реальный запрос), `tavern/devtools/compare_requests.py` (сравнить два запроса по частям) | сделано |
 | 1 | Опись: что ST кладёт в запрос и в каком порядке, по областям (раздел «Опись» ниже) | сделано |
-| 2 | Эталоны: записанные запросы ST в `tests/fixtures/st_goldens/`, по ним тесты «наш запрос = эталон» | идёт |
+| 2 | Эталоны: записанные запросы ST в `tests/fixtures/st_goldens/`, по ним тесты «наш запрос = эталон» | сделано (12 случаев, `tests/integration/test_st_goldens.py`) |
 | 3а | Пресет и сборка: порядок блоков, карточка тремя частями, примеры, разделители «[Start a new Chat]», имена, подсказка группе, impersonate, continue, префилл только Claude | частично (глубина, склейка и «Склеивать соседние системные» сделаны) |
 | 3б | Лорбук: без заголовков, склейка на одной глубине, бюджет 25 %, порядок «Order», рекурсия, глубина скана, позиции | частично (сделано главное, остальное в таблице) |
 | 3в | Поля запроса по источникам: OpenAI-совместимый, Gemini, Claude (system-роль, safety, семплинг, имена, постобработка) | не начато |
@@ -28,6 +52,8 @@
 | 3ж | Текстовый режим | не начато |
 
 **Журнал** (что сделано, словами пользователя; всё ниже «не проверено на экране»).
+
+- 2026-11-14, волна 0: тест по 12 эталонам ST (`tests/integration/test_st_goldens.py`). Файлы входят в приложение так же, как их принёс бы человек, и запрос сравнивается с эталоном. Итог: во всех 12 случаях у нас нет одной строки «[Start a new Chat]» в начале истории (это волна 1). Есть одна нарочная разница: мы просим у сервиса счёт токенов, чтобы расход был точным. Одна разница ждёт решения владельца: ST всегда шлёт штрафы за повторы, равные 0, а мы при нуле их не шлём. Всё остальное совпало: лорбук на глубине, роли, склейка, место до и после карточки, склейка системных, параметры.
 
 - 2026-11-13, сделано: записи лорбука «на глубине» и из файлов ST уходят модели голыми, без приписки «[Книга › Запись]».
 - 2026-11-13, сделано: всё, что стоит на одной глубине с одной ролью и одним порядком, склеивается в одно сообщение через один перевод строки; роли идут как в ST (помощник, пользователь, система).
@@ -49,6 +75,41 @@ Status words: **same**, **partly** (what differs), **missing**, **done** (finish
 Our main files: `tavern/core/assembly.py` (A), `core/presets.py` (P), `formats/st_preset.py` (SP), `core/retrieval.py` (R), `services/lorebooks.py` (L), `formats/st_lorebook.py` (SL), `core/prompt.py` (macros, M), `services/notes.py` (N), `providers/openai_compat.py` / `gemini.py` / `anthropic.py`, `services/chat.py` (C), `services/speakers.py` (S), `core/thinking.py` (T), `formats/cards.py`, `services/regex.py` / `formats/st_regex.py` / `core/regex.py` (RX).
 
 Every "test idea" is meant as a unit test on `assemble()` (or a provider `build_body()`), comparing the message list with the expected one written by hand from the rule in the first column. Goldens (recorded real requests) go to `tests/fixtures/st_goldens/`; `tavern/devtools/compare_requests.py` diffs two requests by part.
+
+## 0. Golden cases (wave 0, 2026-11-14)
+
+`tests/integration/test_st_goldens.py` brings each case in through our real routes (ST preset import with the model
+settings accepted into the connection, card JSON, world file switched on globally, chat typed in), sends the last
+message to the fake model and compares the body with `request.json`. Two tests per case:
+`…_but_for_known_differences` (must pass: guards what already matches) and the full one (strict xfail while a wave is
+pending; remove the `WAVES` entry when it turns red). Differences are kept as body transforms in three lists there:
+`ALLOWED` (ours better, stays), `UNDECIDED` (asked the owner) and `WAVES` (ST's way, not done yet).
+
+| Golden case | Status |
+|---|---|
+| C0 baseline | xfail wave 1 (no «[Start a new Chat]») |
+| C1 @D depth 0 system | xfail wave 1 (no «[Start a new Chat]»); lore matches |
+| C2 @D depth 1 system | xfail wave 1 (no «[Start a new Chat]»); lore matches |
+| C3 @D depth 1 user | xfail wave 1 (no «[Start a new Chat]»); lore matches, not merged with the user message |
+| C4 @D depth 1 assistant | xfail wave 1 (no «[Start a new Chat]»); lore matches, not merged with the reply |
+| C5 @D depth 2 system | xfail wave 1 (no «[Start a new Chat]»); lore matches |
+| C6 two @D depth 1, orders 50 / 100 | xfail wave 1 (no «[Start a new Chat]»); one joined message, order 50 first: matches |
+| C7 before char | xfail wave 1 (no «[Start a new Chat]»); lore matches |
+| C8 after char | xfail wave 1 (no «[Start a new Chat]»); lore matches |
+| C9 squash on | xfail wave 1 (no «[Start a new Chat]», which ST keeps unsquashed); squash matches |
+| C10 preset in-chat d1 + lore d1 | xfail wave 1 (no «[Start a new Chat]»); «PRESET-INJECT\nJB-TEXT» matches |
+| C11 keyword `river` | xfail wave 1 (no «[Start a new Chat]»); keyword fires, lore matches |
+
+Differences in every case:
+
+| Difference | Verdict |
+|---|---|
+| ST's system «[Start a new Chat]» before the first history message is missing | wave 1 (ST way) |
+| We add `stream_options.include_usage: true` | allowed difference: real token counts for spending |
+| ST sends `presence_penalty: 0`, `frequency_penalty: 0`; our ST import drops zeros as «off» | undecided, asked the owner |
+
+Parameters `model, temperature 1, max_tokens 300, stream, top_p 1` match once the import's model settings are put
+into the connection (the page asks; the test answers yes).
 
 ## 1. Prompt manager: which prompts, in which order
 
