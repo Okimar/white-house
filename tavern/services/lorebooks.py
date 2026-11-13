@@ -10,8 +10,10 @@ character of the chat or as the user's own "это я"). A book switched on twic
 Order of the pool (it decides who is dropped first when the budget is short): the chat's books,
 then the members' books, then the global ones; inside a book, the bubbles' order numbers.
 
-Settings (global, "lorebooks"): {budget_tokens: 2000, budget_percent: 0 (of the model's window;
-0 = use budget_tokens), recursion: 2 (chain steps)}.
+Settings (global, "lorebooks"): {budget_tokens: 2000, budget_percent: 25 (of the model's window, as in
+SillyTavern; 0 = use budget_tokens; budget_tokens also when the window is not known), recursion: 2 (chain steps)}.
+Entries are ranked SillyTavern's way (core/retrieval.py `by_order`): book, then the entry's «Order» highest first;
+an «ignore budget» entry is never cut. Outlet entries (place "outlet") are never chosen.
 
 Events:
     lorebooks.changed        lorebook_id      a book was created, renamed or deleted
@@ -29,7 +31,7 @@ from tavern.errors import AppError, NotFound
 from tavern.formats import st_lorebook
 from tavern.services import character_tree, history
 
-DEFAULT_SETTINGS = {"budget_tokens": 2000, "budget_percent": 0, "recursion": 2}
+DEFAULT_SETTINGS = {"budget_tokens": 2000, "budget_percent": 25, "recursion": 2}
 SETTING_LIMITS = {"budget_tokens": (0, 1_000_000), "budget_percent": (0, 100), "recursion": (0, 10)}
 SCOPES = ("global", "chat", "character")
 MAX_NAME = 200
@@ -193,7 +195,7 @@ async def select_for_chat(
     if not book_ids:
         return Selection(found=[])
     pool = ctx.blocks.for_owners(book_ids)
-    blocks = [b for book_id in book_ids for b in pool[book_id]]
+    blocks = [b for book_id in book_ids for b in pool[book_id] if (b.get("rules") or {}).get("place") != "outlet"]
     if not blocks:
         return Selection(found=[])
     retrieval = character_tree.retrieval_settings(ctx)

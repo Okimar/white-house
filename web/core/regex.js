@@ -20,7 +20,8 @@ function hash(text) {
   return `${text.length}.${h}`;
 }
 
-// Returns shownFor(message, streamText) -> null (show the stored text) | {pending: true} | {text, nodes}.
+// Returns shownFor(message, streamText) -> null (show the stored text) | {pending: true} | {text, nodes};
+// shownFor.waiting = how many rules of the chat wait for «Разрешить».
 export function useRegexDisplay(chatId, messages, streams) {
   const [summary, setSummary] = useState(null);
   const [, bump] = useState(0);
@@ -87,7 +88,7 @@ export function useRegexDisplay(chatId, messages, streams) {
     return () => clearTimeout(timer);
   }, [on, screen, summary && summary.stamp, messages, streams]);
 
-  return (message, streamText) => {
+  const shown = (message, streamText) => {
     if (!on || failed.current || !SHOWN_ROLES.has(message.role)) return null;
     const streaming = streamText !== null && streamText !== undefined;
     if (!screen && !streaming) return null;
@@ -98,4 +99,7 @@ export function useRegexDisplay(chatId, messages, streams) {
     if (before && streaming) return before.changed ? before : null;
     return { pending: true };
   };
+  // Rules of this chat that are on but wait for «Разрешить» (came with a card or a preset): the top bar says so.
+  shown.waiting = (summary && summary.pending) || 0;
+  return shown;
 }

@@ -205,7 +205,8 @@ const LOGICS = [["and_any", "и хотя бы одно из"], ["and_all", "и �
   ["not_all", "но не все"]];
 const PLACES = [["", "по полю «Глубина»"], ["card_before", "до карточек"], ["card_after", "после карточек"],
   ["an_top", "у заметки автора, сверху"], ["an_bottom", "у заметки автора, снизу"],
-  ["examples_top", "перед примерами диалога"], ["examples_bottom", "после примеров диалога"]];
+  ["examples_top", "перед примерами диалога"], ["examples_bottom", "после примеров диалога"],
+  ["outlet", "никуда (выход SillyTavern, не отправляется)"]];
 const listOf = (text) => text.split(",").map((w) => w.trim()).filter(Boolean);
 
 // «Ещё»: the finer options of a bubble (core/retrieval.py lists them). Folded: most bubbles need none.

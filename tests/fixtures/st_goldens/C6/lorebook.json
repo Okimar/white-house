@@ -1,0 +1,30 @@
+{
+  "entries": {
+    "0": {
+      "uid": 0,
+      "comment": "JB 0",
+      "constant": true,
+      "key": [
+        "jbkey"
+      ],
+      "content": "JB-TEXT-A100",
+      "position": 4,
+      "depth": 1,
+      "role": 0,
+      "order": 100
+    },
+    "1": {
+      "uid": 1,
+      "comment": "JB 1",
+      "constant": true,
+      "key": [
+        "jbkey"
+      ],
+      "content": "JB-TEXT-B50",
+      "position": 4,
+      "depth": 1,
+      "role": 0,
+      "order": 50
+    }
+  }
+}

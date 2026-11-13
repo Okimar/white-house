@@ -267,6 +267,9 @@ function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed
     if (!file) return;
     let scripts;
     try { scripts = JSON.parse(await file.text()); } catch (err) { throw new Error("Файл — не JSON"); }
+    // SillyTavern's settings.json is big: only its global scripts are sent (the server reads the whole file too).
+    const ext = scripts && !Array.isArray(scripts) && scripts.extension_settings;
+    if (ext && typeof ext === "object" && !("findRegex" in scripts)) scripts = { extension_settings: { regex: ext.regex || [] } };
     const done = await api.post("/regex/import", { scope, owner, scripts });
     notify(`Добавлено правил: ${done.imported.length}` + (done.problems.length ? `. Не заработают: ${done.problems.map((p) => p.name).join(", ")} (выключены, причина в строке правила)` : ""),
       done.problems.length ? "info" : "ok");
@@ -358,6 +361,8 @@ export function RegexTab({ onError, settings, onSave }) {
         <summary><span class="regex-owner">Общие правила (во всех чатах)</span>
           <small class="muted">${global.length}${global.length ? `, включено ${global.filter((r) => r.enabled).length}` : ""}</small></summary>
         <p class="hint regex-warning">Работают во всех чатах вместе с правилами пресета и персонажей.</p>
+        <p class="hint" data-slot="regex-st-settings">Общие скрипты SillyTavern не ездят с пресетом или карточкой: они лежат в его файле
+          настроек <code>data/default-user/settings.json</code>. Выберите этот файл в «Импорт» ниже — возьмутся все его общие скрипты.</p>
         ${global.length === 0 && html`<p class="muted">Пусто</p>`}
         <${RuleList} scope="global" owner="" rules=${global} pending=${0} onError=${onError} changed=${reload} />
         ${global.length > 0 && html`<div class="row regex-actions"><button type="button" class="danger" onClick=${clearGlobal}>

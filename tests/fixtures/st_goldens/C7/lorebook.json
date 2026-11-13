@@ -1,0 +1,14 @@
+{
+  "entries": {
+    "0": {
+      "uid": 0,
+      "comment": "JB 0",
+      "constant": true,
+      "key": [
+        "jbkey"
+      ],
+      "content": "JB-TEXT",
+      "position": 0
+    }
+  }
+}

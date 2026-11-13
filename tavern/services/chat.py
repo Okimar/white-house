@@ -428,6 +428,8 @@ async def _main_with_variants(
                 run.emit("delta", text=event.text)
             elif event.kind == "reasoning":
                 job.think(event.text)
+            elif event.kind == "reasoning_tag":
+                job.meta["reasoning_tag"] = event.text
         return list(await asyncio.gather(*tasks))
     finally:
         for task in tasks:
@@ -699,6 +701,8 @@ def _writer(
                             run.emit("delta", id=reply["id"], text=event.text)
                         elif event.kind == "reasoning":
                             job.think(event.text)
+                        elif event.kind == "reasoning_tag":
+                            job.meta["reasoning_tag"] = event.text
                         via_label = label
             text = "".join(parts)
             for result in results:
@@ -909,6 +913,7 @@ async def _narrate(
     run.emit("start", run_id=run.id, message=message, user_message=None)
     parts: list[str] = []
     thinking: list[str] = []
+    tag: list[str] = []  # the thinking tag the model wrote in
 
     def save() -> bool:
         text = "".join(parts)
@@ -919,6 +924,8 @@ async def _narrate(
         meta: dict[str, Any] = {"usage": tally.as_meta()} if tally.requests else {}
         if thinking:
             meta["reasoning"] = "".join(thinking)
+            if tag:
+                meta["reasoning_tag"] = tag[0]
         if meta:
             ctx.chats.update_swipe_meta(message["id"], 0, meta)
         try:
@@ -940,6 +947,8 @@ async def _narrate(
             elif event.kind == "reasoning":
                 thinking.append(event.text)
                 run.emit("reasoning", id=message["id"], text=event.text)
+            elif event.kind == "reasoning_tag":
+                tag[:] = [event.text]
     except asyncio.CancelledError:
         save()
         raise

@@ -39,9 +39,10 @@ async def test_three_levels_fire_by_interval_at_their_depth(client, ctx, fake_ll
 
     await send(client, ctx, chat_id, "hello")  # reply 1: the every-2nd note stays out
     first = sent(fake_llm)
-    assert first[-1] == "CHAT Ann" and first[-2] == "GLOBAL"
+    # one depth, as SillyTavern: the user text first, the system one nearest the next message
+    assert first[-2] == "CHAT Ann" and first[-1] == "GLOBAL"
     await send(client, ctx, chat_id, "again")  # reply 2: global and Ann's go as one system message
-    assert sent(fake_llm)[-2:] == ["GLOBAL\n\nANN NOTE", "CHAT Ann"]
+    assert sent(fake_llm)[-2:] == ["CHAT Ann", "GLOBAL\nANN NOTE"]
 
     window = (await client.get(f"/api/chats/{chat_id}/notes")).json()
     assert [n["text"] for n in window["global"]] == ["GLOBAL"]

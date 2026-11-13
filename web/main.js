@@ -608,6 +608,9 @@ function App() {
             <${Icon} name="wand" /> ${assistantState.waiting.length ? "Ждёт вас" : "Работает"}</button>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
           ${shown && html`<${ProfileSwitch} refreshKey=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
+          ${shown && regexShown.waiting > 0 && html`<button type="button" class="plugin-chip error" data-slot="regex-waiting"
+            title=${`Регекс-правила этого чата пришли с карточкой или пресетом и не работают, пока вы их не разрешите (${regexShown.waiting}). Открыть «Регекс»`}
+            onClick=${() => openSettings("regex")}>Регекс ждёт: ${regexShown.waiting}</button>`}
           ${shown && html`<${StatusChips} chips=${statusChips()} />`}
           ${shown && html`<${WindowButtons} windows=${pluginUi.windows} />`}
           ${shown && html`<${PanelButtons} panels=${pluginUi.panels} />`}

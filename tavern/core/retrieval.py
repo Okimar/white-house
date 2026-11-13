@@ -40,13 +40,18 @@ Finer rules (stage 5, `block["rules"]`, all optional; shown under «Ещё»):
     no_wake     bool   its text does not wake other blocks (chains)
     not_woken   bool   it is not woken by the text of other blocks
     place       where a lorebook entry goes (core/assembly.py); not used here
+    order       int    SillyTavern's «Order» of an entry (default 100; `block_order`): for lorebooks the higher
+                       number is considered first, so it is the last one cut by the budget; at one depth the
+                       entries go by it, lower first (core/assembly.py)
+    no_budget   bool   SillyTavern's «ignore budget»: the entry costs nothing and is never cut by the budget
 
 Chains (`recursion` > 0): the text of blocks that are going (plus `seed_text`) is looked through
 for more green blocks, up to `recursion` steps.
 
-Lorebooks (`by_order`): the pool's blocks are ranked by their order (book, then place among
-neighbours) instead of by how many keywords matched, and blue blocks share the budget too (they
-go first, so green ones with the largest numbers are dropped first).
+Lorebooks (`by_order`), the way SillyTavern does it: the pool's blocks are ranked by book (the pool's order),
+then by `block_order` highest first, then by their place among neighbours, instead of by how many keywords
+matched. Blue and found green blocks are taken together in that rank against the budget, so a constant entry
+with a high order is kept before a keyword entry with a low one (a `no_budget` entry is never cut).
 """
 
 from __future__ import annotations
@@ -86,6 +91,39 @@ class Selection:
     fresh_hits: list[str] = field(default_factory=list)  # green blocks found now (refresh "stays")
     misses: list[str] = field(default_factory=list)  # green blocks found now whose chance failed
     dropped: list[str] = field(default_factory=list)  # titles that did not fit the budget
+
+
+DEFAULT_ORDER = 100  # SillyTavern's default entry order
+
+
+def _st_entry(block: dict[str, Any]) -> dict[str, Any]:
+    extra = block.get("extra") if isinstance(block.get("extra"), dict) else {}
+    entry = extra.get("st_entry")
+    return entry if isinstance(entry, dict) else {}
+
+
+def block_order(block: dict[str, Any]) -> int:
+    """SillyTavern's «Order» of an entry: the rule `order`, else what the imported ST entry said (world files:
+    `order`, card books: `insertion_order`), else 100."""
+    own = (block.get("rules") or {}).get("order")
+    if isinstance(own, int) and not isinstance(own, bool):
+        return own
+    entry = _st_entry(block)
+    for key in ("order", "insertion_order"):
+        value = entry.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return int(value)
+    return DEFAULT_ORDER
+
+
+def ignores_budget(block: dict[str, Any]) -> bool:
+    """SillyTavern's «ignore budget»: the rule `no_budget`, or the imported entry's `ignoreBudget`."""
+    return bool((block.get("rules") or {}).get("no_budget") or _st_entry(block).get("ignoreBudget") is True)
+
+
+def from_st(block: dict[str, Any]) -> bool:
+    """The block came from a SillyTavern file (a world file or a card's book): its text goes to the model bare."""
+    return bool(_st_entry(block))
 
 
 @lru_cache(maxsize=50_000)
@@ -245,6 +283,10 @@ def select_blocks(
 
     walk(None, None, False)
     rank = {block_id: i for i, block_id in enumerate(order)}
+    owner_rank = {owner: i for i, owner in enumerate(owner_names)}
+    # Lorebooks: book, then SillyTavern's order (highest first), then the place in the tree.
+    prio = {b: (owner_rank.get(by_id[b].get("owner_id"), 0), -block_order(by_id[b]), rank[b]) for b in order} \
+        if by_order else {}
 
     def rules(block_id: str) -> dict[str, Any]:
         return by_id[block_id].get("rules") or {}
@@ -314,7 +356,7 @@ def select_blocks(
     def take(block_id: str, reason: str) -> bool:
         nonlocal used
         group = [b for b in subtree(block_id) if b not in chosen]
-        cost = sum(estimate_tokens(by_id[b]["content"]) for b in group)
+        cost = sum(estimate_tokens(by_id[b]["content"]) for b in group if not ignores_budget(by_id[b]))
         if budget_tokens and used + cost > budget_tokens:
             dropped.append(by_id[block_id]["title"])
             return False
@@ -329,15 +371,11 @@ def select_blocks(
         groups_taken.update(rules(block_id).get("groups") or [])
         return True
 
-    for block_id in order:
-        block = by_id[block_id]
-        if block["mode"] == "always" and block_id not in layered \
-                and (generation - 1) % (block.get("every", 0) + 1) == 0 and allowed(block_id):
-            if by_order:
-                if block_id not in chosen:
-                    take(block_id, "always")
-            else:
-                chosen[block_id] = "always"
+    constants = [b for b in order if by_id[b]["mode"] == "always" and b not in layered
+                 and (generation - 1) % (by_id[b].get("every", 0) + 1) == 0 and allowed(b)]
+    if not by_order:
+        for block_id in constants:
+            chosen[block_id] = "always"
 
     def one_per_group(found: list[tuple[float, str, str]]) -> list[tuple[float, str, str]]:
         """Of found blocks sharing a group only one stays (see `groups` above)."""
@@ -384,12 +422,24 @@ def select_blocks(
             elif first and held(block_id):
                 found.append((2.0, block_id, "sticky"))
         if by_order:
-            found = [(rank[b], b, reason) for _, b, reason in found]
+            found = [(prio[b], b, reason) for _, b, reason in found]
         return one_per_group(sorted(found))
 
-    for _, block_id, reason in candidates_in(text_for, True, set()):
-        if block_id not in chosen:
-            take(block_id, reason)
+    if by_order:
+        # Constant and found entries together, by rank: a constant does not jump the queue (SillyTavern), but a
+        # group a constant belongs to is still taken by it.
+        held_groups = set(groups_taken)
+        groups_taken.update(g for b in constants for g in rules(b).get("groups") or [])
+        first = candidates_in(text_for, True, set())
+        groups_taken.clear()
+        groups_taken.update(held_groups)
+        for _, block_id, reason in sorted([(prio[b], b, "always") for b in constants] + first):
+            if block_id not in chosen:
+                take(block_id, reason)
+    else:
+        for _, block_id, reason in candidates_in(text_for, True, set()):
+            if block_id not in chosen:
+                take(block_id, reason)
 
     # Chains: what is going now is read for more topics, step by step.
     woken = {b for b in order if rules(b).get("not_woken")}

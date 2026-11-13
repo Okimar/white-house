@@ -23,3 +23,6 @@ Thumbs.db
 
 # Live test stand reports (python -m tavern.devtools.assistant_bench)
 /.bench/
+
+# Reference install of SillyTavern (owner's copy, never committed)
+SillyTavern/

@@ -169,9 +169,11 @@ def _clean(changes: dict[str, Any], *, creating: bool) -> dict[str, Any]:
     return clean
 
 
-PLACES = ("card_before", "card_after", "an_top", "an_bottom", "examples_top", "examples_bottom")
-RULE_FLAGS = ("title_key", "whole", "case", "main", "no_wake", "not_woken")
-RULE_NUMBERS = {"scan": (1, 1000), "cooldown": (0, 1000), "delay": (0, 100_000), "weight": (0, 1000)}
+# "outlet": a SillyTavern outlet entry, reachable there only through a macro; kept, never sent.
+PLACES = ("card_before", "card_after", "an_top", "an_bottom", "examples_top", "examples_bottom", "outlet")
+RULE_FLAGS = ("title_key", "whole", "case", "main", "no_wake", "not_woken", "no_budget")
+RULE_NUMBERS = {"scan": (1, 1000), "cooldown": (0, 1000), "delay": (0, 100_000), "weight": (0, 1000),
+                "order": (-1_000_000, 1_000_000)}
 
 
 def _words(value: Any, name: str, limit: int) -> list[str]:
@@ -937,7 +939,10 @@ def blocks_from_book(book: Any) -> list[dict[str, Any]]:
         rules: dict[str, Any] = {}
         if second and entry.get("selective"):
             rules = {"keys2": second[:MAX_KEYWORDS], "logic": LOGIC_FROM_ST.get(ext.get("selectiveLogic"), "and_any")}
-        depth = ext.get("depth") if ext.get("position") == AT_DEPTH and isinstance(ext.get("depth"), int) else None
+        depth = None
+        if ext.get("position") == AT_DEPTH:  # a broken depth means SillyTavern's default 4, not "next to the card"
+            depth = ext.get("depth") if isinstance(ext.get("depth"), int) and not isinstance(ext.get("depth"), bool) \
+                and 0 <= ext["depth"] <= 1000 else 4
         sticky = ext.get("sticky") if isinstance(ext.get("sticky"), int) and ext.get("sticky") > 0 else 3
         chance = ext.get("probability")
         use_chance = ext.get("useProbability", True) and isinstance(chance, int) and 0 <= chance <= 100

@@ -9,7 +9,10 @@ Entry fields we understand (anything else rides along in `extra.st_entry` and go
     1 after it, 2/3 top/bottom of the author's note, 4 at a depth, 5/6 top/bottom of the
     examples), depth, role (0 system, 1 user, 2 assistant), probability, useProbability, sticky,
     cooldown, delay, scanDepth, caseSensitive, matchWholeWords, group, groupOverride, groupWeight,
-    excludeRecursion, preventRecursion, characterFilter {names, isExclude}.
+    excludeRecursion, preventRecursion, characterFilter {names, isExclude}, ignoreBudget; position 7 (an
+    "outlet", reached in ST only through a macro) is kept with place "outlet" and never sent. `order` becomes the
+    rule `order` (what the lorebook budget keeps first, and the order at one depth); the role counts only for
+    entries at a depth.
 """
 
 from __future__ import annotations
@@ -18,7 +21,8 @@ from typing import Any, Callable
 
 LOGIC_FROM_ST = {0: "and_any", 1: "not_all", 2: "not_any", 3: "and_all"}
 LOGIC_TO_ST = {v: k for k, v in LOGIC_FROM_ST.items()}
-PLACE_FROM_ST = {1: "card_after", 2: "an_top", 3: "an_bottom", 5: "examples_top", 6: "examples_bottom"}
+PLACE_FROM_ST = {1: "card_after", 2: "an_top", 3: "an_bottom", 5: "examples_top", 6: "examples_bottom",
+                 7: "outlet"}
 PLACE_TO_ST = {v: k for k, v in PLACE_FROM_ST.items()}
 AT_DEPTH = 4
 ROLE_FROM_ST = {0: "system", 1: "user", 2: "assistant"}
@@ -90,6 +94,11 @@ def block_from_entry(entry: dict[str, Any], index: int,
         rules["not_woken"] = True
     if entry.get("preventRecursion"):
         rules["no_wake"] = True
+    order = entry.get("order")
+    if isinstance(order, (int, float)) and not isinstance(order, bool) and -1_000_000 <= order <= 1_000_000:
+        rules["order"] = int(order)  # which entry the budget keeps first, and the order at one depth
+    if entry.get("ignoreBudget") is True:
+        rules["no_budget"] = True
     wanted = entry.get("characterFilter") if isinstance(entry.get("characterFilter"), dict) else {}
     names = _strings(wanted.get("names"))
     if names and character_ids is not None:
@@ -104,7 +113,8 @@ def block_from_entry(entry: dict[str, Any], index: int,
         "mode": mode,
         "keywords": keys,
         "depth": depth,
-        "role": ROLE_FROM_ST.get(entry.get("role"), "system"),
+        # SillyTavern uses the role only for entries at a depth; everywhere else the lore is system text.
+        "role": ROLE_FROM_ST.get(entry.get("role"), "system") if depth is not None else "system",
         "sticky": _int(entry.get("sticky"), 0, 1000) or 0,
         "chance": chance if use_chance and mode == "search" else 100,
         "position": index,
@@ -141,10 +151,11 @@ def entry_from_block(block: dict[str, Any], uid: int, comment: str, enabled: boo
         "content": block["content"],
         "constant": block["mode"] == "always",
         "disable": not enabled,
-        "order": entry.get("order", 100),
+        "order": rules.get("order", entry.get("order", 100)),
+        "ignoreBudget": bool(rules.get("no_budget")),
         "position": position,
         "depth": block["depth"] if block["depth"] is not None else entry.get("depth", 4),
-        "role": ROLE_TO_ST.get(block["role"], 0),
+        "role": ROLE_TO_ST.get(block["role"], 0) if block["depth"] is not None else entry.get("role", 0),
         "probability": block["chance"],
         "useProbability": block["chance"] < 100,
         "sticky": block["sticky"],

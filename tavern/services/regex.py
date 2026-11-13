@@ -403,7 +403,20 @@ def display_summary(ctx: AppContext, chat_id: str) -> dict[str, Any]:
         parts += [f"live{rules.finger[i]}{rules.rules[i]['places']}" for i in text_rules]
     stamp = hashlib.blake2b("|".join(parts).encode(), digest_size=6).hexdigest()
     sensitive = any(rules.rules[i]["min_depth"] is not None or rules.rules[i]["max_depth"] is not None for i in shown)
-    return {"display": len(shown), "live": live, "stamp": stamp, "depth_sensitive": sensitive, "broken": rules.broken}
+    return {"display": len(shown), "live": live, "stamp": stamp, "depth_sensitive": sensitive, "broken": rules.broken,
+            **waiting(ctx, chat)}
+
+
+def waiting(ctx: AppContext, chat: dict[str, Any]) -> dict[str, Any]:
+    """Rules of this chat that are on but wait for «Разрешить» (they came with a card or a preset), so the page can
+    say so: a jailbreak pair must never be silently off. {pending: N, pending_lists: [{scope, owner, count}]}."""
+    memo = _memo(ctx)
+    lists = []
+    for scope, owner_id in _owners(ctx, chat):
+        count = sum(1 for r in _rules_of(ctx, memo, scope, owner_id) if r["enabled"] and not r["approved"])
+        if count:
+            lists.append({"scope": scope, "owner": owner_id, "count": count})
+    return {"pending": sum(item["count"] for item in lists), "pending_lists": lists}
 
 
 def display(ctx: AppContext, chat_id: str, items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -462,6 +475,9 @@ def prompt_texts(ctx: AppContext, chat: dict[str, Any], history: list[dict[str, 
         return {}, {}, {}, []
     items: list[dict[str, Any]] = []
     owners: list[tuple[str, str]] = []
+    # Depth counts the messages that are really sent (as SillyTavern): a message left out of the prompt is not
+    # rewritten and does not count.
+    history = [m for m in history if not m.get("exclude_from_prompt")]
     last = len(history) - 1
     for index, message in enumerate(history):
         picked = rules.pick(PLACE_OF_ROLE.get(message["role"]), last - index, "prompt")
@@ -564,9 +580,9 @@ def try_out(ctx: AppContext, raw: Any, text: Any, chat_id: str | None = None) ->
 
 def import_rules(ctx: AppContext, obj: Any, scope: str, owner_id: str = "", *, approved: bool | None = None
                  ) -> dict[str, Any]:
-    """Scripts from a file (ST or ours) into a list. A script whose pattern cannot be used is kept switched
-    off, so nothing is lost, and named in `problems`. Global ones are on at once (you chose them); a
-    character's or preset's wait for «Разрешить»."""
+    """Scripts from a file (ST or ours, or SillyTavern's settings.json with its global scripts) into a list. A
+    script whose pattern cannot be used is kept switched off, so nothing is lost, and named in `problems`. Global
+    ones are on at once (you chose them); a character's or preset's wait for «Разрешить»."""
     owner_id = _owner_check(ctx, scope, owner_id)
     allowed = (scope == "global") if approved is None else approved
     scripts = st_regex.scripts_from_file(obj)

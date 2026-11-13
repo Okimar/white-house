@@ -13,7 +13,7 @@ Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–
 
 ## How a session starts
 
-1. Read this file, [docs/STATUS.md](docs/STATUS.md) and the section of [docs/ROADMAP.md](docs/ROADMAP.md) for the task.
+1. Read this file, [docs/STATUS.md](docs/STATUS.md) and the section of [docs/ROADMAP.md](docs/ROADMAP.md) for the task. Read the section of [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) for your task (the runtime pipelines with `file:function` references) instead of re-discovering them; [docs/GUIDE.md](docs/GUIDE.md) is the owner's user guide (Russian); [docs/ST_PARITY.md](docs/ST_PARITY.md) says where we match SillyTavern and where not.
 2. **Write a plan first** and show it to the owner (Russian). No edits before that.
 3. **Decide about sub-agents** and say it in the plan: what they would do and why, or why not. Read-only sweeps and separate files are fine; shared files stay with one agent.
 4. Only then work. Commit only when the owner asks.
@@ -73,6 +73,9 @@ tavern/                 Python package (backend)
                         sandbox copy; report.md with the plan, critic, timings, spending per role and every made book
   devtools/fake_gdrive.py  fake Google sign-in + Drive (tests: transport(); manual: --port 5002 and
                         TAVERN_GDRIVE_URL=http://127.0.0.1:5002)
+  devtools/capture.py   recording fake LLM server (`--port 5003 --out captures`, `--forward URL`): point SillyTavern or this app at
+                        it and every request is saved as JSON
+  devtools/compare_requests.py  `python -m tavern.devtools.compare_requests A.json B.json`: what differs between two saved requests
   api/                  HTTP routes (chats + SSE, characters + settings, connections, themes,
                         assets); static.py serves /themes/{id}/{path} and /assets/{name}; thin, no logic
   services/chat.py      use cases: create chat, send, continue, impersonate, regenerate, stop
@@ -98,7 +101,11 @@ tavern/                 Python package (backend)
   services/lorebooks.py lorebooks: books, where they are on (global / chat / character), choosing
                         entries for a reply (pool, budget, chains), ST world files in and out
   storage/repos/lorebooks.py  lorebooks, lorebook_uses
-  formats/st_lorebook.py  SillyTavern world entry <-> bubble fields (rules, places, filters)
+  formats/st_lorebook.py  SillyTavern world entry <-> bubble fields (rules, places, filters, `order`, `no_budget`,
+                        outlets). Lore goes SillyTavern's way (2026-11-13): an entry at a depth or from an ST file is
+                        sent bare (no "[Book › Title]"), texts of one depth+order+role are one message (assembly
+                        `_Injection`), budget 25 % of the window ranked by «Order» with constants (retrieval `by_order`),
+                        system texts joined only with the preset's `squash_system`, block `order` = ST injection_order
   services/notes.py     author's notes (global / character / chat): which fire for a reply; kinds once
                         (not kept), hidden (kept, out of sight), visible (kept, beside the message);
                         edits by message numbers; fires notes.changed and message_notes.changed
@@ -273,7 +280,12 @@ data/                   user data, git-ignored. Never commit, never delete
 ## Rules
 
 1. **No SillyTavern code.** Do not read, copy or translate its source. Implement formats from
-   public specs (character card V2/V3 spec) and observed behaviour.
+   public specs (character card V2/V3 spec) and observed behaviour. The owner keeps a full
+   SillyTavern install in `SillyTavern/` at the repo root as a reference of how the program behaves.
+   Never copy, translate or adapt code from it, for any reason. Behaviour may be studied only
+   clean-room: one agent reads it and writes a description in plain words (no code, no ST function
+   names), a different agent implements from that description without opening `SillyTavern/`. The
+   folder is git-ignored and never committed.
 2. **Pure-Python dependencies only.** Anything needing Rust or a C compiler breaks Termux
    (`pydantic`, `orjson`, `uvloop`, `tiktoken`, `Pillow` are out). New dependency: pin the exact
    version in `requirements.txt`, check `pip install --only-binary=:all:` gives a `py3-none-any`
@@ -319,3 +331,4 @@ data/                   user data, git-ignored. Never commit, never delete
 - [ ] New behaviour has tests; fixed bugs have a regression test
 - [ ] AGENTS.md map and the relevant skill updated if structure or workflow changed
 - [ ] `docs/ROADMAP.md` stage status updated
+- [ ] `docs/HOW_IT_WORKS.md`, `docs/GUIDE.md` and `docs/ST_PARITY.md` updated if behaviour changed

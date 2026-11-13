@@ -319,17 +319,17 @@ async def test_depth_counts_from_the_newest_message_not_from_what_fits_the_budge
     assert "t4" not in sent
 
 
-async def test_a_message_hidden_from_the_prompt_still_counts_for_depth(client, ctx, fake_llm):
+async def test_a_message_hidden_from_the_prompt_does_not_count_for_depth(client, ctx, fake_llm):
     _, chat_id = await setup(client)
     await import_files(client, REASONING)
     await long_chat(client, ctx, chat_id, 6, lambda i, role: f"m{i} <think>t{i}</think>", exclude={4})
     fake_llm.queue("done")
     await finish(ctx, await client.post(f"/api/chats/{chat_id}/send", json={"text": "q"}))
     sent = "\n".join(sent_texts(fake_llm))
-    # path: greeting, m0..m5 (m4 hidden from the prompt), the new one. m0 is depth 6: cut; m1 is depth 5: cut;
-    # m2 is depth 4 (it would be depth 3 had the hidden m4 not counted): kept
-    assert "t4" not in sent and "t0" not in sent and "t1" not in sent
-    assert "<think>t2</think>" in sent and "<think>t5</think>" in sent
+    # SillyTavern counts only the messages it sends: greeting, m0..m3, m5 (m4 hidden), the new one. m0 is depth 5:
+    # cut; m1 is depth 4 (it would be 5 had the hidden m4 counted): kept
+    assert "t4" not in sent and "t0" not in sent
+    assert "<think>t1</think>" in sent and "<think>t2</think>" in sent and "<think>t5</think>" in sent
 
 
 async def test_a_think_block_cut_at_save_time_is_not_handled_twice(client, ctx, fake_llm):

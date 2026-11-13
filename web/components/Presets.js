@@ -103,11 +103,16 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
             ${block.position === "depth" && html`<label>Глубина
               <input type="number" min="0" max="1000" value=${block.depth} disabled=${readOnly}
                 onInput=${(e) => set({ depth: Number(e.target.value) || 0 })} /></label>`}
+            ${block.position === "depth" && html`<label>Порядок на глубине
+              <input type="number" step="1" value=${block.order ?? 100} disabled=${readOnly}
+                onInput=${(e) => set({ order: Math.round(Number(e.target.value) || 0) })} /></label>`}
             <label>Группа «один из»
               <${Suggest} value=${block.group || ""} options=${groups} disabled=${readOnly} aria-label="Группа" placeholder="нет"
                 onInput=${(e) => set({ group: e.target.value })} /></label>
           </div>
           <p class="hint">Блоки с одной группой — варианты на выбор: включите один, остальные выключатся.</p>
+          ${block.position === "depth" && html`<p class="hint">Тексты одной глубины, одного порядка и одной роли (этот блок, заметка автора,
+            записи лорбуков) уходят одним сообщением. С другим порядком — отдельным: больший стоит ближе к следующему сообщению. Обычно 100.</p>`}
           ${block.kind === "thinking" && html`<p class="muted">Шаблон, который модель заполняет перед ответом.
             White House сам попросит думать внутри ${"<thinking>…</thinking>"} и уберёт размышление из текста ответа.</p>`}
           ${TEXT_KINDS.includes(block.kind) && html`<textarea rows="5" value=${block.text} disabled=${readOnly}
@@ -427,6 +432,11 @@ export function Presets({ settings, onChanged, onError }) {
       <label><input type="checkbox" checked=${current.data.prefer_card_prompts} disabled=${readOnly}
         onChange=${(e) => edit({ ...current.data, prefer_card_prompts: e.target.checked })} />
         Свой промпт карточки заменяет главный промпт пресета</label>
+      <label data-slot="preset-squash"><input type="checkbox" checked=${current.data.squash_system !== false} disabled=${readOnly}
+        onChange=${(e) => edit({ ...current.data, squash_system: e.target.checked })} />
+        Склеивать соседние системные сообщения</label>
+      <p class="hint">Включено: идущие подряд системные тексты вне переписки уходят одним сообщением. Выключено: каждый — своим,
+        как в SillyTavern без «Squash system messages». У пресетов из SillyTavern берётся из файла.</p>
       <h3>Начало ответа модели</h3>
       <p class="hint">Тексты «не писать за меня», «рассказчик», «кто отвечает» и «написать за меня» теперь блоки в списке выше.</p>
       ${SERVICE_TEXTS.map(([key, label, rows, hint]) => html`<label key=${key} class="stack">${label}

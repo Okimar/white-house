@@ -144,7 +144,8 @@ def test_tree_blocks_go_next_to_the_card_or_at_their_depth():
     prompt = build([ann], history("a", "b"))
     system = prompt.messages[0].content
     assert system.index("Ann is kind.") < system.index("[Ann › Hair]\nHair text")
-    assert (prompt.messages[-1].role, prompt.messages[-1].content) == ("user", "[Ann › Mood]\nMood text")
+    # at a depth it goes bare, as SillyTavern sends depth entries
+    assert (prompt.messages[-1].role, prompt.messages[-1].content) == ("user", "Mood text")
     assert {e.source for e in prompt.entries} >= {"block:h", "block:m"}
 
     preset = default_preset()

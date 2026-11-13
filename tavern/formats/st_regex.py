@@ -13,7 +13,8 @@ the model", both = both, neither = the saved text itself. substituteRegex: 0 = m
 pattern, 1 = put in as they are, 2 = put in escaped.
 
 A file holds one script or an array of them; a card carries them in `data.extensions.regex_scripts`, a
-preset in `extensions.regex_scripts`. Fields we do not use (and placements we cannot serve) stay in the
+preset in `extensions.regex_scripts`, and SillyTavern's own settings.json its GLOBAL scripts in
+`extension_settings.regex` (they never travel with a preset or a card). Fields we do not use (and placements we cannot serve) stay in the
 rule's `extra`, so an export gives them back. Our own export adds a `tavern` object with the few settings
 SillyTavern has no place for (HTML output); SillyTavern ignores it.
 """
@@ -68,8 +69,26 @@ def script_from_st(script: Any) -> dict[str, Any]:
     return rule
 
 
+def settings_scripts(obj: Any) -> list[Any] | None:
+    """SillyTavern's own settings file (data/<user>/settings.json) keeps its GLOBAL scripts in
+    `extension_settings.regex`; None when `obj` is not such a file."""
+    if not isinstance(obj, dict):
+        return None
+    extensions = obj.get("extension_settings")
+    if isinstance(extensions, dict) and "findRegex" not in obj:
+        found = extensions.get("regex")
+        return found if isinstance(found, list) else []
+    return None
+
+
 def scripts_from_file(obj: Any) -> list[dict[str, Any]]:
-    """The contents of a file: one script, a list, or {"scripts": [...]} / {"regex_scripts": [...]}."""
+    """The contents of a file: one script, a list, {"scripts": [...]} / {"regex_scripts": [...]}, or SillyTavern's
+    settings.json (its global scripts)."""
+    global_scripts = settings_scripts(obj)
+    if global_scripts is not None:
+        if not global_scripts:
+            raise RegexError("В этом файле настроек SillyTavern нет общих регекс-скриптов")
+        obj = global_scripts
     if isinstance(obj, dict):
         for key in ("scripts", "regex_scripts"):
             if isinstance(obj.get(key), list):

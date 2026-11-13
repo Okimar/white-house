@@ -91,7 +91,7 @@ async def test_books_are_made_listed_renamed_and_checked(client, ctx):
     world = await book(client, "Мир", {"title": "Город", "content": "Большой.", "mode": "always"})
     listed = (await client.get("/api/lorebooks")).json()
     assert [(b["name"], b["blocks"], b["global"]) for b in listed["lorebooks"]] == [("Мир", 1, False)]
-    assert listed["settings"] == {"budget_tokens": 2000, "budget_percent": 0, "recursion": 2}
+    assert listed["settings"] == {"budget_tokens": 2000, "budget_percent": 25, "recursion": 2}  # 25 %: SillyTavern's
     renamed = await client.put(f"/api/lorebooks/{world}", json={"name": "Мир Эйры", "description": "Север."})
     assert renamed.json()["name"] == "Мир Эйры"
     assert (await client.post(f"/api/lorebooks/{world}/undo")).json()["undone"]["what"] == "Книга изменена"
@@ -219,7 +219,7 @@ async def test_st_world_file_comes_in_and_goes_back(client, ctx):
     assert dragon["rules"] == {
         "title_key": False, "keys2": ["ночь"], "logic": "and_all", "scan": 5, "cooldown": 3, "delay": 1,
         "case": True, "whole": True, "groups": ["beasts", "night"], "main": True, "weight": 70,
-        "not_woken": True, "no_wake": True, "filter": {"mode": "except", "ids": [ann["id"]]}}
+        "not_woken": True, "no_wake": True, "filter": {"mode": "except", "ids": [ann["id"]]}, "order": 50}
 
     out = (await client.get(f"/api/lorebooks/{book_id}/export.json")).json()
     entry = next(e for e in out["entries"].values() if e["comment"] == "Дракон Ысс")

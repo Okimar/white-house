@@ -18,7 +18,9 @@ from typing import Any
 from tavern.core import thinking
 from tavern.core.presets import (
     DEFAULT_BLOCK_NAMES,
+    DEFAULT_DEPTH_ORDER,
     DEFAULT_PROMPTS,
+    MAX_ORDER,
     REASONING_EFFORTS,
     WHEN,
     PresetError,
@@ -67,7 +69,8 @@ TEXTS = {
     "personality_format": "personality_format",
     "scenario_format": "scenario_format",
 }
-CONSUMED = {"prompts", "prompt_order", "openai_max_context", "reasoning_effort", *PARAMS, *TEXTS}
+CONSUMED = {"prompts", "prompt_order", "openai_max_context", "reasoning_effort", "squash_system_messages",
+            *PARAMS, *TEXTS}
 
 
 def _block_id(identifier: str, index: int) -> str:
@@ -118,7 +121,8 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
         role = prompt.get("role") if prompt.get("role") in ("system", "user", "assistant") else "system"
         in_chat = prompt.get("injection_position") == 1 and kind != "history"
         depth = prompt.get("injection_depth", 4)
-        blocks.append({
+        order = prompt.get("injection_order", DEFAULT_DEPTH_ORDER)
+        block: dict[str, Any] = {
             "id": block_id,
             "kind": kind,
             "name": str(prompt.get("name") or DEFAULT_BLOCK_NAMES[kind])[:100],
@@ -127,7 +131,13 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
             "text": prompt.get("content") or "" if isinstance(prompt.get("content"), str) else "",
             "position": "depth" if in_chat else "top",
             "depth": depth if isinstance(depth, int) and 0 <= depth <= 1000 else 4,
-        })
+        }
+        if isinstance(order, int) and not isinstance(order, bool) and abs(order) <= MAX_ORDER:
+            block["order"] = order
+        if kind == "history":
+            # SillyTavern sends the last reply's reasoning back (its «add to prompts», max 1), in the reply's tag.
+            block["history"] = {"thoughts": 1}
+        blocks.append(block)
     params: dict[str, Any] = {}
     for st_key, key in PARAMS.items():
         value = obj.get(st_key)
@@ -147,12 +157,14 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
         value = obj.get(st_key)
         if isinstance(value, str) and (value.strip() or key != "impersonate"):
             prompts_out[key] = value  # impersonate / speaker_reply become behaviour blocks in normalize_preset
+    squash = obj.get("squash_system_messages")
     data = normalize_preset({
         "blocks": blocks,
         "params": params,
         "max_context_tokens": int(context) if isinstance(context, (int, float)) and 0 < context <= 10_000_000 else 0,
         "prompts": prompts_out,
         "st": {k: v for k, v in obj.items() if k not in CONSUMED},
+        "squash_system": squash if isinstance(squash, bool) else False,  # off in SillyTavern unless the file says
     })
     return (name or "Импорт из SillyTavern").strip()[:100], data
 
@@ -173,6 +185,7 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
             "marker": marker,
             "injection_position": 1 if block["position"] == "depth" else 0,
             "injection_depth": block["depth"],
+            "injection_order": block.get("order", DEFAULT_DEPTH_ORDER),
         })
         order.append({"identifier": identifier, "enabled": block["enabled"]})
 
@@ -208,6 +221,7 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
             result[st_key] = data["prompts"][key]
     if "reasoning_effort" in data["params"]:
         result["reasoning_effort"] = data["params"]["reasoning_effort"]
+    result["squash_system_messages"] = bool(data.get("squash_system", True))
     result["prompts"] = prompts
     result["prompt_order"] = [{"character_id": GLOBAL_ORDER_ID, "order": order}]
     return result

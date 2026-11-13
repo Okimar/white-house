@@ -31,7 +31,12 @@ of them is on. The history block's `thoughts` = how many past replies are sent w
 (0 = none, the default), repeated lines dropped (core/thinking.compact).
 
 Blocks before `history` go before the chat, blocks after it go after. A block with
-position "depth" is instead inserted `depth` messages from the end of the chat.
+position "depth" is instead inserted `depth` messages from the end of the chat; its `order` (SillyTavern's
+in-chat «order», default 100) decides how it stands among other texts at the same depth: texts of one depth,
+order and role become one message (core/assembly.py).
+
+`squash_system` (default true; SillyTavern's «Squash system messages», taken from an imported file): neighbouring
+system texts outside the chat messages are joined into one message with one line break. Off: each stays its own.
 """
 
 from __future__ import annotations
@@ -61,6 +66,8 @@ REASONING_EFFORTS = ("minimal", "low", "medium", "high")
 HISTORY_MODES = ("all", "last")
 MAX_BLOCKS = 200
 MAX_TEXT = 200_000
+DEFAULT_DEPTH_ORDER = 100
+MAX_ORDER = 1_000_000
 
 # Texts that are not instructions but formats (the others live in blocks, see WHEN).
 DEFAULT_PROMPTS = {
@@ -159,6 +166,7 @@ DEFAULT_PRESET: dict[str, Any] = {
     "prompts": dict(DEFAULT_PROMPTS),
     "prefer_card_prompts": True,
     "st": {},
+    "squash_system": True,
 }
 
 
@@ -201,6 +209,9 @@ def normalize_block(raw: Any, index: int) -> dict[str, Any]:
         raise PresetError(f"Block {index + 1}: position must be 'top' or 'depth'")
     block["position"] = position
     block["depth"] = _int(raw.get("depth", 4), f"Block {index + 1} depth", 0, 1000)
+    order = raw.get("order", DEFAULT_DEPTH_ORDER)
+    if order != DEFAULT_DEPTH_ORDER:
+        block["order"] = _int(order, f"Block {index + 1} order", -MAX_ORDER, MAX_ORDER)
     when = raw.get("when") or ""
     if when and (kind != "text" or when not in WHEN):
         raise PresetError(f"Block {index + 1}: unknown behaviour {when!r}")
@@ -308,4 +319,9 @@ def normalize_preset(raw: Any) -> dict[str, Any]:
     preset["prefer_card_prompts"] = bool(raw.get("prefer_card_prompts", True))
     st = raw.get("st", {})
     preset["st"] = st if isinstance(st, dict) else {}
+    squash = raw.get("squash_system")
+    if not isinstance(squash, bool):  # a preset imported before the switch existed: its SillyTavern file said
+        squash = preset["st"].get("squash_system_messages")
+        squash = squash if isinstance(squash, bool) else True
+    preset["squash_system"] = squash
     return preset

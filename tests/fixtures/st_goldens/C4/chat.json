@@ -1,0 +1,22 @@
+[
+  {
+    "role": "assistant",
+    "name": "Ава",
+    "text": "Привет! Hello, I am Ava. Чем помочь?"
+  },
+  {
+    "role": "user",
+    "name": "User",
+    "text": "Привет, Ава! Can you show me the old map room?"
+  },
+  {
+    "role": "assistant",
+    "name": "Ава",
+    "text": "Конечно! Follow me, the map room is upstairs."
+  },
+  {
+    "role": "user",
+    "name": "User",
+    "text": "Что там на карте? What is drawn near the river?"
+  }
+]

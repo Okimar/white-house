@@ -120,7 +120,8 @@ class LLMClient:
             self._trace(kind, **data)
 
     async def stream(self, messages: list[ChatMessage], **opts: Any) -> AsyncIterator[StreamEvent]:
-        """`split_thinking=True` (chat replies): `<thinking>…</thinking>` in the text comes out as reasoning."""
+        """`split_thinking=True` (chat replies): `<thinking>…</thinking>` in the text comes out as reasoning, and
+        one event "reasoning_tag" (text = "thinking" or "think") says which tag the model used."""
         await self._begin()
         splitter = thinking.ThinkSplitter() if opts.get("split_thinking") else None
         request = self._request(messages, opts)
@@ -133,8 +134,11 @@ class LLMClient:
                     if splitter is None:
                         yield event
                     else:
+                        had_tag = splitter.tag
                         for kind, piece in splitter.feed(event.text):
                             yield StreamEvent(kind, text=piece)
+                        if splitter.tag and not had_tag:  # which tag the model thinks in: old thinking goes back in it
+                            yield StreamEvent("reasoning_tag", text=splitter.tag)
                 elif event.kind == "reasoning":
                     yield event
                 elif event.kind == "done":

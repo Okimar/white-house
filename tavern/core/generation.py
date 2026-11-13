@@ -108,6 +108,8 @@ class DefaultGenerator:
                 yield event.text
             elif event.kind == "reasoning":
                 job.think(event.text)
+            elif event.kind == "reasoning_tag":
+                job.meta["reasoning_tag"] = event.text  # kept with the reply: its thinking goes back in this tag
 
 
 class GeneratorRegistry:

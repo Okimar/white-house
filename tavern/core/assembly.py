@@ -13,6 +13,9 @@ Lorebooks (stage 5): `lore` entries go into the preset's "Лор (до карт�
 карточек", next to the author's note (top/bottom), around the example dialogues, or at their own
 depth, as their `rules.place` / `depth` say. A character's bubble with a `place` goes there too.
 Whatever finds no block of its place in the preset goes just before the chat.
+An entry at a depth, or one from a SillyTavern file, goes bare (no "[Book › Title]" line); texts at one depth are
+joined SillyTavern's way (`_Injection`, CAT_*), and neighbouring system texts only when the preset's
+`squash_system` is on. A SillyTavern "outlet" entry is never sent.
 
 Plugin pieces (ADR 0019): `PromptInput.extras` are `Extra`s a plugin adds in `chat.before_generate` (the memory:
 a plot so far, found fragments of old messages, a character's «Развитие»). Where each goes is its `place`; the
@@ -43,7 +46,8 @@ from typing import Any
 
 from tavern.core import thinking
 from tavern.core.prompt import DEFAULT_CHAR_NAME, START_TURN, estimate_tokens, substitute
-from tavern.core.presets import when_texts
+from tavern.core.presets import DEFAULT_DEPTH_ORDER, when_texts
+from tavern.core.retrieval import block_order, from_st
 from tavern.providers.base import ChatMessage
 
 MIN_HISTORY = 6
@@ -145,6 +149,7 @@ class Entry:
     owner: str = ""  # character id whose card this is (for budget trimming)
     follow: list[Entry] = field(default_factory=list)  # notes attached to this message
     images: list[tuple[str, str]] = field(default_factory=list)  # pictures the model sees with it
+    join: bool = False  # one message with the entry before it (same depth, order and role), one line break between
 
     def as_dict(self) -> dict[str, Any]:
         return {"role": self.role, "text": self.text, "source": self.source,
@@ -166,6 +171,17 @@ class _Injection:
     depth: int  # how many chat messages from the end
     entry: Entry
     note: NoteInput | None = None
+    order: int = DEFAULT_DEPTH_ORDER  # a preset block's in-chat order (SillyTavern's injection_order)
+    cat: int = 0  # inside one message: CAT_PRESET, CAT_EXTRA, CAT_NOTE, CAT_CARD, CAT_LORE
+    sub: int = 0  # inside one kind: the entry's «Order» (lore), or above / below the author's note
+
+
+# Texts at one depth, the way SillyTavern builds them: one message per (order, role); messages by order (lower
+# first), then assistant, user, system (system nearest the chat message that follows); inside one message the
+# preset's texts, then a plugin's memory, then the author's note (with the lore put above / below it), then a
+# card, then lorebook entries and bubbles by their order (lower first). Joined with one line break.
+CAT_PRESET, CAT_EXTRA, CAT_NOTE, CAT_CARD, CAT_LORE = range(5)
+ROLE_RANK = {"assistant": 0, "user": 1, "system": 2}
 
 
 def card_text(card: dict[str, Any], prompts: dict[str, Any] | None = None) -> str:
@@ -249,13 +265,15 @@ def assemble(data: PromptInput) -> Prompt:
         scene = "Also in the scene:\n" + "\n".join(
             f"- {name}" + (f": {about}" if about else "") for name, about in data.scene)
 
-    def place(entry: Entry, block: dict[str, Any], member_depth: int | None = None) -> None:
+    def place(entry: Entry, block: dict[str, Any], member_depth: int | None = None, *, cat: int = CAT_CARD,
+              sub: int = 0) -> None:
         if not entry.text.strip():
             return
         if member_depth is not None:
-            injections.append(_Injection(member_depth, entry))
+            injections.append(_Injection(member_depth, entry, cat=cat, sub=sub))
         elif block["position"] == "depth":
-            injections.append(_Injection(block["depth"], entry))
+            injections.append(_Injection(block["depth"], entry, order=block.get("order", DEFAULT_DEPTH_ORDER),
+                                         cat=CAT_PRESET))
         else:
             (after if history_seen else before).append(entry)
 
@@ -274,10 +292,15 @@ def assemble(data: PromptInput) -> Prompt:
         return Entry(extra.role, sub(extra.text), extra.source, extra.label, extra.kind, owner=extra.owner)
 
     def found_entry(found: Any, kind: str, owner: str = "") -> Entry:
+        """A lorebook entry or a bubble. Sent bare (as SillyTavern does) when it stands at a depth inside the chat
+        or came from a SillyTavern file; otherwise with its path in front ("[Book › Title]") so the model knows
+        what it is. The role counts only at a depth: elsewhere lore is system text."""
         item = found.block
         content = data.lore_rewritten.get(item["id"], item["content"]) if kind == "lore" else item["content"]
-        return Entry(item["role"], sub(f"[{found.path}]\n{content}"), f"block:{item['id']}",
-                     found.path, kind, owner=owner)
+        at_depth = item["depth"] is not None
+        text = content if at_depth or from_st(item) else f"[{found.path}]\n{content}"
+        role = item["role"] if at_depth or kind != "lore" else "system"
+        return Entry(role, sub(text), f"block:{item['id']}", found.path, kind, owner=owner)
 
     def own_place(found: Any) -> str | None:
         return (found.block.get("rules") or {}).get("place") if found.block["depth"] is None else None
@@ -290,10 +313,12 @@ def assemble(data: PromptInput) -> Prompt:
             if own_place(found):
                 placed_at.setdefault(own_place(found), []).append(found_entry(found, "block", member.character_id))
     for found in data.lore:
+        if own_place(found) == "outlet":
+            continue  # a SillyTavern outlet: reachable there only through a macro, never sent by itself
         entry = found_entry(found, "lore")
         if found.block["depth"] is not None:
             if entry.text.strip():
-                injections.append(_Injection(found.block["depth"], entry))
+                injections.append(_Injection(found.block["depth"], entry, cat=CAT_LORE, sub=block_order(found.block)))
         else:
             placed_at.setdefault(own_place(found) or "card_before", []).append(entry)
 
@@ -303,7 +328,7 @@ def assemble(data: PromptInput) -> Prompt:
             continue
         ranked.append((extra.drop_rank, entry))
         if extra.place == "depth":
-            injections.append(_Injection(extra.depth, entry))
+            injections.append(_Injection(extra.depth, entry, cat=CAT_EXTRA))
         elif extra.place == "after_card":
             after_card.setdefault(extra.owner, []).append(entry)
         elif extra.place in ("card_before", "card_after", "an_top"):
@@ -322,15 +347,14 @@ def assemble(data: PromptInput) -> Prompt:
             item = found.block
             if own_place(found):
                 continue  # it went to its own place above
-            entry = Entry(item["role"], sub(f"[{found.path}]\n{item['content']}"), f"block:{item['id']}",
-                          found.path, "block", owner=member.character_id)
+            entry = found_entry(found, "block", member.character_id)
             if item["depth"] is not None:
                 if entry.text.strip():
-                    injections.append(_Injection(item["depth"], entry))
+                    injections.append(_Injection(item["depth"], entry, cat=CAT_LORE, sub=block_order(item)))
             else:
-                place(entry, block, member.depth)
+                place(entry, block, member.depth, cat=CAT_LORE, sub=block_order(item))
         for entry in after_card.pop(member.character_id, []):  # a plugin's text right after this member's card
-            place(entry, block, member.depth)
+            place(entry, block, member.depth, cat=CAT_EXTRA)
 
     def card_with_override(block: dict[str, Any], key: str) -> tuple[str, str]:
         own = (primary.card.get(key) or "").strip() if primary else ""
@@ -403,9 +427,12 @@ def assemble(data: PromptInput) -> Prompt:
             place_blocks(member, {"position": "top", "depth": 0})
             history_seen = history_seen_before
     note_depth = data.notes[0].depth if data.notes else 4  # where the author's note goes (ST's default)
+    note_role = data.notes[0].role if data.notes else "system"  # lore above / below the note rides in its message
     for entry in placed_at.pop("an_top", []):
-        injections.append(_Injection(note_depth, entry))
+        entry.role = note_role
+        injections.append(_Injection(note_depth, entry, cat=CAT_NOTE, sub=-1))
     an_bottom = placed_at.pop("an_bottom", [])
+    placed_at.pop("outlet", None)  # a SillyTavern outlet: never sent by itself
     for left in placed_at.values():  # their block is not in the preset, or it is switched off
         before.extend(e for e in left if e.text.strip())
     placed_at.clear()
@@ -448,7 +475,8 @@ def assemble(data: PromptInput) -> Prompt:
         if data.several and m["role"] == "assistant" and m.get("name") and m["name"] != char and not together:
             text = f"{m['name']}: {text}"  # another character's line, so the model does not take it as its own
         if past_thoughts.get(m["id"]):
-            text = thinking.wrap(past_thoughts[m["id"]], text)
+            text = thinking.wrap(past_thoughts[m["id"]], text,
+                                 (m.get("swipe_meta") or {}).get("reasoning_tag") or thinking.SEND_TAG)
         entry = Entry(m["role"], sub(text), f"message:{m['id']}",
                       f"№{m['depth'] + 1} {m.get('name') or m['role']}", "message")
         if data.load_image is not None:
@@ -483,9 +511,10 @@ def assemble(data: PromptInput) -> Prompt:
         entry = Entry(note.role, sub(note.text), f"note:{note.id}",
                       "Заметка" + (f": {note.title}" if note.title else ""), "note")
         if entry.text.strip():
-            injections.append(_Injection(note.depth, entry, note))
+            injections.append(_Injection(note.depth, entry, note, cat=CAT_NOTE))
     for entry in an_bottom:
-        injections.append(_Injection(note_depth, entry))
+        entry.role = note_role
+        injections.append(_Injection(note_depth, entry, cat=CAT_NOTE, sub=1))
 
     tail: list[Entry] = []
 
@@ -589,10 +618,10 @@ def assemble(data: PromptInput) -> Prompt:
         if not dropped[key]:
             del dropped[key]
 
-    # Depth d goes before the last d messages; several at one place keep their block order.
+    # Depth d goes before the last d messages; several at one place go SillyTavern's way (CAT_* above).
     # A fired note lands after a message; a saved note already attached there (the reply is being
     # regenerated) is not sent twice.
-    slots: list[list[Entry]] = [[] for _ in range(len(messages) + 1)]
+    slots: list[list[_Injection]] = [[] for _ in range(len(messages) + 1)]
     placed: list[dict[str, Any]] = []
     for injection in injections:
         index = max(0, len(messages) - injection.depth)
@@ -606,10 +635,15 @@ def assemble(data: PromptInput) -> Prompt:
                 continue
             placed.append({"note_id": note.id, "mode": note.mode, "message_id": message_id,
                            "text": injection.entry.text, "role": note.role, "title": note.title})
-        slots[index].append(injection.entry)
+        slots[index].append(injection)
     chat_part: list[Entry] = []
     for index, slot in enumerate(slots):
-        chat_part.extend(slot)
+        group: tuple[int, str] | None = None
+        for injection in sorted(slot, key=lambda i: (i.order, ROLE_RANK.get(i.entry.role, 2), i.cat, i.sub)):
+            key = (injection.order, injection.entry.role)
+            injection.entry.join = key == group
+            group = key
+            chat_part.append(injection.entry)
         if index < len(messages):
             chat_part.append(messages[index])
             chat_part.extend(messages[index].follow)
@@ -619,14 +653,19 @@ def assemble(data: PromptInput) -> Prompt:
         first_chat = len(before)
         entries.insert(first_chat, Entry("user", START_TURN, "prompt:start", "Начало", "prompt"))
 
+    # Texts of one depth group are one message; neighbouring system texts outside the chat messages are joined
+    # only when the preset says so (SillyTavern's «Squash system messages»). One line break, as SillyTavern.
+    squash = preset.get("squash_system", True)
     sent: list[ChatMessage] = []
     previous: Entry | None = None
     for entry in entries:
-        mergeable = (previous is not None and entry.role == "system" and previous.role == "system"
-                     and entry.kind != "message" and previous.kind != "message")
+        joined = entry.join and previous is not None and previous.role == entry.role and bool(sent)
+        mergeable = joined or (squash and previous is not None and entry.role == "system"
+                               and previous.role == "system" and entry.kind != "message"
+                               and previous.kind != "message")
         if mergeable:
             last = sent[-1]
-            sent[-1] = ChatMessage("system", f"{last.content}\n\n{entry.text}")
+            sent[-1] = ChatMessage(last.role, f"{last.content}\n{entry.text}", last.images)
         else:
             sent.append(ChatMessage(entry.role, entry.text, tuple(entry.images)))
         entry.msg = len(sent) - 1

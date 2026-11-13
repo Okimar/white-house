@@ -1140,6 +1140,7 @@ a.button.icon-btn:hover { color: var(--fg); }
 .regex-buttons { display: flex; gap: 0; flex: none; margin-left: auto; }
 .regex-problem { color: var(--danger); overflow-wrap: anywhere; }
 .regex-problem .icon { display: inline-block; vertical-align: -3px; }
+[data-slot="regex-st-settings"] code { overflow-wrap: anywhere; }
 .regex-pending { border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0; }
 .regex-actions { margin-top: 8px; flex-wrap: wrap; gap: 8px; }
 .regex-editor .mono, .regex-tab .mono { font-family: var(--font-mono); font-size: var(--text-sm); }

@@ -36,6 +36,7 @@ class ThinkSplitter:
         self._skip_space = False  # drop the blank lines right after a closing tag
         self._open_text: list[str] = []
         self.unclosed = ""  # thinking of a tag never closed (filled by finish)
+        self.tag = ""  # the first thinking tag the model opened ("thinking" or "think")
 
     def feed(self, text: str) -> list[tuple[str, str]]:
         self._buffer += text
@@ -47,6 +48,7 @@ class ThinkSplitter:
                     self._text(self._buffer[:match.start()], out)
                     self._buffer = self._buffer[match.end():]
                     self._inside = match.group(1).lower()
+                    self.tag = self.tag or self._inside
                     self._open_text = []
                     continue
                 cut = self._buffer.rfind("<")
@@ -146,6 +148,8 @@ def frame(template: str) -> str:
             f"<{SEND_TAG}>\n{template.strip()}\n</{SEND_TAG}>")
 
 
-def wrap(thinking: str, reply: str) -> str:
-    """An old reply sent back with its (compacted) thinking, in the same tags the model writes."""
-    return f"<{SEND_TAG}>\n{thinking.strip()}\n</{SEND_TAG}>\n\n{reply}"
+def wrap(thinking: str, reply: str, tag: str = SEND_TAG) -> str:
+    """An old reply sent back with its (compacted) thinking, in the tag the model wrote it in (`swipe_meta.
+    reasoning_tag`: `<think>` when it wrote `<think>`), else ours."""
+    tag = tag if tag in TAGS else SEND_TAG
+    return f"<{tag}>\n{thinking.strip()}\n</{tag}>\n\n{reply}"
