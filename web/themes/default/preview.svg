@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <defs>
+    <clipPath id="left-half">
+      <rect x="0" y="0" width="160" height="200"/>
+    </clipPath>
+    <clipPath id="right-half">
+      <rect x="160" y="0" width="160" height="200"/>
+    </clipPath>
+  </defs>
+
+  <!-- Left: Light theme representation -->
+  <g clip-path="url(#left-half)">
+    <rect width="320" height="200" fill="#f7f5f0"/>
+    <!-- Sidebar -->
+    <rect x="0" y="0" width="80" height="200" fill="#fdfcf9" stroke="#e3ded5" stroke-width="1"/>
+    <rect x="12" y="14" width="48" height="8" rx="4" fill="#211d18" fill-opacity=".8"/>
+    <rect x="12" y="32" width="56" height="18" rx="5" fill="#f0ece4"/>
+    <rect x="12" y="56" width="56" height="18" rx="5" fill="#fdfcf9" stroke="#e3ded5" stroke-width="1"/>
+    <rect x="12" y="80" width="56" height="18" rx="5" fill="#fdfcf9" stroke="#e3ded5" stroke-width="1"/>
+    <!-- Topbar -->
+    <rect x="80" y="0" width="240" height="28" fill="#fdfcf9" stroke="#e3ded5" stroke-width="1"/>
+    <circle cx="94" cy="14" r="5" fill="#96570f"/>
+    <rect x="106" y="10" width="44" height="8" rx="4" fill="#211d18" fill-opacity=".85"/>
+    <!-- Messages -->
+    <rect x="92" y="40" width="60" height="34" rx="8" fill="#fdfcf9" stroke="#e3ded5" stroke-width="1"/>
+    <rect x="98" y="48" width="48" height="6" rx="3" fill="#6f665a"/>
+    <rect x="98" y="58" width="36" height="6" rx="3" fill="#6f665a" fill-opacity=".6"/>
+    <!-- User Message -->
+    <rect x="110" y="84" width="46" height="26" rx="8" fill="#eae5db"/>
+    <rect x="116" y="92" width="34" height="6" rx="3" fill="#211d18" fill-opacity=".8"/>
+    <!-- Assistant Message -->
+    <rect x="92" y="120" width="64" height="42" rx="8" fill="#fdfcf9" stroke="#e3ded5" stroke-width="1"/>
+    <rect x="98" y="128" width="52" height="6" rx="3" fill="#211d18" fill-opacity=".85"/>
+    <rect x="98" y="138" width="44" height="6" rx="3" fill="#6f665a"/>
+    <rect x="98" y="148" width="28" height="6" rx="3" fill="#6f665a" fill-opacity=".6"/>
+    <!-- Composer area -->
+    <rect x="80" y="172" width="80" height="28" fill="#fdfcf9" stroke="#e3ded5" stroke-width="1"/>
+    <rect x="88" y="177" width="50" height="18" rx="5" fill="#f7f5f0" stroke="#e3ded5" stroke-width="1"/>
+    <rect x="144" y="177" width="14" height="18" rx="5" fill="#96570f"/>
+  </g>
+
+  <!-- Right: Dark theme representation -->
+  <g clip-path="url(#right-half)">
+    <rect width="320" height="200" fill="#141311"/>
+    <!-- Sidebar -->
+    <rect x="0" y="0" width="80" height="200" fill="#1b1917" stroke="#2e2b26" stroke-width="1"/>
+    <!-- Topbar -->
+    <rect x="80" y="0" width="240" height="28" fill="#1b1917" stroke="#2e2b26" stroke-width="1"/>
+    <circle cx="94" cy="14" r="5" fill="#e5a855"/>
+    <rect x="106" y="10" width="44" height="8" rx="4" fill="#f0ebe1" fill-opacity=".85"/>
+    <!-- Sun/Moon icon indicator on dark side -->
+    <circle cx="296" cy="14" r="6" fill="#e5a855" fill-opacity=".9"/>
+    <!-- Messages on dark side -->
+    <rect x="170" y="40" width="136" height="34" rx="8" fill="#1b1917" stroke="#2e2b26" stroke-width="1"/>
+    <rect x="180" y="48" width="100" height="6" rx="3" fill="#9c9488"/>
+    <rect x="180" y="58" width="70" height="6" rx="3" fill="#9c9488" fill-opacity=".6"/>
+    <!-- User message -->
+    <rect x="210" y="84" width="96" height="26" rx="8" fill="#25221e"/>
+    <rect x="220" y="92" width="76" height="6" rx="3" fill="#f0ebe1" fill-opacity=".9"/>
+    <!-- Assistant message -->
+    <rect x="170" y="120" width="136" height="42" rx="8" fill="#1b1917" stroke="#2e2b26" stroke-width="1"/>
+    <rect x="180" y="128" width="112" height="6" rx="3" fill="#f0ebe1" fill-opacity=".9"/>
+    <rect x="180" y="138" width="90" height="6" rx="3" fill="#9c9488"/>
+    <rect x="180" y="148" width="60" height="6" rx="3" fill="#9c9488" fill-opacity=".6"/>
+    <!-- Composer area -->
+    <rect x="160" y="172" width="160" height="28" fill="#1b1917" stroke="#2e2b26" stroke-width="1"/>
+    <rect x="170" y="177" width="112" height="18" rx="5" fill="#141311" stroke="#2e2b26" stroke-width="1"/>
+    <rect x="288" y="177" width="22" height="18" rx="5" fill="#e5a855"/>
+  </g>
+
+  <!-- Divider line down the middle -->
+  <line x1="160" y1="0" x2="160" y2="200" stroke="#96570f" stroke-width="1.5" stroke-opacity=".5"/>
+</svg>

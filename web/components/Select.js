@@ -72,6 +72,7 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
     const at = placeList({ box, natural: el.offsetHeight, width: el.offsetWidth, view: visibleArea(),
       pageWidth: window.innerWidth, side: side.current, margin, least: 120 });
     side.current = at.side;
+    el.dataset.side = at.side;
     el.style.maxHeight = `${at.maxHeight}px`;
     el.style.left = `${at.left}px`;
     el.style.top = `${at.top}px`;

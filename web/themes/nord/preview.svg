@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <!-- Polar Slate Background -->
+  <rect width="320" height="200" fill="#13171f"/>
+
+  <!-- Aurora glow in background -->
+  <circle cx="280" cy="20" r="60" fill="#4fb3d9" fill-opacity=".08"/>
+  <circle cx="160" cy="10" r="40" fill="#48bb78" fill-opacity=".05"/>
+
+  <!-- Sidebar -->
+  <rect x="0" y="0" width="84" height="200" fill="#1a202c" stroke="#283344" stroke-width="1"/>
+  <rect x="14" y="14" width="56" height="8" rx="4" fill="#e2e8f0" fill-opacity=".85"/>
+  <rect x="14" y="34" width="56" height="20" rx="4" fill="#232d3d"/>
+  <rect x="22" y="41" width="36" height="6" rx="3" fill="#e2e8f0" fill-opacity=".9"/>
+  <rect x="14" y="60" width="56" height="20" rx="4" fill="#1a202c" stroke="#283344" stroke-width="1"/>
+  <rect x="22" y="67" width="42" height="6" rx="3" fill="#7b8ba0"/>
+  <rect x="14" y="86" width="56" height="20" rx="4" fill="#1a202c" stroke="#283344" stroke-width="1"/>
+  <rect x="22" y="93" width="30" height="6" rx="3" fill="#7b8ba0"/>
+
+  <!-- Topbar -->
+  <rect x="84" y="0" width="236" height="28" fill="#1a202c" stroke="#283344" stroke-width="1"/>
+  <circle cx="100" cy="14" r="5" fill="#4fb3d9"/>
+  <rect x="112" y="10" width="54" height="8" rx="4" fill="#e2e8f0" fill-opacity=".85"/>
+  <circle cx="282" cy="14" r="4" fill="#7b8ba0" fill-opacity=".4"/>
+  <circle cx="296" cy="14" r="4" fill="#7b8ba0" fill-opacity=".4"/>
+  <circle cx="308" cy="14" r="4" fill="#7b8ba0" fill-opacity=".4"/>
+
+  <!-- Messages -->
+  <!-- Bot message 1 -->
+  <rect x="100" y="38" width="180" height="36" rx="8" fill="#1a202c" stroke="#283344" stroke-width="1"/>
+  <rect x="110" y="47" width="140" height="6" rx="3" fill="#e2e8f0" fill-opacity=".9"/>
+  <rect x="110" y="58" width="95" height="6" rx="3" fill="#7b8ba0"/>
+
+  <!-- User message -->
+  <rect x="156" y="82" width="144" height="28" rx="8" fill="#202938"/>
+  <rect x="168" y="92" width="120" height="7" rx="3.5" fill="#e2e8f0" fill-opacity=".95"/>
+
+  <!-- Bot message 2 -->
+  <rect x="100" y="118" width="200" height="46" rx="8" fill="#1a202c" stroke="#283344" stroke-width="1"/>
+  <rect x="110" y="127" width="170" height="6" rx="3" fill="#e2e8f0" fill-opacity=".9"/>
+  <rect x="110" y="138" width="150" height="6" rx="3" fill="#7b8ba0"/>
+  <rect x="110" y="149" width="80" height="6" rx="3" fill="#7b8ba0" fill-opacity=".7"/>
+
+  <!-- Composer Area -->
+  <rect x="84" y="172" width="236" height="28" fill="#1a202c" stroke="#283344" stroke-width="1"/>
+  <rect x="96" y="177" width="180" height="18" rx="5" fill="#13171f" stroke="#283344" stroke-width="1"/>
+  <rect x="104" y="183" width="70" height="6" rx="3" fill="#7b8ba0" fill-opacity=".5"/>
+  <rect x="282" y="177" width="26" height="18" rx="5" fill="#4fb3d9"/>
+  <path d="M292 186l6-3-6-3v2.5h-3v1h3z" fill="#0a1824"/>
+</svg>

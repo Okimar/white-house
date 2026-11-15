@@ -80,7 +80,7 @@ function Question({ question, onDone }) {
         aria-label=${question.text} onInput=${(e) => setValue(e.target.value)} />`}
       <div class="row ask-actions">
         <span class="spacer"></span>
-        ${question.cancel && html`<button type="button" onClick=${cancel}>${question.cancel}</button>`}
+        ${question.cancel && html`<button type="button" class="ask-cancel" onClick=${cancel}>${question.cancel}</button>`}
         <button ref=${question.input ? null : first} type="submit"
           class=${question.danger ? "danger" : "primary"}>${question.ok}</button>
       </div>

@@ -1,0 +1,12 @@
+{
+  "format": "tavern-theme",
+  "format_version": 1,
+  "id": "nord",
+  "name": "Север",
+  "author": "White House",
+  "version": "1",
+  "description": "Спокойный полярный вид: глубокие сланцевые тона, сумеречное небо и морозный акцент.",
+  "license": "CC0",
+  "base": "dark",
+  "preview": "preview.svg"
+}

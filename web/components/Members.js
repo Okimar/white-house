@@ -160,13 +160,15 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                 <div data-slot="member-speaking">
                   <div class="stack" data-slot="member-talkativeness">
                     <span>Разговорчивость, %</span>
-                    <div class="row">
+                    <div class="row member-talk-row">
                       <input type="range" min="0" max="100" step="1" value=${talk[m.slot_id] ?? m.talkativeness}
-                        aria-label=${`Разговорчивость ${m.name}`} style="flex: 1; min-width: 120px; min-height: var(--tap)"
+                        aria-label=${`Разговорчивость ${m.name}`} class="member-talk-slider"
+                        style="flex: 1; min-width: 120px; min-height: var(--tap)"
                         onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
                         onChange=${(e) => saveTalk(m, e.target.value)} />
                       <input type="number" min="0" max="100" step="1" inputmode="numeric"
                         value=${talk[m.slot_id] ?? m.talkativeness} aria-label=${`Разговорчивость ${m.name}, число`}
+                        class="num member-talk-num"
                         style="width: 76px; font-size: 16px"
                         onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
                         onChange=${(e) => saveTalk(m, e.target.value === "" ? m.talkativeness : e.target.value)} />

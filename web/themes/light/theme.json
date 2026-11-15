@@ -6,5 +6,6 @@
   "author": "White House",
   "version": "1",
   "description": "Всегда светлая, независимо от настройки системы.",
-  "base": "light"
+  "base": "light",
+  "preview": "preview.svg"
 }

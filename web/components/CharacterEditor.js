@@ -146,7 +146,12 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
     <div class="overlay" ...${backdrop(requestClose)}>
       <div class=${"dialog stack" + (tab === "tree" ? " tree-dialog" : "")} data-slot="dialog" role="dialog"
         aria-modal="true" aria-label=${title}>
-        <div class="side-head"><strong>${title}</strong>
+        <div class="side-head">
+          <div class="row char-head-title">
+            ${hasAvatar && characterId && html`<img class="speaker-avatar char-head-avatar" src=${`/api/characters/${characterId}/avatar`} alt="" />`}
+            <strong>${title}</strong>
+            ${dirty && html`<span class="badge char-dirty-badge" data-slot="char-dirty">не сохранено</span>`}
+          </div>
           <span class="spacer"></span>
           ${characterId && html`<${IconButton} icon="undo-2" label="Отменить последнее изменение"
             title="Отменить последнее сохранённое изменение карточки или пузырей (Ctrl+Z)" onClick=${undo} />
@@ -180,15 +185,19 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
               ${hint && html`<span class="hint">${hint}</span>`}
               <textarea rows=${rows} value=${card[key] || ""} onInput=${set(key)}></textarea></label>`)}
           </details>`}
-          <label><input type="checkbox" checked=${isDefaultMe} onChange=${(e) => setDefaultMe(e.target.checked)} />
-            Мой персонаж по умолчанию</label>
-          <span class="hint">Входит в каждый новый чат как «это я»</span>
+          <div class="char-option-card">
+            <label class="check"><input type="checkbox" checked=${isDefaultMe} onChange=${(e) => setDefaultMe(e.target.checked)} />
+              <span>Мой персонаж по умолчанию</span></label>
+            <p class="hint">Входит в каждый новый чат как «это я»</p>
+          </div>
           ${characterId && html`<${BookPicker} scope="character" target=${characterId} onError=${onError}
             title="Лорбуки персонажа"
             hint="Работают в любом чате, где он участвует, и как персонаж, и как «это я». Сохраняются сразу" />`}
-          <div class="row sticky-save">
-            <button class="primary" type="submit" disabled=${saving}>Сохранить</button>
+          <div class="row sticky-save" data-slot="char-save-bar">
+            <button class="primary" type="submit" disabled=${saving}>${saving ? "Сохраняю…" : "Сохранить"}</button>
             <button type="button" onClick=${requestClose}>Отмена</button>
+            <span class="spacer"></span>
+            <span class=${"save-state " + (dirty ? "waiting" : "saved")}>${dirty ? "Не сохранено" : "Сохранено"}</span>
           </div>
         </form>`}
       </div>

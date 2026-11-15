@@ -6,5 +6,6 @@
   "author": "White House",
   "version": "1",
   "description": "Всегда тёмная, независимо от настройки системы.",
-  "base": "dark"
+  "base": "dark",
+  "preview": "preview.svg"
 }

@@ -623,7 +623,7 @@ function App() {
         ${shown
           ? html`
             ${chat.messages.filter((m) => !m.hidden).length === 0 && html`<div class="empty" data-slot="empty">
-              <${EmptyNote} title="Сообщений пока нет" hint="Напишите первое сообщение внизу." /></div>`}
+              <${EmptyNote} icon="message-square-text" title="Сообщений пока нет" hint="Напишите первое сообщение в поле ввода внизу." /></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
               onReachTop=${chat.loadOlder} resetKey=${chatId} layoutKey=${chatView} jumpTo=${jumpTo}
               stickTo=${(chat.messages.find((m) => m.pending) || {}).vkey || null} />
@@ -688,11 +688,23 @@ function App() {
               ${chatId && !chat.failed && html`<${Pending} />`}
               ${chatId && chat.failed && html`<${Pending} error=${chat.failed} onRetry=${() => location.reload()} />`}
               ${!chatId && !loaded && html`<${Pending} />`}
-              ${!chatId && loaded && !settings.active_connection && html`<${EmptyNote} title="Подключите модель"
-                hint="White House разговаривает через вашу модель: нужен её адрес и, чаще всего, ключ.">
-                <button class="primary" onClick=${() => openSettings("connections")}>Добавить подключение</button><//>`}
-              ${!chatId && loaded && settings.active_connection && html`<${EmptyNote} title="Выберите чат"
-                hint="Откройте чат из списка или начните новый: нажмите на персонажа и выберите «Новый чат»." />`}
+              ${!chatId && loaded && !settings.active_connection && html`<${EmptyNote} icon="settings" title="Подключите модель"
+                hint="White House разговаривает через вашу модель: укажите её адрес и ключ в настройках.">
+                <div class="empty-actions">
+                  <button class="primary" onClick=${() => openSettings("connections")}>Добавить подключение</button>
+                </div><//>`}
+              ${!chatId && loaded && settings.active_connection && html`<${EmptyNote} icon="message-square" title="Выберите чат"
+                hint="Откройте чат из списка или начните новую беседу с персонажем.">
+                <div class="empty-actions">
+                  <button class="primary" onClick=${() => {
+                    if (window.matchMedia("(max-width: 720px)").matches) setSheet("chats");
+                    else newChat(null);
+                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Открыть чаты" : "Новый чат"}</button>
+                  <button onClick=${() => {
+                    if (window.matchMedia("(max-width: 720px)").matches) setSheet("characters");
+                    else setEditingCharacter(null);
+                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Персонажи" : "Новый персонаж"}</button>
+                </div><//>`}
             </div>`}
         <div class="overlay-layer" data-slot="overlay"></div>
       </main>
@@ -734,8 +746,9 @@ function App() {
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
       <${DialogHost} />
       ${toast && html`<div class="toast" data-slot="toast" data-kind=${toast.kind} role=${toast.kind === "error" ? "alert" : "status"}
-        onClick=${dismiss}>${toast.kind === "ok" && html`<${Icon} name="check" />`}${toast.kind === "error" && html`<${Icon} name="triangle-alert" />`}
-        <span>${toast.text}</span></div>`}
+        onClick=${dismiss}>${toast.kind === "ok" && html`<${Icon} name="check" />`}${toast.kind === "error" && html`<${Icon} name="triangle-alert" />`}${toast.kind === "info" && html`<${Icon} name="info" />`}
+        <span class="toast-text">${toast.text}</span>
+        <span class="toast-close" aria-label="Закрыть"><${Icon} name="x" size="14" /></span></div>`}
     </div>
   `;
 }

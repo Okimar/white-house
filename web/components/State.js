@@ -24,7 +24,10 @@ export function useLoad(load, deps = []) {
 }
 
 export function Pending({ error, onRetry, text = "Загрузка…" }) {
-  if (!error) return html`<p class="muted state-note" role="status">${text}</p>`;
+  if (!error) return html`<div class="state-note state-pending muted" role="status">
+    <span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" size="18" /></span>
+    <span>${text}</span>
+  </div>`;
   return html`<div class="state-note state-error" role="alert">
     <${Icon} name="triangle-alert" />
     <span class="grow-text">${error}</span>
@@ -33,10 +36,11 @@ export function Pending({ error, onRetry, text = "Загрузка…" }) {
 }
 
 // Nothing here yet: what this place is for and, when there is one, the next step.
-export function EmptyNote({ title, hint, children }) {
+export function EmptyNote({ title, hint, icon, children }) {
   return html`<div class="empty-note">
+    ${icon && html`<div class="empty-icon" aria-hidden="true"><${Icon} name=${icon} size="28" /></div>`}
     ${title && html`<p class="empty-title">${title}</p>`}
-    ${hint && html`<p class="muted">${hint}</p>`}
+    ${hint && html`<p class="muted empty-hint">${hint}</p>`}
     ${children}
   </div>`;
 }

@@ -11,7 +11,7 @@ const MARK = { wait: "loader-circle", done: "check", error: "triangle-alert" };
 function Item({ item }) {
   const children = item.children || [];
   return html`<li class="ptree-item" data-state=${item.state || ""}>
-    <div class="ptree-head">${MARK[item.state] && html`<span class="ptree-mark"><${Icon} name=${MARK[item.state]} /></span>`}
+    <div class="ptree-head">${MARK[item.state] && html`<span class="ptree-mark" title=${item.state}><${Icon} name=${MARK[item.state]} /></span>`}
       <strong>${item.title}</strong></div>
     ${item.text && html`<div class="ptree-text">${item.text}</div>`}
     ${children.length > 0 && html`<ul class="ptree-list">${children.map((c, i) => html`<${Item} key=${i} item=${c} />`)}</ul>`}
@@ -29,7 +29,7 @@ export function MessageTree({ owner, tree }) {
 
 // Buttons for the top bar: one per panel that has something to show.
 export function PanelButtons({ panels }) {
-  return panels.filter((p) => p.render()).map((p) => html`<button key=${p.key} data-slot="plugin-panel-button"
+  return panels.filter((p) => p.render()).map((p) => html`<button key=${p.key} type="button" data-slot="plugin-panel-button"
     data-plugin=${p.owner} aria-pressed=${p.shown} title=${p.title} aria-label=${p.title}
     onClick=${() => togglePanel(p.key, !p.shown)}>${p.icon}</button>`);
 }

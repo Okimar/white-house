@@ -25,6 +25,7 @@ function Panel({ anchor, items, onClose }) {
     const top = below ? box.bottom + gap : Math.max(margin, box.top - gap - el.offsetHeight);
     el.style.left = `${Math.max(margin, left)}px`;
     el.style.top = `${top}px`;
+    el.dataset.side = below ? "down" : "up";
     el.focus({ preventScroll: true }); // arrows then walk the items; no ring on an item after a tap
   }, []);
 

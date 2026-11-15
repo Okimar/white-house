@@ -6,5 +6,6 @@
   "author": "White House",
   "version": "1",
   "description": "Базовый вид: светлый или тёмный по настройке системы.",
-  "base": "auto"
+  "base": "auto",
+  "preview": "preview.svg"
 }

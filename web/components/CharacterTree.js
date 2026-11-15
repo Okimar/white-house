@@ -425,14 +425,17 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
             onInput=${(e) => setBelow(digitsOf(e, 100))} /></label>
         <button disabled=${below === null} onClick=${() => { onChanceBelow(block.id, below); setBelow(null); }}>Применить</button>
       </div>`}
-      <div class="row">
+      <div class="row panel-actions" data-slot="panel-actions">
+        <button class="primary" onClick=${() => onAddChild(block.id)}><${Icon} name="plus" /> Подпузырь</button>
+        ${hasKids && html`<button title="Открыть пространство этого пузыря (двойное нажатие на пузырь)"
+          onClick=${() => onOpen(block.id)}><${Icon} name="maximize-2" /> Открыть внутри</button>`}
+        <span class="spacer"></span>
         <span class=${"save-state " + state} aria-live="polite">${state === "saved"
           ? html`<${Icon} name="check" size=${14} /> Сохранено`
           : state === "failed" ? "Не сохранено" : "Сохраняю…"}</span>
         ${state === "failed" && html`<button type="button" onClick=${flush}>Повторить</button>`}
-        <button onClick=${() => onAddChild(block.id)}><${Icon} name="plus" /> Подпузырь</button>
-        ${hasKids && html`<button title="Открыть пространство этого пузыря (двойное нажатие на пузырь)"
-          onClick=${() => onOpen(block.id)}><${Icon} name="maximize-2" /> Открыть внутри</button>`}
+      </div>
+      <div class="row panel-subactions" data-slot="panel-subactions">
         ${order && html`<label title=${"Номер среди соседей (1–" + order.of + "): модель читает их по порядку. Занятый номер — остальные сдвинутся"}>Порядок
           <input class="num" inputmode="numeric" pattern="[0-9]*" aria-label="Порядковый номер"
             value=${place === null ? String(order.n) : place}
@@ -1254,7 +1257,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
           <button role="tab" aria-selected=${view === "map"} onClick=${() => setView("map")}>Карта</button>
           <button role="tab" aria-selected=${view === "list"} onClick=${() => setView("list")}>Список</button>
         </div>
-        <button onClick=${() => create(selected)}><${Icon} name="plus" /> Пузырь</button>
+        <button class="primary" onClick=${() => create(selected)}><${Icon} name="plus" /> Пузырь</button>
         ${view === "list" && html`<button title="Показать все ветки списка"
             onClick=${() => keepOpen(new Set(blocks.filter((b) => (kids.get(b.id) || []).length).map((b) => b.id)))}>Развернуть всё</button>
           <button title="Оставить только верхний уровень" onClick=${() => keepOpen(new Set())}>Свернуть всё</button>`}

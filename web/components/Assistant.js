@@ -67,9 +67,10 @@ function ConversationList({ chats, current, onPick, onNew, onRename, onDelete, o
         onInput=${(e) => { setQuery(e.target.value); setShown(SHOWN_STEP); }} />
       <button class="primary" onClick=${onNew}><${Icon} name="plus" /> Новая</button>
     </div>
-    <div class="assistant-conv-rows" role="list">
+    <div class="assistant-conv-rows" role="list" aria-label="Беседы помощника">
       ${sorted.slice(0, shown).map((c) => html`<div key=${c.id} role="listitem"
-          class=${"assistant-conv" + (c.id === current ? " current" : "")} data-slot="assistant-conv">
+          class=${"assistant-conv" + (c.id === current ? " current" : "")} data-slot="assistant-conv"
+          aria-current=${c.id === current ? "true" : "false"}>
         <button class="assistant-conv-open" onClick=${() => onPick(c.id)}>
           <span class="assistant-conv-title">${c.running ? html`<span class="assistant-running" title="Работает">● работает: </span>` : ""}${c.title || "Без названия"}</span>
           <small class="muted">${ago(c.updated_at)}${c.imported ? " · из файла" : ""}</small>
@@ -214,7 +215,7 @@ const MARKS = { done: "check", undone: "undo-2", denied: "circle-x", failed: "x"
 const AFTER = { undone: " — отменено", denied: " — не разрешено" };
 
 function ActionLine({ action, onUndo }) {
-  return html`<div class=${"assistant-action " + action.status} data-slot="assistant-action">
+  return html`<div class=${"assistant-action " + action.status} data-slot="assistant-action" role="status">
     <span>${MARKS[action.status] && html`<${Icon} name=${MARKS[action.status]} /> `}${action.what}${AFTER[action.status] || ""}</span>
     ${action.status === "done" && html`<button class="link" onClick=${() => onUndo(action)}>Отменить</button>`}
   </div>`;
@@ -235,10 +236,13 @@ function QuestionsCard({ message, active, onAnswer }) {
       <legend>${q.text}</legend>
       <div class="assistant-options">
         ${q.options.map((option, n) => {
+          const isDefault = n === (q.default || 0);
           const chosen = picks[q.id] === option && !own[q.id]?.trim();
-          return html`<button type="button" key=${option} class=${chosen ? "chosen" : ""} aria-pressed=${chosen}
-            title=${n === (q.default || 0) ? "Предложено помощником" : ""}
-            onClick=${() => { setPicks({ ...picks, [q.id]: chosen ? "" : option }); setOwn({ ...own, [q.id]: "" }); }}>${option}</button>`;
+          return html`<button type="button" key=${option} class=${(chosen ? "chosen " : "") + (isDefault ? "suggested" : "")} aria-pressed=${chosen}
+            title=${isDefault ? "Предложено помощником" : ""}
+            onClick=${() => { setPicks({ ...picks, [q.id]: chosen ? "" : option }); setOwn({ ...own, [q.id]: "" }); }}>
+            ${option}${isDefault && !chosen ? html`<span class="suggested-dot" title="Предложено"></span>` : ""}
+          </button>`;
         })}
       </div>
       <input placeholder="Свой вариант" value=${own[q.id] || ""} aria-label=${"Свой ответ: " + q.text}
@@ -264,10 +268,13 @@ function PlanCard({ message, task, active, running, onGo, onDrop }) {
     ${message.data.goal && html`<p><strong>${message.data.goal}</strong></p>`}
     ${message.data.decisions?.length > 0 && html`<details><summary>Решения (${message.data.decisions.length})</summary>
       <ul>${message.data.decisions.map((d, i) => html`<li key=${i}>${d}</li>`)}</ul></details>`}
-    <ol class="assistant-items">
+    <ol class="assistant-items" aria-label="Пункты плана">
       ${items.map((item) => html`<li key=${item.id} class=${(item.parent ? "sub " : "") + (item.id === now ? "now" : item.status)}
         title=${item.detail || ""}>
-        <span class="mark"><${Icon} name=${item.id === now ? "play" : ITEM_MARKS[item.status] || "circle"} /></span> ${item.id}. ${item.title}
+        <div class="assistant-item-row">
+          <span class="mark"><${Icon} name=${item.id === now ? "play" : ITEM_MARKS[item.status] || "circle"} /></span>
+          <span class="assistant-item-title"><strong>${item.id}.</strong> ${item.title}</span>
+        </div>
         ${item.steps?.length > 0 && item.status !== "done" && html`<ol class="assistant-substeps" data-slot="assistant-substeps">
           ${item.steps.map((st, n) => html`<li key=${n} class=${st.done ? "done" : ""}>
             <${Icon} name=${st.done ? "check" : "circle"} /> ${st.text}</li>`)}</ol>`}
@@ -590,7 +597,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   return html`<section class=${"assistant" + (folded ? " folded" : "")} ref=${box} style=${style}
       data-slot="assistant" role="dialog" aria-label="Помощник">
     <div class="assistant-head" data-slot="assistant-head" onPointerDown=${drag}>
-      <strong>Помощник</strong>
+      <strong class="assistant-title"><${Icon} name="wand" /> Помощник</strong>
       ${!folded && html`<button class="assistant-conv-btn" aria-label="Беседы" aria-expanded=${listOpen} data-slot="assistant-conv-btn"
           onClick=${() => { setShowSettings(false); setListOpen(!listOpen); }}>
         <span>${anyRunning && !currentRunning ? html`<span class="assistant-running">● </span>` : ""}${currentTitle}</span><${Icon} name="chevron-down" /></button>
@@ -601,6 +608,11 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
         { icon: "file-up", label: "Загрузить беседу из файла", onClick: () => importInput.current?.click() },
         { icon: "trash-2", label: "Удалить беседу", danger: true, disabled: !convId || Boolean(runId), onClick: () => deleteChat() },
       ]} />`}
+      ${folded && html`<button type="button" class="assistant-folded-chip" aria-label=${"Развернуть: " + currentTitle}
+          onClick=${() => setFolded(false)}>
+        ${(currentRunning || anyRunning) && html`<span class="assistant-running">● </span>`}
+        <span class="assistant-folded-title">${currentTitle}</span>
+      </button>`}
       <span class="spacer"></span>
       <${IconButton} icon=${folded ? "maximize-2" : "minus"} label=${folded ? "Развернуть" : "Свернуть"} onClick=${() => setFolded(!folded)} />
       <${IconButton} icon="x" label="Закрыть" onClick=${onClose} />
@@ -640,7 +652,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
             <span class="muted">или напишите, что поменять</span>
           </div>
         </div>`}
-        ${runId && !data?.ask && html`<p class="muted assistant-thinking">${thinkingText()}</p>`}
+        ${runId && !data?.ask && html`<p class="muted assistant-thinking" role="status" aria-live="polite">${thinkingText()}</p>`}
         <div ref=${bottom}></div>
       </div>
       ${library && html`<${LibraryPicker} taken=${files.map((f) => f.asset)} onPick=${attachPicture}
