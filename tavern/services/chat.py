@@ -120,6 +120,14 @@ def resolve_connection(ctx: AppContext, chat: dict[str, Any]) -> dict[str, Any]:
         ) from None
 
 
+def prompt_kind(connection: dict[str, Any]) -> str:
+    """What the prompt is built for (PromptInput.provider_kind): the connection's kind, or "text" for the text mode."""
+    params = connection.get("params") or {}
+    if connection.get("kind") == "openai" and params.get("api_mode") == "text":
+        return "text"
+    return str(connection.get("kind") or "")
+
+
 def make_budget(ctx: AppContext) -> RunBudget:
     configured = ctx.settings.get("run_budget") or {}
     return RunBudget(**{k: configured[k] for k in BUDGET_KEYS if k in configured})
@@ -653,6 +661,7 @@ def _writer(
                 several=speakers.several(rows),
                 scene=speakers.scene(rows, character["id"] if character else None, settings["others"])
                 if speakers.several(rows) else [],
+                provider_kind=prompt_kind(connection),
             )
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,

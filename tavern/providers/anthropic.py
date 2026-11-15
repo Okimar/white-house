@@ -1,23 +1,33 @@
 """Anthropic (Claude) through its own Messages API, or a proxy that speaks the same protocol.
 
 `base_url` is the API root with the version, e.g. https://api.anthropic.com/v1. The key goes in
-the `x-api-key` header. Leading system messages become `system`; later ones join the user turn
-(the API has no system role inside the conversation). Turns of the same role are merged, and the
-conversation must start with a user turn. Thinking blocks stream as "reasoning" events.
+the `x-api-key` header. The body follows SillyTavern's (docs/ST_PARITY.md §11c): with `use_sysprompt` on
+(our default when the preset does not say) the leading system messages become `system`, one text block
+each; off (an imported SillyTavern preset's default) every system message is a user turn. Later system
+messages are user turns; a named example line gets "Speaker: " in front; turns of the same role are
+merged; pictures of assistant turns move to the next user turn; an empty text is a zero-width space; the
+conversation starts with a user turn ("Let's get started." when there is none). The last assistant turn
+(a prefill) loses its trailing spaces and becomes a user turn when thinking is on or on models from 4.6,
+which take no prefill. Thinking blocks stream as "reasoning" events.
 
 The API requires `max_tokens`; DEFAULT_MAX_TOKENS is used when the connection does not set it.
-With thinking on, the API only takes the default sampling, so temperature and top_p/top_k are
-left out. JSON mode (`response_format`) is a forced tool: Claude must "call" ANSWER_TOOL with the
+Thinking: models from 4.6 think "adaptive" with `output_config.effort` from the reasoning effort (5.x
+think anyway: the summary of their thinking is asked for unless `include_thoughts` is false); older ones
+get a budget (the connection's, or a share of max_tokens by effort). Sampling: none with thinking or on
+models from 4.7, only one of temperature / top_p from 4.1. JSON mode (`response_format`) is a forced
+tool: Claude must "call" ANSWER_TOOL with the
 answer as its input, which the API holds to the tool's schema. A schema whose root is not an object
 is wrapped as {"value": ...} (tool input is always an object) and unwrapped again here. The tool's
-input streams as JSON pieces and comes out as one text event at the end. With thinking on or web
-search the API does not allow forcing a tool, so then the request goes in words only (LLMClient).
+input streams as JSON pieces and comes out as one text event at the end. With thinking on, web
+search or a 5.x model the API does not allow forcing a tool, so then the request goes in words only
+(LLMClient).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -33,6 +43,7 @@ from tavern.providers.base import (
     StreamEvent,
     Usage,
     reason_for_status,
+    spoken,
 )
 from tavern.providers.openai_compat import make_client
 
@@ -44,6 +55,26 @@ MIN_THINKING = 1024  # the API's smallest thinking budget
 WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
 ANSWER_TOOL = "answer"
 WRAPPED_TOOL = "answer_value"  # the schema's root was not an object: the answer is input["value"]
+PLACEHOLDER = "Let's get started."  # the user turn when the conversation has none first (as SillyTavern)
+EMPTY_TEXT = "​"  # the API rejects empty text blocks
+MAX_THINKING_NO_STREAM = 21333  # a bigger budget needs streaming
+# Old models (budget thinking): the share of max_tokens each effort thinks; "minimal" = MIN_THINKING.
+EFFORT_SHARES = {"low": 0.10, "medium": 0.25, "high": 0.50, "max": 0.95}
+ADAPTIVE_EFFORT = {"minimal": "low", "low": "low", "medium": "medium", "high": "high", "max": "max"}
+ADAPTIVE_FROM = (4, 6)  # adaptive thinking, no prefill
+NO_SAMPLING_FROM = (4, 7)  # temperature / top_p / top_k rejected
+ONE_SAMPLING_FROM = (4, 1)  # temperature and top_p not together
+THINKS_ALWAYS_FROM = (5, 0)  # thinking on even when not asked; no forced tool
+
+
+def model_version(model: str) -> tuple[int, int]:
+    """(major, minor) from a Claude model name: claude-opus-4-6 -> (4, 6), claude-3-7-sonnet-20250219 ->
+    (3, 7), claude-opus-4-20250514 -> (4, 0), anthropic.claude-sonnet-4-5-v1:0 -> (4, 5); (0, 0) when the
+    name has no version (a proxy's own name): treated as an old model."""
+    numbers = [int(t) for t in re.split(r"[-./:@_]", model.lower()) if t.isdigit() and len(t) <= 2]
+    if not numbers:
+        return (0, 0)
+    return (numbers[0], numbers[1] if len(numbers) > 1 else 0)
 
 
 def _answer_tool(fmt: dict[str, Any]) -> dict[str, Any]:
@@ -73,7 +104,8 @@ class AnthropicProvider(Provider):
 
     def build_body(self, request: GenerationRequest, *, stream: bool = True) -> dict[str, Any]:
         extra = dict(request.extra)
-        system, messages = _messages(request.messages)
+        version = model_version(request.model or "")
+        system, messages = _messages(request.messages, use_system=extra.pop("use_sysprompt", None) is not False)
         body: dict[str, Any] = {
             "model": request.model,
             "max_tokens": request.max_tokens or DEFAULT_MAX_TOKENS,
@@ -81,35 +113,70 @@ class AnthropicProvider(Provider):
             "stream": stream,
         }
         if system:
-            body["system"] = system
-        budget = int(extra.pop("thinking_budget", 0) or 0)
+            body["system"] = [{"type": "text", "text": text} for text in system]
+        budget = extra.pop("thinking_budget", 0)
+        include = extra.pop("include_thoughts", None)
+        self._thinking(body, version, int(budget) if isinstance(budget, (int, float)) else 0,
+                       P.effort(extra.pop("reasoning_effort", None)), include is not False, stream)
         top_k = extra.pop("top_k", None)
-        if budget:
-            budget = max(MIN_THINKING, budget if budget > 0 else MIN_THINKING * 4)  # -1 = "let it decide"
-            body["thinking"] = {"type": "enabled", "budget_tokens": budget}
-            # The answer's own room comes on top of the thinking budget.
-            body["max_tokens"] = max(body["max_tokens"], budget + 1024)
-        else:
-            if request.temperature is not None:
-                body["temperature"] = request.temperature
-            if request.top_p is not None:
-                body["top_p"] = request.top_p
-            if top_k:
+        if "thinking" not in body and version < NO_SAMPLING_FROM:
+            temperature, top_p = request.temperature, request.top_p
+            if version >= ONE_SAMPLING_FROM and temperature is not None and top_p is not None:
+                # These models take only one: top_p when it narrows anything, else temperature.
+                temperature, top_p = (None, top_p) if top_p < 1 else (temperature, None)
+            if temperature is not None:
+                body["temperature"] = temperature
+            if top_p is not None:
+                body["top_p"] = top_p
+            if isinstance(top_k, (int, float)) and top_k > 0:
                 body["top_k"] = top_k
+        _last_turn(messages, flip="thinking" in body or version >= ADAPTIVE_FROM)
         if request.stop:
             body["stop_sequences"] = request.stop
         if extra.pop("web_search", False):
             body["tools"] = [WEB_SEARCH_TOOL]
-        elif request.response_format and "thinking" not in body:
+        elif request.response_format and "thinking" not in body and version < THINKS_ALWAYS_FROM:
             tool = _answer_tool(request.response_format)
             body["tools"] = [tool]
             body["tool_choice"] = {"type": "tool", "name": tool["name"]}
+        for name in P.PRESET_EXTRAS:
+            extra.pop(name, None)
         raw = extra.pop("extra_body", None)
         if extra:
             log.debug("Anthropic ignores settings: %s", ", ".join(sorted(extra)))
         if isinstance(raw, dict):
             body.update(raw)
         return body
+
+    @staticmethod
+    def _thinking(body: dict[str, Any], version: tuple[int, int], budget: int, effort: str, show: bool,
+                  stream: bool) -> None:
+        """Turn thinking on in `body` when asked (a budget, or an effort other than none / auto)."""
+        asked = bool(budget) or effort in ADAPTIVE_EFFORT
+        if version >= ADAPTIVE_FROM:
+            if not asked and not (version >= THINKS_ALWAYS_FROM and show and effort != "none"):
+                return
+            thinking: dict[str, Any] = {"type": "adaptive"}
+            if version >= NO_SAMPLING_FROM and show:
+                thinking["display"] = "summarized"  # these models send empty thinking unless asked
+            body["thinking"] = thinking
+            if effort in ADAPTIVE_EFFORT:
+                body["output_config"] = {"effort": ADAPTIVE_EFFORT[effort]}
+            return
+        if not asked:
+            return
+        if budget:
+            size = budget if budget > 0 else MIN_THINKING * 4  # -1 = "let it decide"
+        elif effort == "minimal":
+            size = MIN_THINKING
+        else:
+            size = int(body["max_tokens"] * EFFORT_SHARES[effort])
+        size = max(MIN_THINKING, size)
+        if not stream:
+            size = min(size, MAX_THINKING_NO_STREAM)
+        body["thinking"] = {"type": "enabled", "budget_tokens": size}
+        # The answer's own room comes on top of the thinking budget.
+        body["max_tokens"] = max(body["max_tokens"], size + 1024)
 
     async def stream(self, request: GenerationRequest) -> AsyncIterator[StreamEvent]:
         body = self.build_body(request)
@@ -198,31 +265,54 @@ class AnthropicProvider(Provider):
             await self._client.aclose()
 
 
-def _content(message: ChatMessage) -> list[dict[str, Any]]:
-    parts: list[dict[str, Any]] = [
-        {"type": "image", "source": {"type": "base64", "media_type": mime, "data": data}}
-        for mime, data in message.images
-    ]
-    if message.content or not parts:
-        parts.append({"type": "text", "text": message.content or "."})
-    return parts
+def _pictures(images: Any) -> list[dict[str, Any]]:
+    return [{"type": "image", "source": {"type": "base64", "media_type": mime, "data": data}} for mime, data in images]
 
 
-def _messages(messages: list[ChatMessage]) -> tuple[str, list[dict[str, Any]]]:
+def _messages(messages: list[ChatMessage], *, use_system: bool = True) -> tuple[list[str], list[dict[str, Any]]]:
+    """(system texts, turns). Pictures of an assistant turn (the API takes none there) go to the next user turn."""
     system: list[str] = []
     out: list[dict[str, Any]] = []
+    carried: list[dict[str, Any]] = []
     for message in messages:
-        if message.role == "system" and not out:
-            system.append(message.content)
+        text = spoken(message)  # a named example line: speaker in front
+        if use_system and message.role == "system" and not out:
+            if text:
+                system.append(text)
             continue
         role = "assistant" if message.role == "assistant" else "user"
-        if out and out[-1]["role"] == role:
-            out[-1]["content"] += _content(message)
+        if role == "assistant":
+            carried += _pictures(message.images)
+            parts: list[dict[str, Any]] = []
         else:
-            out.append({"role": role, "content": _content(message)})
+            parts, carried = [*carried, *_pictures(message.images)], []
+        if text or not parts:
+            parts.append({"type": "text", "text": text or EMPTY_TEXT})
+        if out and out[-1]["role"] == role:
+            out[-1]["content"] += parts
+        else:
+            out.append({"role": role, "content": parts})
     if not out or out[0]["role"] != "user":
-        out.insert(0, {"role": "user", "content": [{"type": "text", "text": "."}]})
-    return "\n\n".join(system), out
+        out.insert(0, {"role": "user", "content": [{"type": "text", "text": PLACEHOLDER}]})
+    return system, out
+
+
+def _last_turn(turns: list[dict[str, Any]], *, flip: bool) -> None:
+    """A final assistant turn (a prefill) loses its trailing spaces (the API rejects them); with `flip` (thinking
+    on, or a model without prefill) it becomes a user turn, joined to the user turn before it."""
+    last = turns[-1]
+    if last["role"] != "assistant":
+        return
+    texts = [p for p in last["content"] if p.get("type") == "text"]
+    if texts:
+        texts[-1]["text"] = texts[-1]["text"].rstrip() or EMPTY_TEXT
+    if not flip:
+        return
+    if len(turns) > 1 and turns[-2]["role"] == "user":
+        turns[-2]["content"] += last["content"]
+        turns.pop()
+    else:
+        last["role"] = "user"
 
 
 def _tool_answer(raw: str, tool: str) -> str:

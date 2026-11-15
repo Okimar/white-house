@@ -369,22 +369,41 @@ Other rules for the final list:
 - Impersonation: `IMPERSONATE_INSTRUCTION` in `services/chat.py` is used only by the legacy `core/prompt.py:
   build_prompt`. With a preset, the `impersonate` behaviour block does that job.
 
-### 3.6 Macros (`core/prompt.py:substitute`)
+### 3.6 Macros (`core/prompt.py:substitute` → engine `core/macros.py:expand`)
 
 `assemble.sub()` runs on **every** Entry text: blocks, cards, bubbles, lore, messages, notes, extras, behaviour
 blocks and prefill. It runs in prompt order, so `{{setvar}}` → `{{getvar}}` works across blocks.
 
+How one text is expanded (`macros._Engine.expand`): macros are found as balanced `{{…}}` spans (`{{{x}}}` = the
+inner `{{x}}`); `{{// …}}` comments go first and whole, nothing inside them runs; inner macros are expanded before
+the outer one, left to right; `{{if}}` blocks run only the chosen branch; `{{trim}}` becomes a mark resolved at the
+very end (`TRIM_MARK`), taking the line breaks around it. Names compare without case. An unknown macro stays as
+written. Context macros (card fields, messages, model, outlets) are read from `values` (keys without case); with
+no `values` at all (greetings at chat creation, the narrator instruction) they stay as written, with `values` but
+no key they get their empty default (`CONTEXT_DEFAULTS`). Variable macros need a store: no `variables` dict = they
+stay as written.
+
 | Macro | Value |
 |---|---|
-| `{{char}}` / `{{user}}` | the primary member's name (default "Assistant") / the «me» member's name or the setting |
-| `{{description}} {{personality}} {{scenario}}` | the primary card's fields |
-| `{{mesExamples}}` | the primary card's examples, without `<START>` |
+| `{{char}}` / `{{user}}`, `<CHAR>` `<BOT>` / `<USER>` | the primary member's name (default "Assistant") / the «me» member's name or the setting; angle forms upper case only |
+| `{{group}}` `<GROUP>` `{{charIfNotGroup}}` / `{{groupNotMuted}}` / `{{notChar}}` | values `group` / `groupNotMuted` / `notChar`; else the character / the user |
+| `{{description}} {{personality}} {{scenario}}` (+ `charDescription` …) | the primary card's fields; macros inside them are expanded |
+| `{{mesExamples}}` / `{{mesExamplesRaw}}` | the primary card's examples, without `<START>` (raw = value `mesExamplesRaw`, else the same) |
 | `{{persona}}` | the «me» card's description |
+| `{{charPrompt}} {{charInstruction}}`/`{{charJailbreak}} {{charDepthPrompt}} {{charCreatorNotes}} {{charVersion}} {{charFirstMessage}}`/`{{greeting}} {{systemPrompt}}` | values by those names, else "" |
+| `{{lastMessage}} {{lastUserMessage}} {{lastCharMessage}} {{lastMessageId}} {{firstIncludedMessageId}} {{currentSwipeId}} {{lastSwipeId}} {{input}}` | values, else "" |
+| `{{lastGenerationType}}` / `{{model}} {{maxContext}} {{maxPrompt}} {{maxResponse}}` / `{{isMobile}}` | values, else "normal" / "" / "false" |
 | `{{summary}}` | "" unless a plugin sets `values["summary"]` (memory: «Сюжет до сих пор») |
-| any `{{name}}` in `PromptInput.values` | the plugin's value. Names are matched case-insensitively; unknown macros stay as written. |
-| `{{setvar::n::v}}` / `{{getvar::n}}` | per-prompt variables |
-| `{{random::a::b}}` / `{{random:a,b}}` | random choice |
-| `{{roll:NdM}}` / `{{roll::dM}}` | dice |
+| any `{{name}}` in `PromptInput.values` | the plugin's value |
+| `{{newline}} {{space}} {{noop}} {{trim}} {{// …}}` | "\n", " ", "", removes itself and line breaks around, removed |
+| `{{random::a::b}}` / `{{random:a,b}}` / `{{pick::a::b}}` / `{{reverse::x}}` | random choice / the same choice every time for this chat (value `chatId`), text and place / reversed |
+| `{{roll:NdM±K}}` / `{{roll::dM}}` / `{{roll:N}}` | dice |
+| `{{time}} {{date}} {{weekday}} {{isotime}} {{isodate}} {{datetimeformat X}} {{time_UTC±N}} {{timeDiff::a::b}}` | now (`now=` for tests), English formats |
+| `{{idle_duration}}` | since value `lastUserMessageTime` (ISO), else "just now" |
+| `{{setvar::n::v}} {{getvar::n}} {{addvar}} {{incvar}} {{decvar}} {{hasvar}} {{deletevar}}` + `…globalvar` | the `variables` dict (one per prompt; not kept between replies yet); globals in `global_variables` (else this text only) |
+| `{{if cond}}…{{else}}…{{/if}}` | cond = a macro name or `{{…}}`, `!` negates; false = "", false, 0, off, no |
+| `{{outlet::Name}}` | value `outlet::name`, else "" |
+| `{{banned "x"}}` / `{{hasExtension::x}}` | removed / "false" |
 
 Other places that substitute:
 - greetings at chat creation (`services/chat.py:create_chat`, char/user only);

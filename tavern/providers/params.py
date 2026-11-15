@@ -35,10 +35,11 @@ PARAMS: list[dict[str, Any]] = [
     # Repetition
     {"id": "repetition_penalty", "group": "repeat", "label": "Штраф за повтор", "type": "float", "min": 0,
      "max": 3, "step": 0.01, "default": 1.0, "kinds": (OPENAI,), "hint": "Больше 1 — реже повторяет слова"},
+    # Not for Gemini: SillyTavern never sends them there and newer Gemini models reject them.
     {"id": "frequency_penalty", "group": "repeat", "label": "Штраф за частоту", "type": "float", "min": -2,
-     "max": 2, "step": 0.01, "default": 0.0, "kinds": OG, "hint": "Чем чаще слово уже было, тем реже оно снова"},
+     "max": 2, "step": 0.01, "default": 0.0, "kinds": (OPENAI,), "hint": "Чем чаще слово уже было, тем реже оно снова"},
     {"id": "presence_penalty", "group": "repeat", "label": "Штраф за присутствие", "type": "float",
-     "min": -2, "max": 2, "step": 0.01, "default": 0.0, "kinds": OG,
+     "min": -2, "max": 2, "step": 0.01, "default": 0.0, "kinds": (OPENAI,),
      "hint": "Слово, которое уже было, — реже; толкает к новым темам"},
     # Length and shape
     {"id": "max_tokens", "group": "length", "label": "Длина ответа", "type": "int", "min": 1,
@@ -51,8 +52,8 @@ PARAMS: list[dict[str, Any]] = [
      "kinds": (OPENAI,), "hint": "Номер токена → сдвиг от -100 до 100"},
     # Thinking
     {"id": "reasoning_effort", "group": "thinking", "label": "Глубина размышлений", "type": "choice",
-     "choices": ["none", "minimal", "low", "medium", "high"], "default": "medium", "kinds": OG,
-     "hint": "Сколько модель думает перед ответом (для думающих моделей)"},
+     "choices": ["none", "minimal", "low", "medium", "high", "max"], "default": "medium", "kinds": ALL,
+     "hint": "Сколько модель думает перед ответом (для думающих моделей; у Claude включает размышления)"},
     {"id": "thinking_budget", "group": "thinking", "label": "Бюджет размышлений", "type": "int", "min": -1,
      "max": 32768, "step": 1, "default": -1, "kinds": (GEMINI, ANTHROPIC),
      "hint": "Токенов на размышления; -1 — сама решает, 0 — не думать"},
@@ -98,6 +99,27 @@ GROUPS = [
 ]
 
 BY_ID = {p["id"]: p for p in PARAMS}
+
+# Request options that come from the preset (SillyTavern keys kept on an imported preset), not from the
+# connection. Each kind reads the ones it understands from `request.extra`; none is ever sent as a field.
+PRESET_EXTRAS = frozenset({
+    "use_sysprompt",  # Claude / Gemini: leading system texts into the API's system field (else user turns)
+    "prompt_post_processing",  # OpenAI-compatible: "merge" | "semi" | "strict" | "single" (+ "_tools" variants)
+    "include_body",  # OpenAI-compatible: fields added to the body (object, or JSON / simple YAML text)
+    "exclude_body",  # OpenAI-compatible: fields removed from the body (list / object keys, or text)
+    "include_headers",  # OpenAI-compatible: extra headers (never auth, host or length headers)
+})
+
+# Thinking effort names, SillyTavern's included: "min" = our "minimal", "auto" = let the model decide.
+EFFORT_ALIASES = {"min": "minimal", "minimum": "minimal", "maximum": "max"}
+
+
+def effort(value: Any) -> str:
+    """A reasoning effort in one spelling: none / auto / minimal / low / medium / high / max, or ""."""
+    if not isinstance(value, str):
+        return ""
+    value = EFFORT_ALIASES.get(value.strip().lower(), value.strip().lower())
+    return value if value in ("none", "auto", "minimal", "low", "medium", "high", "max") else ""
 
 
 def catalog() -> dict[str, Any]:

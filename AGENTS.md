@@ -305,6 +305,7 @@ data/                   user data, git-ignored. Never commit, never delete
 8. **Style:** type hints, `from __future__ import annotations`, module docstring stating the
    module's role, comments only where the *why* is not obvious. Python 3.11 compatible.
 9. **Agents do not check in the browser** (owner, 2026-11-09: browser checks gave almost nothing). Verify by tests and by reading the code; UI work follows the mobile-ui skill by code (44px, 14px text, nothing wider than the viewport) and is reported as not seen on screen.
+10. **Work survives a cut.** The owner's internet drops often and usage limits run out; any agent can stop mid-step. So: (a) before the first edit, write `.work/<task-slug>.md`: the task as given (copy the prompt), the plan as a checklist, the files you own; (b) after every finished step tick it and add one line: what changed, which files, tests run; (c) work in small steps that leave the tree working (tests of the touched area green), never leave a half-renamed function or a broken import between steps; (d) on start, if `.work/<task-slug>.md` exists, continue from it: read it, check `git diff` of your files, re-run the tests of your area, then go on — never start over and never revert another agent's files; (e) when the task is done and committed, the lead deletes the note.
 
 ## Skills
 

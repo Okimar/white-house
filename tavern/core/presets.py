@@ -6,9 +6,12 @@ A preset is plain JSON so it can be stored, exported and edited by agents:
       "blocks": [ {id, kind, name, enabled, role, text, position, depth, group, history?}, ... ],
       "params": {temperature, top_p, top_k, max_tokens, presence_penalty, frequency_penalty, stop},
       "max_context_tokens": 0,          # 0 = use the connection's limit (0 there = no limit)
-      "prompts": {"prefill": ..., "personality_format": ..., "scenario_format": ...},
+      "prompts": {"prefill", "impersonation_prefill", "personality_format", "scenario_format", "new_chat",
+                  "new_group_chat", "new_example_chat", "send_if_empty"},   # DEFAULT_PROMPTS (SillyTavern's)
       "prefer_card_prompts": true,      # a card's own system prompt / post-history text wins
-      "st": {...}                       # SillyTavern keys we do not use, kept for export
+      "st": {...},                      # SillyTavern keys we do not use, kept for export
+      "origin": "" | "sillytavern",     # imported from SillyTavern: card, persona and examples go its way (bare)
+      "texts_version": 2                # behaviour blocks' untouched defaults follow SillyTavern's texts
     }
 
 Block kinds (the prompt manager shows them as a list the user reorders):
@@ -69,15 +72,40 @@ MAX_TEXT = 200_000
 DEFAULT_DEPTH_ORDER = 100
 MAX_ORDER = 1_000_000
 
-# Texts that are not instructions but formats (the others live in blocks, see WHEN).
+# Texts that are not instructions but formats and service lines (the others live in blocks, see WHEN).
+# The defaults are SillyTavern's (the phone has no SillyTavern folder to take them from).
 DEFAULT_PROMPTS = {
-    # Sent as the start of the model's own reply (last assistant message); empty = none.
+    # The start of the model's own reply (a last assistant message). Sent only to Claude connections and to the
+    # text mode, as SillyTavern does; trailing spaces cut. Empty = none.
     "prefill": "",
-    # How card parts are written. Empty = "Personality: ..." sections; ST-style templates use
-    # {{personality}} / {{scenario}} (imported presets bring their own).
+    # The same when the model writes for the user («Написать за меня»), Claude / text mode only.
+    "impersonation_prefill": "",
+    # How card parts are written. Empty = "Personality: ..." sections in our own presets (a preset from
+    # SillyTavern sends the bare field); ST-style templates use {{personality}} / {{scenario}}.
     "personality_format": "",
     "scenario_format": "",
+    # System line right before the first chat message (never squashed); in a chat of several characters the
+    # group line ({{group}} = their names). Empty = none.
+    "new_chat": "[Start a new Chat]",
+    "new_group_chat": "[Start a new group chat. Group members: {{group}}]",
+    # System line before each <START> block of a card's example dialogue (presets from SillyTavern).
+    "new_example_chat": "[Example Chat]",
+    # A user turn with this text when the chat's last message is the model's (e.g. «пусть поговорят»). Empty = none.
+    "send_if_empty": "",
 }
+# Our prompts key -> the SillyTavern preset key with the same text (an older import kept them only in `st`).
+PROMPT_ST_KEYS = {
+    "prefill": "assistant_prefill",
+    "impersonation_prefill": "assistant_impersonation",
+    "personality_format": "personality_format",
+    "scenario_format": "scenario_format",
+    "new_chat": "new_chat_prompt",
+    "new_group_chat": "new_group_chat_prompt",
+    "new_example_chat": "new_example_chat_prompt",
+    "send_if_empty": "send_if_empty",
+}
+ORIGIN_ST = "sillytavern"  # preset["origin"]: imported from SillyTavern, so its texts go bare (no headers of ours)
+TEXTS_VERSION = 2  # preset["texts_version"]: 2 = behaviour blocks follow SillyTavern's default texts and roles
 
 # Behaviour blocks: kind "text" with `when`. key -> (block name, role, default text).
 #   no_write_for_me  "me" is a member the model may not write for (and the reply is not "write for me")
@@ -91,11 +119,11 @@ WHEN: dict[str, tuple[str, str, str]] = {
         "stop and let the user continue.]"),
     "speaker_reply": (
         "Кто отвечает сейчас (несколько персонажей)", "system",
-        "[Write the next reply only as {{char}}. Do not write for the other characters or {{user}}.]"),
+        "[Write the next reply only as {{char}}.]"),
     "impersonate": (
-        "Написать за меня (кнопка)", "user",
-        "[Write the next message of {{user}} in the first person, as {{user}} would. "
-        "Only {{user}}'s words and actions, no reply from {{char}}.]"),
+        "Написать за меня (кнопка)", "system",
+        "[Write your next reply from the point of view of {{user}}, using the chat history so far as a guideline "
+        "for the writing style of {{user}}. Don't write as {{char}} or system. Don't describe actions of {{char}}.]"),
     "narrator": (
         "Рассказчик после хода «все сразу»", "system",
         "You are the narrator of this roleplay. The characters below acted at the same time. In the third "
@@ -104,8 +132,17 @@ WHEN: dict[str, tuple[str, str, str]] = {
 }
 
 
+# Our own default wording before the texts became SillyTavern's (texts_version 1): (role, text). A behaviour block
+# still holding it exactly is moved to the new default; a person's own text stays.
+WHEN_V1: dict[str, tuple[str, str]] = {
+    "speaker_reply": (
+        "system", "[Write the next reply only as {{char}}. Do not write for the other characters or {{user}}.]"),
+    "impersonate": (
+        "user", "[Write the next message of {{user}} in the first person, as {{user}} would. "
+                "Only {{user}}'s words and actions, no reply from {{char}}.]"),
+}
 # The wording the fields had before they became blocks: told apart from a person's own text by migration.
-DEFAULT_PROMPTS_OLD = {key: WHEN[key][2] for key in WHEN}
+DEFAULT_PROMPTS_OLD = {key: WHEN_V1[key][1] if key in WHEN_V1 else WHEN[key][2] for key in WHEN}
 
 
 def when_block(key: str, text: str | None = None, enabled: bool = True) -> dict[str, Any]:
@@ -167,6 +204,8 @@ DEFAULT_PRESET: dict[str, Any] = {
     "prefer_card_prompts": True,
     "st": {},
     "squash_system": True,
+    "origin": "",
+    "texts_version": TEXTS_VERSION,
 }
 
 
@@ -237,6 +276,18 @@ def normalize_block(raw: Any, index: int) -> dict[str, Any]:
     return block
 
 
+def _upgrade_texts(blocks: list[dict[str, Any]], *, from_st: bool) -> None:
+    """Once per preset (texts_version 1 -> 2): behaviour blocks still holding our old default wording get
+    SillyTavern's default text and role; «написать за меня» of a preset from SillyTavern goes as system, as there
+    (the importer used to give it the user role)."""
+    for block in blocks:
+        key = block.get("when")
+        if key in WHEN_V1 and (block["role"], block["text"]) == WHEN_V1[key]:
+            block["role"], block["text"] = WHEN[key][1], WHEN[key][2]
+        elif key == "impersonate" and from_st and block["role"] == "user":
+            block["role"] = "system"
+
+
 def normalize_preset(raw: Any) -> dict[str, Any]:
     """Validate a preset from the UI, an agent or an import; fill in what is missing."""
     if not isinstance(raw, dict):
@@ -266,7 +317,8 @@ def normalize_preset(raw: Any) -> dict[str, Any]:
         if block_id in ids:
             block_id = f"when-{key}-{len(blocks)}"
         if isinstance(old, str) and len(old) <= MAX_TEXT:
-            block = when_block(key, old if old.strip() else None, enabled=bool(old.strip()))
+            own = old.strip() and old != DEFAULT_PROMPTS_OLD[key]
+            block = when_block(key, old if own else None, enabled=bool(old.strip()))
         else:
             block = when_block(key)
         block["id"] = block_id
@@ -311,14 +363,22 @@ def normalize_preset(raw: Any) -> dict[str, Any]:
     prompts_raw = raw.get("prompts", {})
     if not isinstance(prompts_raw, dict):
         raise PresetError("prompts must be an object")
+    st = raw.get("st", {})
+    preset["st"] = st if isinstance(st, dict) else {}
     for key in DEFAULT_PROMPTS:
-        value = prompts_raw.get(key, DEFAULT_PROMPTS[key])
+        kept = preset["st"].get(PROMPT_ST_KEYS.get(key, ""))  # an older import kept the SillyTavern text only there
+        value = prompts_raw.get(key, kept if isinstance(kept, str) else DEFAULT_PROMPTS[key])
         if not isinstance(value, str) or len(value) > MAX_TEXT:
             raise PresetError(f"Prompt {key} must be text")
         preset["prompts"][key] = value
     preset["prefer_card_prompts"] = bool(raw.get("prefer_card_prompts", True))
-    st = raw.get("st", {})
-    preset["st"] = st if isinstance(st, dict) else {}
+    origin = raw.get("origin")
+    if origin not in ("", ORIGIN_ST):  # a preset imported before the field existed: its kept SillyTavern keys say
+        origin = ORIGIN_ST if preset["st"] else ""
+    preset["origin"] = origin
+    if raw.get("texts_version") != TEXTS_VERSION:
+        _upgrade_texts(blocks, from_st=origin == ORIGIN_ST)
+    preset["texts_version"] = TEXTS_VERSION
     squash = raw.get("squash_system")
     if not isinstance(squash, bool):  # a preset imported before the switch existed: its SillyTavern file said
         squash = preset["st"].get("squash_system_messages")

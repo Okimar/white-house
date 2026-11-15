@@ -26,13 +26,27 @@ from __future__ import annotations
 from typing import Any
 
 from tavern.context import AppContext
+from tavern.core.prompt import substitute
 from tavern.core.retrieval import PATH_SEPARATOR, Selection, select_blocks
+from tavern.core.retrieval import from_st as is_from_st
 from tavern.errors import AppError, NotFound
 from tavern.formats import st_lorebook
-from tavern.services import character_tree, history
+from tavern.services import cast, character_tree, history
 
-DEFAULT_SETTINGS = {"budget_tokens": 2000, "budget_percent": 25, "recursion": 2}
-SETTING_LIMITS = {"budget_tokens": (0, 1_000_000), "budget_percent": (0, 100), "recursion": (0, 10)}
+# SillyTavern's defaults (ST_PARITY section 5): scan the last 2 messages with names, recursion off, character books
+# before global ones, no minimum activations, no group scoring, no absolute cap.
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
+    "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
+    "group_scoring": False,
+}
+SETTING_LIMITS = {"budget_tokens": (0, 1_000_000), "budget_percent": (0, 100), "budget_cap": (0, 1_000_000),
+                  "recursion": (0, 10), "scan_messages": (0, 1000), "min_activations": (0, 100),
+                  "min_depth_max": (0, 1000)}
+SETTING_FLAGS = ("include_names", "group_scoring")
+STRATEGIES = ("character_first", "global_first", "evenly")
+# Tiers of the budget's ranking: the chat's books, the persona's, then characters / global by the strategy.
+TIERS = {"character_first": (2, 3), "global_first": (3, 2), "evenly": (2, 2)}
 SCOPES = ("global", "chat", "character")
 MAX_NAME = 200
 MAX_DESCRIPTION = 20_000
@@ -47,11 +61,21 @@ class LorebookError(AppError):
 # --- settings ---------------------------------------------------------------------------------
 
 
-def clean_settings(value: Any) -> dict[str, int]:
+def clean_settings(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise LorebookError("lorebooks settings must be an object")
-    clean: dict[str, int] = {}
+    clean: dict[str, Any] = {}
     for key, item in value.items():
+        if key in SETTING_FLAGS:
+            if not isinstance(item, bool):
+                raise LorebookError(f"lorebooks.{key} must be true or false")
+            clean[key] = item
+            continue
+        if key == "strategy":
+            if item not in STRATEGIES:
+                raise LorebookError(f"lorebooks.strategy must be one of {', '.join(STRATEGIES)}")
+            clean[key] = item
+            continue
         if key not in SETTING_LIMITS:
             raise LorebookError(f"Unknown lorebooks setting {key!r}")
         low, high = SETTING_LIMITS[key]
@@ -61,7 +85,7 @@ def clean_settings(value: Any) -> dict[str, int]:
     return clean
 
 
-def lore_settings(ctx: AppContext) -> dict[str, int]:
+def lore_settings(ctx: AppContext) -> dict[str, Any]:
     stored = ctx.settings.get("lorebooks") or {}
     return {**DEFAULT_SETTINGS, **{k: v for k, v in stored.items() if k in DEFAULT_SETTINGS}}
 
@@ -156,13 +180,83 @@ async def set_uses(ctx: AppContext, scope: str, target: str | None, book_ids: An
     return wanted
 
 
-def active_books(ctx: AppContext, chat_id: str, member_ids: list[str]) -> list[str]:
-    """Books working in a chat, each once: the chat's, the members' (in member order), global."""
-    found = list(ctx.lorebooks.uses("chat", chat_id))
-    for member_id in member_ids:
-        found.extend(ctx.lorebooks.uses("character", member_id))
-    found.extend(ctx.lorebooks.uses("global"))
-    return list(dict.fromkeys(found))
+def active_books(ctx: AppContext, chat_id: str, member_ids: list[str], me: str | None = None) -> list[str]:
+    """Books working in a chat, each once: the chat's, the persona's (`me`, the user's own character), the other
+    members' (in member order), global."""
+    return list(book_tiers(ctx, chat_id, member_ids, me))
+
+
+def book_tiers(ctx: AppContext, chat_id: str, member_ids: list[str], me: str | None = None,
+               strategy: str = "character_first") -> dict[str, int]:
+    """Book id -> tier of the budget's ranking, in pool order (SillyTavern's): the chat's books 0, the persona's
+    1, then the characters' and the global ones by `strategy` (character first: 2 / 3, global first: 3 / 2,
+    evenly: both 2, so only «Order» decides between them). A book on in two places counts in the first."""
+    characters, global_ = TIERS.get(strategy, TIERS["character_first"])
+    found: dict[str, int] = {}
+    places = [(ctx.lorebooks.uses("chat", chat_id), 0)]
+    if me is not None:
+        places.append((ctx.lorebooks.uses("character", me), 1))
+    places += [(ctx.lorebooks.uses("character", m), characters) for m in member_ids if m != me]
+    places.append((ctx.lorebooks.uses("global"), global_))
+    for books, tier in places:
+        for book_id in books:
+            found.setdefault(book_id, tier)
+    return found
+
+
+def _me(members: list[Any]) -> str | None:
+    return next((m.character_id for m in members if getattr(m, "is_me", False)), None)
+
+
+def scan_lines(history_: list[dict[str, Any]], *, names: bool, user: str = "") -> list[str]:
+    """The visible messages as the lorebook scan reads them, oldest first: «Name: text» (SillyTavern's «include
+    names», on by default), or the bare text."""
+    lines = []
+    for message in history_:
+        if message.get("exclude_from_prompt"):
+            continue
+        name = (message.get("name") or (user if message.get("role") == "user" else "")).strip()
+        lines.append(f"{name}: {message['content']}" if names and name else message["content"])
+    return lines
+
+
+def scan_sources(members: list[Any]) -> dict[str, str]:
+    """Texts an entry may look in besides the messages (its rule `match`): the speaker's card fields and the
+    persona's description."""
+    primary = next((m for m in members if getattr(m, "primary", False)), None)
+    me = next((m for m in members if getattr(m, "is_me", False)), None)
+    card = primary.card if primary is not None else {}
+    extensions = card.get("extensions") if isinstance(card.get("extensions"), dict) else {}
+    depth_prompt = extensions.get("depth_prompt") if isinstance(extensions.get("depth_prompt"), dict) else {}
+    found = {
+        "persona": (me.card.get("description") if me is not None else "") or "",
+        "description": card.get("description") or "",
+        "personality": card.get("personality") or "",
+        "scenario": card.get("scenario") or "",
+        "creator_notes": card.get("creator_notes") or "",
+        "depth_prompt": depth_prompt.get("prompt") or "",
+    }
+    return {k: v for k, v in found.items() if isinstance(v, str) and v.strip()}
+
+
+def _with_key_macros(blocks: list[dict[str, Any]], *, char: str, user: str) -> list[dict[str, Any]]:
+    """Macros in keywords ({{char}}, {{user}} …) are filled before the search, as SillyTavern does; the stored
+    bubbles stay as written."""
+    def fill(words: list[str]) -> list[str]:
+        return [substitute(w, char=char, user=user) if "{{" in w or "<" in w else w for w in words]
+
+    result = []
+    for block in blocks:
+        rules = block.get("rules") or {}
+        words = list(block.get("keywords") or []) + list(rules.get("keys2") or [])
+        if not any("{{" in w or "<" in w for w in words):
+            result.append(block)
+            continue
+        changed = {**block, "keywords": fill(list(block.get("keywords") or []))}
+        if rules.get("keys2"):
+            changed["rules"] = {**rules, "keys2": fill(list(rules["keys2"]))}
+        result.append(changed)
+    return result
 
 
 # --- choosing entries for a reply ---------------------------------------------------------------
@@ -186,12 +280,17 @@ async def meaning_for_reply(
 async def select_for_chat(
     ctx: AppContext, chat: dict[str, Any], members: list[Any], history_: list[dict[str, Any]],
     *, max_context: int = 0, seed_text: str = "", meaning: dict[str, float] | None = None,
+    kind: str = "normal",
 ) -> Selection:
     """Entries of the chat's books for this reply. Call after character_tree.select_for_chat: it
     counts the reply (the chat's generation number) that both use. `seed_text`: the text of the
     characters' bubbles going with this reply, so chains can start from them too. `meaning`: scores made once
-    for the reply by meaning_for_reply; without it they are made here."""
-    book_ids = active_books(ctx, chat["id"], [m.character_id for m in members])
+    for the reply by meaning_for_reply; without it they are made here. `kind`: the kind of generation (normal,
+    continue, impersonate, swipe, regenerate, quiet) for entries with triggers."""
+    lore = lore_settings(ctx)
+    me = _me(members)
+    tiers = book_tiers(ctx, chat["id"], [m.character_id for m in members], me, lore["strategy"])
+    book_ids = list(tiers)
     if not book_ids:
         return Selection(found=[])
     pool = ctx.blocks.for_owners(book_ids)
@@ -199,29 +298,46 @@ async def select_for_chat(
     if not blocks:
         return Selection(found=[])
     retrieval = character_tree.retrieval_settings(ctx)
-    lore = lore_settings(ctx)
-    messages = [m["content"] for m in history_ if not m.get("exclude_from_prompt")]
-    scan_text = "\n".join(messages[-int(retrieval["scan_messages"]):])
+    user = next((m.name for m in members if getattr(m, "is_me", False)), "") or cast.user_name(ctx, chat["id"])
+    char = next((m.name for m in members if getattr(m, "primary", False)), "")
+    messages = scan_lines(history_, names=bool(lore["include_names"]), user=user)
+    depth = int(lore["scan_messages"])
+    scan_text = "\n".join(messages[-depth:]) if depth > 0 else ""
     generation = int(ctx.chats.get_chat(chat["id"])["meta"].get("generation", 0))
+    clock = len(history_)  # SillyTavern counts timers of its entries in chat messages
     budget = lore["budget_tokens"]
     if lore["budget_percent"] and max_context:
         budget = max_context * lore["budget_percent"] // 100
+    if lore["budget_cap"]:
+        budget = min(budget, lore["budget_cap"]) if budget else lore["budget_cap"]
     hits, missed = ctx.blocks.hits(chat["id"])
     if meaning is None:
         meaning = (await character_tree.meaning_search(
             ctx, blocks, character_tree.meaning_texts(retrieval, history_))).scores
     selection = select_blocks(
-        blocks, owner_name="", scan_text=scan_text, scan_messages=messages, hits=hits,
-        generation=generation, budget_tokens=budget,
+        _with_key_macros(blocks, char=char, user=user), owner_name="", scan_text=scan_text,
+        scan_messages=messages, hits=hits, generation=generation, budget_tokens=budget,
         meaning=meaning,
         threshold=float(retrieval["threshold"]), missed=missed, links=ctx.blocks.links(book_ids),
         recursion=lore["recursion"], seed_text=seed_text, present={m.character_id for m in members},
         owner_names={book_id: ctx.lorebooks.get(book_id)["name"] for book_id in book_ids}, by_order=True,
+        sources=scan_sources(members), kind=kind, clock=clock, group_scoring=bool(lore["group_scoring"]),
+        tiers=tiers, min_found=int(lore["min_activations"]), scan_depth=depth,
+        min_depth_max=int(lore["min_depth_max"]),
     )
-    if selection.fresh_hits:
-        ctx.blocks.record_hits(chat["id"], selection.fresh_hits, generation)
-    if selection.misses:
-        ctx.blocks.record_hits(chat["id"], selection.misses, generation, missed=True)
+    from_st = {b["id"] for b in blocks if is_from_st(b)}
+
+    def record(ids: list[str], missed_: bool = False) -> None:
+        # each bubble keeps one clock: SillyTavern's entries the message count, ours the reply number
+        st_ids = [b for b in ids if b in from_st]
+        own = [b for b in ids if b not in from_st]
+        if st_ids:
+            ctx.blocks.record_hits(chat["id"], st_ids, clock, missed=missed_)
+        if own:
+            ctx.blocks.record_hits(chat["id"], own, generation, missed=missed_)
+
+    record(selection.fresh_hits)
+    record(selection.misses, True)
     return selection
 
 

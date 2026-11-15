@@ -16,7 +16,7 @@ import logging
 from typing import Any
 
 from tavern.context import AppContext
-from tavern.core.presets import default_preset, normalize_preset
+from tavern.core.presets import PresetError, default_preset, normalize_preset
 from tavern.errors import AppError, NotFound
 from tavern.formats import st_preset
 from tavern.providers import params as conn_params
@@ -39,7 +39,12 @@ def list_presets(ctx: AppContext) -> list[dict[str, Any]]:
 def get(ctx: AppContext, preset_id: str) -> dict[str, Any]:
     if preset_id == BUILTIN_ID:
         return builtin()
-    return {**ctx.presets.get(preset_id), "builtin": False}
+    preset = {**ctx.presets.get(preset_id), "builtin": False}
+    try:  # the page sees what is used: texts added later (the new-chat line …) with their defaults
+        preset["data"] = normalize_preset(preset["data"])
+    except PresetError:
+        pass  # shown as stored; resolve() reports it when the preset is used
+    return preset
 
 
 def resolve(ctx: AppContext, chat: dict[str, Any]) -> dict[str, Any]:

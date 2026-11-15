@@ -28,9 +28,11 @@ from typing import Any
 from tavern.context import AppContext
 from tavern.core.llm import LLMClient
 from tavern.core.prompt import estimate_tokens
-from tavern.core.retrieval import LOGICS, PATH_SEPARATOR, FoundBlock, cosine, select_blocks, stem
+from tavern.core.retrieval import (
+    LOGICS, PATH_SEPARATOR, SOURCES, TRIGGERS, FoundBlock, cosine, select_blocks, stem,
+)
 from tavern.errors import AppError, NotFound
-from tavern.formats.st_lorebook import LOGIC_FROM_ST, LOGIC_TO_ST
+from tavern.formats.st_lorebook import LOGIC_FROM_ST, LOGIC_TO_ST, SOURCE_KEYS, card_rules
 from tavern.services import embeddings, history, spending
 from tavern.providers import catalog
 from tavern.providers.base import ChatMessage, ProviderError
@@ -171,9 +173,11 @@ def _clean(changes: dict[str, Any], *, creating: bool) -> dict[str, Any]:
 
 # "outlet": a SillyTavern outlet entry, reachable there only through a macro; kept, never sent.
 PLACES = ("card_before", "card_after", "an_top", "an_bottom", "examples_top", "examples_bottom", "outlet")
-RULE_FLAGS = ("title_key", "whole", "case", "main", "no_wake", "not_woken", "no_budget")
+RULE_FLAGS = ("title_key", "whole", "case", "main", "no_wake", "not_woken", "no_budget", "scoring")
 RULE_NUMBERS = {"scan": (1, 1000), "cooldown": (0, 1000), "delay": (0, 100_000), "weight": (0, 1000),
-                "order": (-1_000_000, 1_000_000)}
+                "order": (-1_000_000, 1_000_000), "after_chain": (1, 1000)}
+# Lists of fixed words: per-entry scan sources and the kinds of generation (core/retrieval.py)
+RULE_CHOICES = {"match": SOURCES, "triggers": TRIGGERS}
 
 
 def _words(value: Any, name: str, limit: int) -> list[str]:
@@ -203,6 +207,12 @@ def _rules(value: Any) -> dict[str, Any]:
             if isinstance(item, bool) or not isinstance(item, int) or not low <= item <= high:
                 raise AppError(f"rules.{key} must be {low}..{high}", code="bad_block")
             clean[key] = item
+        elif key in RULE_CHOICES:
+            choices = RULE_CHOICES[key]
+            if not isinstance(item, list) or not all(isinstance(v, str) and v in choices for v in item):
+                raise AppError(f"rules.{key} must be a list of: {', '.join(choices)}", code="bad_block")
+            if item:
+                clean[key] = list(dict.fromkeys(item))
         elif key == "keys2":
             clean[key] = _words(item, "rules.keys2", MAX_KEYWORDS)
         elif key == "groups":
@@ -936,9 +946,14 @@ def blocks_from_book(book: Any) -> list[dict[str, Any]]:
         # Second keys narrow an entry ("gate" and "night"), so they stay second keys; without
         # `selective` SillyTavern ignores them, and so do we (they ride along in st_entry).
         second = [k.strip() for k in (entry.get("secondary_keys") or []) if isinstance(k, str) and k.strip()]
-        rules: dict[str, Any] = {}
+        rules: dict[str, Any] = card_rules(entry)  # place, scan, timers, groups, recursion, sources, triggers …
         if second and entry.get("selective"):
-            rules = {"keys2": second[:MAX_KEYWORDS], "logic": LOGIC_FROM_ST.get(ext.get("selectiveLogic"), "and_any")}
+            rules.update({"keys2": second[:MAX_KEYWORDS],
+                          "logic": LOGIC_FROM_ST.get(ext.get("selectiveLogic"), "and_any")})
+        insertion = entry.get("insertion_order")
+        if isinstance(insertion, (int, float)) and not isinstance(insertion, bool) \
+                and -1_000_000 <= insertion <= 1_000_000:
+            rules["order"] = int(insertion)  # SillyTavern's «Order»: the budget keeps the highest first
         depth = None
         if ext.get("position") == AT_DEPTH:  # a broken depth means SillyTavern's default 4, not "next to the card"
             depth = ext.get("depth") if isinstance(ext.get("depth"), int) and not isinstance(ext.get("depth"), bool) \
@@ -990,6 +1005,12 @@ def book_from_blocks(blocks: list[dict[str, Any]], owner: str, book_meta: dict[s
         ext["role"] = {v: k for k, v in ST_ROLES.items()}[block["role"]]
         ext["sticky"] = block["sticky"]
         ext["probability"], ext["useProbability"] = block["chance"], block["chance"] < 100
+        own = block.get("rules") or {}
+        for _world, card_key, source in SOURCE_KEYS:
+            ext[card_key] = source in (own.get("match") or [])
+        ext["delay_until_recursion"] = {0: False, 1: True}.get(own.get("after_chain", 0), own.get("after_chain"))
+        ext["use_group_scoring"] = own.get("scoring")
+        ext["triggers"] = list(own.get("triggers") or [])
         second = block.get("rules", {}).get("keys2") or []
         if second:
             ext["selectiveLogic"] = LOGIC_TO_ST.get(block["rules"].get("logic", "and_any"), 0)
@@ -1003,7 +1024,7 @@ def book_from_blocks(blocks: list[dict[str, Any]], owner: str, book_meta: dict[s
             "constant": block["mode"] == "always",
             "selective": bool(second),
             "enabled": block["mode"] != "off" and not is_free(block, by_id),
-            "insertion_order": original.get("insertion_order", 100),
+            "insertion_order": (block.get("rules") or {}).get("order", original.get("insertion_order", 100)),
             "extensions": ext,
         })
         entries.append(original)

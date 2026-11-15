@@ -41,18 +41,23 @@ Budget (when `max_context_tokens` > 0), in this order until the prompt fits:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from tavern.core import thinking
 from tavern.core.prompt import DEFAULT_CHAR_NAME, START_TURN, estimate_tokens, substitute
-from tavern.core.presets import DEFAULT_DEPTH_ORDER, when_texts
+from tavern.core.presets import DEFAULT_DEPTH_ORDER, ORIGIN_ST, when_texts
 from tavern.core.retrieval import block_order, from_st
 from tavern.providers.base import ChatMessage
 
 MIN_HISTORY = 6
 CARD_SECTIONS = (("Description", "description"), ("Personality", "personality"),
                  ("Scenario", "scenario"))
+# Connection kinds the preset's prefill (a last assistant turn) goes to: Claude, as in SillyTavern, and the text
+# mode, where it is the start of the reply. OpenAI-compatible and Gemini chats never get a trailing assistant turn.
+PREFILL_KINDS = ("anthropic", "text")
+START_RE = re.compile(r"^\s*<start>\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 @dataclass
@@ -125,6 +130,9 @@ class PromptInput:
     tail_from: str | None = None
     memory_reserve: int = 0
     values: dict[str, str] = field(default_factory=dict)
+    # The connection's kind ("openai", "gemini", "anthropic"), or "text" for the text mode: the prefill goes only to
+    # PREFILL_KINDS. Empty (unknown) = no prefill.
+    provider_kind: str = ""
 
 
 @dataclass
@@ -150,10 +158,16 @@ class Entry:
     follow: list[Entry] = field(default_factory=list)  # notes attached to this message
     images: list[tuple[str, str]] = field(default_factory=list)  # pictures the model sees with it
     join: bool = False  # one message with the entry before it (same depth, order and role), one line break between
+    alone: bool = False  # never squashed with a neighbour (the new-chat line, example separators, the group nudge)
+    name: str = ""  # a named example line ("example_user"); never squashed
+    speaker: str = ""  # who says it, for services without names (ChatMessage.speaker)
 
     def as_dict(self) -> dict[str, Any]:
-        return {"role": self.role, "text": self.text, "source": self.source,
-                "label": self.label, "kind": self.kind, "msg": self.msg}
+        out = {"role": self.role, "text": self.text, "source": self.source,
+               "label": self.label, "kind": self.kind, "msg": self.msg}
+        if self.name:
+            out["name"] = self.name
+        return out
 
 
 @dataclass
@@ -184,17 +198,17 @@ CAT_PRESET, CAT_EXTRA, CAT_NOTE, CAT_CARD, CAT_LORE = range(5)
 ROLE_RANK = {"assistant": 0, "user": 1, "system": 2}
 
 
-def card_text(card: dict[str, Any], prompts: dict[str, Any] | None = None) -> str:
-    """Description, personality and scenario of a card.
+def card_parts(card: dict[str, Any], prompts: dict[str, Any] | None = None, *, bare: bool = False) -> list[str]:
+    """Description, personality and scenario of a card, the non-empty ones.
 
     With the preset's ST-style templates (personality_format / scenario_format, e.g.
-    "[{{char}}'s personality: {{personality}}]") the parts are written the way that preset expects;
-    otherwise as titled sections.
+    "[{{char}}'s personality: {{personality}}]"), or `bare` (a preset from SillyTavern, where an empty format means
+    the field as it is), the parts are written that way; otherwise (our own presets) as titled sections.
     """
     prompts = prompts or {}
     personality_format = prompts.get("personality_format") or ""
     scenario_format = prompts.get("scenario_format") or ""
-    if personality_format or scenario_format:
+    if bare or personality_format or scenario_format:
         description = (card.get("description") or "").strip()
         personality = (card.get("personality") or "").strip()
         scenario = (card.get("scenario") or "").strip()
@@ -203,19 +217,46 @@ def card_text(card: dict[str, Any], prompts: dict[str, Any] | None = None) -> st
             (personality_format or "{{personality}}").replace("{{personality}}", personality) if personality else "",
             (scenario_format or "{{scenario}}").replace("{{scenario}}", scenario) if scenario else "",
         ]
-        return "\n\n".join(p for p in parts if p.strip())
+        return [p for p in parts if p.strip()]
     parts = []
     for title, key in CARD_SECTIONS:
         body = (card.get(key) or "").strip()
         if body:
             parts.append(f"{title}:\n{body}")
-    return "\n\n".join(parts)
+    return parts
+
+
+def card_text(card: dict[str, Any], prompts: dict[str, Any] | None = None) -> str:
+    """The card's parts as one text (our own presets: one entry per member)."""
+    return "\n\n".join(card_parts(card, prompts))
 
 
 def _examples(card: dict[str, Any]) -> str:
     text = (card.get("mes_example") or "").strip()
     lines = [line for line in text.splitlines() if line.strip().upper() != "<START>"]
     return "\n".join(lines).strip()
+
+
+def example_dialogues(text: str, user: str, char: str) -> list[list[tuple[str, str]]]:
+    """A card's example dialogue SillyTavern's way: one list per `<START>` block, each a list of
+    ("user" | "char", line text without the leading "Name:"). A line that starts with neither name continues the
+    one before it (or starts a line of the character). `text` has its macros already filled in."""
+    blocks: list[list[tuple[str, str]]] = []
+    starts = {"user": f"{user}:".casefold(), "char": f"{char}:".casefold()}
+    for raw in START_RE.split(text):
+        lines: list[tuple[str, str]] = []
+        for line in raw.strip().splitlines():
+            who = next((k for k, start in starts.items() if line.casefold().startswith(start)), None)
+            if who is not None:
+                lines.append((who, line[len(starts[who]):].strip()))
+            elif lines:
+                lines[-1] = (lines[-1][0], f"{lines[-1][1]}\n{line}")
+            elif line.strip():
+                lines.append(("char", line.strip()))
+        lines = [(who, said.strip()) for who, said in lines if said.strip()]
+        if lines:
+            blocks.append(lines)
+    return blocks
 
 
 def _cost(entry: Entry) -> int:
@@ -235,6 +276,10 @@ def assemble(data: PromptInput) -> Prompt:
     user = me.name if me else data.user_name
     several = len(others) > 1
     prefer_card = preset.get("prefer_card_prompts", True)
+    prompts = preset["prompts"]
+    # A preset from SillyTavern gets its texts the way SillyTavern sends them: card parts, persona and examples
+    # bare (no headers of ours), each its own message. Our own presets keep the titled sections.
+    st_way = preset.get("origin") == ORIGIN_ST
 
     # Macros presets use to pull cards into their own blocks (ST-style), and {{setvar}} storage
     # shared by every text of this prompt in order.
@@ -246,6 +291,8 @@ def assemble(data: PromptInput) -> Prompt:
         "mesExamples": _examples(primary_card),
         "persona": (me.card.get("description") or "").strip() if me else "",
         "summary": "",  # a plugin sets it (PromptInput.values), e.g. the memory's «Сюжет до сих пор»
+        # {{group}}: the characters of the chat (cards sent or not), as in the group new-chat line
+        "group": ", ".join(dict.fromkeys([*(m.name for m in others), *(name for name, _ in data.scene)])),
     }
     values.update(data.values)
     variables: dict[str, str] = {}
@@ -301,6 +348,23 @@ def assemble(data: PromptInput) -> Prompt:
         text = content if at_depth or from_st(item) else f"[{found.path}]\n{content}"
         role = item["role"] if at_depth or kind != "lore" else "system"
         return Entry(role, sub(text), f"block:{item['id']}", found.path, kind, owner=owner)
+
+    def example_entries(member: Member, role: str, source: str, label: str) -> list[Entry]:
+        """SillyTavern's examples: per `<START>` block the separator line (`new_example_chat`, system), then each
+        line as its own message named example_user / example_assistant, the "Name:" in front taken off. `{{char}}`
+        in a member's examples is that member. None of them is ever squashed."""
+        raw = re.sub(r"\{\{char\}\}", lambda _: member.name, member.card.get("mes_example") or "", flags=re.I)
+        out: list[Entry] = []
+        for lines in example_dialogues(sub(raw), user, member.name):
+            separator = sub(prompts.get("new_example_chat") or "")
+            if separator.strip():
+                out.append(Entry("system", separator, "prompt:new_example_chat", "Пример диалога", "examples",
+                                 owner=member.character_id, alone=True))
+            for who, said in lines:
+                out.append(Entry(role, said, source, label, "examples", owner=member.character_id,
+                                 name="example_user" if who == "user" else "example_assistant",
+                                 speaker=user if who == "user" else member.name))
+        return out
 
     def own_place(found: Any) -> str | None:
         return (found.block.get("rules") or {}).get("place") if found.block["depth"] is None else None
@@ -386,19 +450,30 @@ def assemble(data: PromptInput) -> Prompt:
         elif kind == "thinking" and not data.impersonate and block["text"].strip():
             place(Entry(role, sub(thinking.frame(block["text"])), preset_source(block), block["name"], kind), block)
         elif kind == "persona" and me is not None:
-            text = card_text(me.card, preset["prompts"])
-            if text:
-                text = f"{user} (played by the user):\n{text}"
-            place(Entry(role, sub(text), f"character:{me.character_id}:card",
-                        f"{block['name']}: {me.name}", kind, owner=me.character_id), block, me.depth)
+            source, label = f"character:{me.character_id}:card", f"{block['name']}: {me.name}"
+            if st_way:  # SillyTavern: the persona's description bare, at its place
+                for part in card_parts(me.card, prompts, bare=True):
+                    place(Entry(role, sub(part), source, label, kind, owner=me.character_id), block, me.depth)
+            else:  # ours: the model is told whose card it is (the «me» member may be a full character)
+                text = card_text(me.card, prompts)
+                if text:
+                    text = f"{user} (played by the user):\n{text}"
+                place(Entry(role, sub(text), source, label, kind, owner=me.character_id), block, me.depth)
             place_blocks(me, block)
         elif kind == "cast":
             for member in sorted(others, key=lambda m: m.importance):
-                text = card_text(member.card, preset["prompts"])
-                if several and text:
-                    text = f"### {member.name}\n{text}"
-                place(Entry(role, sub(text), f"character:{member.character_id}:card",
-                            member.name, kind, owner=member.character_id), block, member.depth)
+                source = f"character:{member.character_id}:card"
+                if st_way:  # SillyTavern: description, personality, scenario each its own message, bare
+                    parts = card_parts(member.card, prompts, bare=True)
+                    if several and parts:
+                        parts[0] = f"### {member.name}\n{parts[0]}"
+                else:
+                    parts = [card_text(member.card, prompts)]
+                    if several and parts[0]:
+                        parts[0] = f"### {member.name}\n{parts[0]}"
+                for part in parts:
+                    place(Entry(role, sub(part), source, member.name, kind, owner=member.character_id), block,
+                          member.depth)
                 place_blocks(member, block)
             if scene:
                 place(Entry(role, sub(scene), "prompt:scene", "Остальные в сцене", "prompt"), block)
@@ -406,11 +481,15 @@ def assemble(data: PromptInput) -> Prompt:
         elif kind == "examples":
             place_lore("examples_top", block)
             for member in others:
+                source, label = f"character:{member.character_id}:examples", f"{block['name']}: {member.name}"
+                if st_way:
+                    for entry in example_entries(member, role, source, label):
+                        place(entry, block)
+                    continue
                 text = _examples(member.card)
                 if text:
                     text = f"Example dialogue of {member.name}:\n{text}"
-                place(Entry(role, sub(text), f"character:{member.character_id}:examples",
-                            f"{block['name']}: {member.name}", kind, owner=member.character_id), block)
+                place(Entry(role, sub(text), source, label, kind, owner=member.character_id), block)
             place_lore("examples_bottom", block)
         elif kind == "lore_before":
             place_lore("card_before", block)
@@ -495,6 +574,13 @@ def assemble(data: PromptInput) -> Prompt:
                 f"Заметка у №{m['depth'] + 1}" + (f": {n['title']}" if n.get("title") else ""), "note"))
         return entry
 
+    # The chat starts with SillyTavern's new-chat line (system, never squashed, its tokens kept first); a chat of
+    # several characters gets the group line. Empty text = none.
+    head: list[Entry] = []
+    new_chat = prompts.get("new_group_chat" if data.several else "new_chat") or ""
+    if history_block["enabled"] and new_chat.strip():
+        head.append(Entry("system", sub(new_chat), "prompt:new_chat", "Начало чата", "prompt", alone=True))
+
     messages = [message_entry(m) for m in history]
     if options["max_tokens"]:
         kept: list[Entry] = []
@@ -516,20 +602,32 @@ def assemble(data: PromptInput) -> Prompt:
         entry.role = note_role
         injections.append(_Injection(note_depth, entry, cat=CAT_NOTE, sub=1))
 
-    tail: list[Entry] = []
+    # send_if_empty: the chat ends with the model's message (another character spoke last, «пусть поговорят»): a user
+    # turn with this text closes the chat. It counts as a chat message for depths, as in SillyTavern.
+    filler: list[Entry] = []
+    if_empty = prompts.get("send_if_empty") or ""
+    if not data.impersonate and messages and messages[-1].role == "assistant" and if_empty.strip():
+        filler.append(Entry("user", sub(if_empty), "prompt:send_if_empty", "Если чат кончается ответом модели",
+                            "prompt"))
 
-    def behaviour(key: str, label: str) -> None:
+    def behaviour(key: str, label: str, to: list[Entry], *, alone: bool = False) -> None:
         for b in when_texts(preset, key):
-            tail.append(Entry(b["role"], sub(b["text"]), f"prompt:{key}", label, "prompt"))
+            to.append(Entry(b["role"], sub(b["text"]), f"prompt:{key}", label, "prompt", alone=alone))
 
-    if me is not None and not me.model_may_write and not data.impersonate:
-        behaviour("no_write_for_me", f"Запрет: не писать за «{me.name}»")
+    # The group nudge goes right after the last chat message, before the post-history blocks (never squashed).
+    nudge: list[Entry] = []
     if data.several and not data.impersonate:
-        behaviour("speaker_reply", f"Отвечает: {char}")
+        behaviour("speaker_reply", f"Отвечает: {char}", nudge, alone=True)
+    # The tail, after everything: our «не писать за меня», the impersonation instruction (system by default, as in
+    # SillyTavern), then the prefill as the model's own start, only for Claude and the text mode.
+    tail: list[Entry] = []
+    if me is not None and not me.model_may_write and not data.impersonate:
+        behaviour("no_write_for_me", f"Запрет: не писать за «{me.name}»", tail)
     if data.impersonate:
-        behaviour("impersonate", "Написать за меня")
-    elif (preset["prompts"].get("prefill") or "").strip():
-        tail.append(Entry("assistant", sub(preset["prompts"]["prefill"]), "prompt:prefill",
+        behaviour("impersonate", "Написать за меня", tail)
+    prefill = (prompts.get("impersonation_prefill" if data.impersonate else "prefill") or "").rstrip()
+    if prefill.strip() and data.provider_kind in PREFILL_KINDS:
+        tail.append(Entry("assistant", sub(prefill).rstrip(), "prompt:prefill",
                           "Начало ответа (prefill)", "prompt"))
 
     dropped: dict[str, Any] = {"messages": 0, "members": [], "lore": list(data.lore_dropped),
@@ -537,8 +635,8 @@ def assemble(data: PromptInput) -> Prompt:
     history_ids = [m["id"] for m in data.history]  # the whole branch, in order
 
     def total() -> int:
-        return (_tokens(before) + _tokens(after) + _tokens(messages) + _tokens(tail)
-                + sum(_cost(i.entry) for i in injections))
+        return (_tokens(before) + _tokens(after) + _tokens(messages) + _tokens(tail) + _tokens(head)
+                + _tokens(filler) + _tokens(nudge) + sum(_cost(i.entry) for i in injections))
 
     if data.max_context_tokens:
         def drop_oldest(keep: int, limit: int) -> None:
@@ -618,6 +716,8 @@ def assemble(data: PromptInput) -> Prompt:
         if not dropped[key]:
             del dropped[key]
 
+    messages.extend(filler)  # the send_if_empty turn closes the chat and counts for depths
+
     # Depth d goes before the last d messages; several at one place go SillyTavern's way (CAT_* above).
     # A fired note lands after a message; a saved note already attached there (the reply is being
     # regenerated) is not sent twice.
@@ -628,7 +728,8 @@ def assemble(data: PromptInput) -> Prompt:
         note = injection.note
         if note is not None:
             after_message = messages[index - 1] if index > 0 else None
-            message_id = after_message.source.removeprefix("message:") if after_message else None
+            stored = [m for m in messages[:index] if m.source.startswith("message:")]  # not the send_if_empty turn
+            message_id = stored[-1].source.removeprefix("message:") if stored else None
             if note.mode != "once" and after_message is not None and any(
                 f.source in saved_sources.get(note.id, ()) for f in after_message.follow
             ):
@@ -636,7 +737,7 @@ def assemble(data: PromptInput) -> Prompt:
             placed.append({"note_id": note.id, "mode": note.mode, "message_id": message_id,
                            "text": injection.entry.text, "role": note.role, "title": note.title})
         slots[index].append(injection)
-    chat_part: list[Entry] = []
+    chat_part: list[Entry] = list(head)
     for index, slot in enumerate(slots):
         group: tuple[int, str] | None = None
         for injection in sorted(slot, key=lambda i: (i.order, ROLE_RANK.get(i.entry.role, 2), i.cat, i.sub)):
@@ -647,27 +748,33 @@ def assemble(data: PromptInput) -> Prompt:
         if index < len(messages):
             chat_part.append(messages[index])
             chat_part.extend(messages[index].follow)
+    chat_part.extend(nudge)
 
     entries = [*before, *chat_part, *after, *tail]
-    if entries and not any(e.role == "user" for e in entries):
+    # No user turn at all: our own presets without the new-chat line add a user "[Start]" so every service accepts
+    # the request. SillyTavern never adds one, so neither does a preset from it, nor a prompt with the new-chat line.
+    if entries and not head and not st_way and not any(e.role == "user" for e in entries):
         first_chat = len(before)
         entries.insert(first_chat, Entry("user", START_TURN, "prompt:start", "Начало", "prompt"))
 
     # Texts of one depth group are one message; neighbouring system texts outside the chat messages are joined
-    # only when the preset says so (SillyTavern's «Squash system messages»). One line break, as SillyTavern.
+    # only when the preset says so (SillyTavern's «Squash system messages»), never a named example line or the
+    # separators (`alone`). One line break, as SillyTavern.
     squash = preset.get("squash_system", True)
     sent: list[ChatMessage] = []
     previous: Entry | None = None
+
+    def squashable(e: Entry) -> bool:
+        return e.role == "system" and e.kind != "message" and not e.alone and not e.name
+
     for entry in entries:
         joined = entry.join and previous is not None and previous.role == entry.role and bool(sent)
-        mergeable = joined or (squash and previous is not None and entry.role == "system"
-                               and previous.role == "system" and entry.kind != "message"
-                               and previous.kind != "message")
+        mergeable = joined or (squash and previous is not None and squashable(entry) and squashable(previous))
         if mergeable:
             last = sent[-1]
             sent[-1] = ChatMessage(last.role, f"{last.content}\n{entry.text}", last.images)
         else:
-            sent.append(ChatMessage(entry.role, entry.text, tuple(entry.images)))
+            sent.append(ChatMessage(entry.role, entry.text, tuple(entry.images), entry.name, entry.speaker))
         entry.msg = len(sent) - 1
         previous = entry
     return Prompt(entries=entries, messages=sent, tokens=_tokens(entries), dropped=dropped,

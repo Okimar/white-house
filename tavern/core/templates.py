@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from tavern.providers.base import ChatMessage
+from tavern.providers.base import ChatMessage, spoken
 
 TEXT_FIELDS = ("bos", "story_string", "chat_start", "system_prefix", "system_suffix", "user_prefix",
                "user_suffix", "assistant_prefix", "assistant_suffix")
@@ -119,7 +119,7 @@ def render(template: dict[str, Any], messages: list[ChatMessage]) -> tuple[str, 
     leading: list[str] = []
     rest = list(messages)
     while rest and rest[0].role == "system":
-        leading.append(rest.pop(0).content)
+        leading.append(spoken(rest.pop(0)))  # a named example line keeps its speaker in front
     parts = [t["bos"]]
     if leading:
         story = _story(t["story_string"], "\n\n".join(leading))
@@ -135,7 +135,7 @@ def render(template: dict[str, Any], messages: list[ChatMessage]) -> tuple[str, 
         if i == len(rest) - 1 and role == "assistant":
             parts.append(t["assistant_prefix"] + message.content)  # continue: leave the turn open
             return "".join(parts), _stops(t)
-        parts.append(t[f"{role}_prefix"] + message.content + t[f"{role}_suffix"])
+        parts.append(t[f"{role}_prefix"] + spoken(message) + t[f"{role}_suffix"])
     parts.append(t["assistant_prefix"])
     return "".join(parts), _stops(t)
 

@@ -26,3 +26,6 @@ Thumbs.db
 
 # Reference install of SillyTavern (owner's copy, never committed)
 SillyTavern/
+
+# progress notes of agents (survive a cut connection), never committed
+/.work/

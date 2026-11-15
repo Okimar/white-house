@@ -21,7 +21,10 @@ from tavern.core.presets import (
     DEFAULT_DEPTH_ORDER,
     DEFAULT_PROMPTS,
     MAX_ORDER,
+    ORIGIN_ST,
+    PROMPT_ST_KEYS,
     REASONING_EFFORTS,
+    TEXTS_VERSION,
     WHEN,
     PresetError,
     normalize_preset,
@@ -65,9 +68,7 @@ GLOBAL_ORDER_ID = 100001
 TEXTS = {
     "impersonation_prompt": "impersonate",
     "group_nudge_prompt": "speaker_reply",
-    "assistant_prefill": "prefill",
-    "personality_format": "personality_format",
-    "scenario_format": "scenario_format",
+    **{st_key: key for key, st_key in PROMPT_ST_KEYS.items()},
 }
 CONSUMED = {"prompts", "prompt_order", "openai_max_context", "reasoning_effort", "squash_system_messages",
             *PARAMS, *TEXTS}
@@ -165,6 +166,8 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
         "prompts": prompts_out,
         "st": {k: v for k, v in obj.items() if k not in CONSUMED},
         "squash_system": squash if isinstance(squash, bool) else False,  # off in SillyTavern unless the file says
+        "origin": ORIGIN_ST,
+        "texts_version": TEXTS_VERSION,
     })
     return (name or "Импорт из SillyTavern").strip()[:100], data
 

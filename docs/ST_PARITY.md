@@ -198,20 +198,20 @@ into the connection (the page asks; the test answers yes).
 
 | ST behaviour | Ours | Status |
 |---|---|---|
-| `{{user}}`, `{{char}}`, `<USER>`, `<BOT>`, `<CHAR>` | `{{user}}`, `{{char}}`; angle forms missing | partly |
-| `{{charIfNotGroup}}`, `{{group}}` / `<GROUP>`, `{{groupNotMuted}}`, `{{notChar}}` | missing | missing |
-| Card field macros: description, personality, scenario, persona, mesExamples (formatted and raw), card main prompt, card jailbreak, depth prompt, creator notes, version, first message, system prompt | description, personality, scenario, persona, mesExamples; the rest missing | partly |
+| `{{user}}`, `{{char}}`, `<USER>`, `<BOT>`, `<CHAR>` | All; names without case. Angle forms only in upper case (lower-case `<user>` is often an XML-like tag in presets). | same / angle case **отличается нарочно** |
+| `{{charIfNotGroup}}`, `{{group}}` / `<GROUP>`, `{{groupNotMuted}}`, `{{notChar}}` | Engine done (2026-11-14): values `group`, `groupNotMuted`, `notChar`; without them the character / the user (ST's one-character result). Group names wait for the assembly to pass them. | partly (wiring) |
+| Card field macros: description, personality, scenario, persona, mesExamples (formatted and raw), card main prompt, card jailbreak, depth prompt, creator notes, version, first message, system prompt | All names and long forms (`charDescription`, `charJailbreak`, `greeting` …); macros inside a card text are expanded too. Values beyond description / personality / scenario / persona / mesExamples wait for the assembly (until then empty). | partly (wiring) |
 | `{{original}}` | yes | same |
-| `{{newline}}`, `{{trim}}`, `{{noop}}`, `{{// comment}}`, `{{space}}` | missing, left as raw text (comments reach the model) | missing |
-| `{{random::a::b}}`, `{{pick::a::b}}` (stable per chat), `{{roll:1d6}}`, `{{reverse::x}}` | random, roll; pick, reverse missing | partly |
-| Time / date macros, `timeDiff`, `idle_duration` | missing | missing |
-| `{{lastMessage}}`, `{{lastUserMessage}}`, `{{lastCharMessage}}`, message ids, swipe ids, `{{lastGenerationType}}`, `{{input}}` | missing | missing |
-| `{{model}}`, `{{maxContext}}`, `{{maxPrompt}}`, `{{maxResponse}}`, `{{isMobile}}` | missing | missing |
-| Variables set / get / add / inc / dec / has / delete, chat-local (kept in the chat) and global (kept in settings) | set / get only, per prompt, not kept | partly |
-| `{{if …}}…{{else}}…{{/if}}`, `{{outlet::name}}`, `{{banned "x"}}` | missing | missing |
-| Unknown macro left as is | same | same |
+| `{{newline}}`, `{{trim}}`, `{{noop}}`, `{{// comment}}`, `{{space}}` | Done. Comments go first and whole (also multi-line; nothing inside runs); trim last (eats line breaks around it, also ones `{{newline}}` made). | same |
+| `{{random::a::b}}`, `{{random:a,b}}`, `{{pick::a::b}}` (stable per chat), `{{roll:1d6}}`, `{{reverse::x}}` | Done; pick seeded by value `chatId` + text + place; roll takes `NdM±K` and a bare `N`. | same (pick's exact choice differs from ST's) |
+| Time / date macros, `timeDiff`, `idle_duration` | Done, English formats (`3:05 PM`, `November 14, 2026`); `datetimeformat` takes the common date tokens; `idle_duration` from value `lastUserMessageTime`, else "just now". | same (ST follows the UI language) |
+| `{{lastMessage}}`, `{{lastUserMessage}}`, `{{lastCharMessage}}`, message ids, swipe ids, `{{lastGenerationType}}`, `{{input}}` | Engine done (values by those names, empty / "normal" without them); wait for the assembly to pass them. | partly (wiring) |
+| `{{model}}`, `{{maxContext}}`, `{{maxPrompt}}`, `{{maxResponse}}`, `{{isMobile}}`, `{{hasExtension}}` | Engine done (values, empty / "false" without); `hasExtension` always "false". | partly (wiring) |
+| Variables set / get / add / inc / dec / has / delete, chat-local (kept in the chat) and global (kept in settings) | All operations and global forms; shared by every text of one request; not kept between replies yet (needs a place in the chat / settings). | partly |
+| `{{if …}}…{{else}}…{{/if}}`, `{{outlet::name}}`, `{{banned "x"}}` | if / else (nested, `!` negation, a macro name or `{{…}}` as condition; false = empty, false, 0, off, no; only the chosen branch runs); outlet from value `outlet::name` (empty when none); banned removed (no banned-token list). | partly (outlet wiring) |
+| Unknown macro left as is | same (inner macros expanded) | same |
 
-Files: `core/prompt.py` (`substitute`), `core/assembly.py` (values), chat meta for variables. Test: "A{{trim}}\n\nB {{// hidden}}{{newline}}C".
+Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembly.py` (values), chat meta for variables. Test: "A{{trim}}\n\nB {{// hidden}}{{newline}}C" → "AB \nC" (`tests/unit/test_macros.py`).
 
 ## 8. Regex
 

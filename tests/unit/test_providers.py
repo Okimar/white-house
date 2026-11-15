@@ -39,7 +39,7 @@ def test_request_params_keep_only_what_the_kind_takes():
 
 @pytest.mark.parametrize("params, message", [
     ({"temperature": "hot"}, "числом"), ({"temperature": 5}, "от 0 до 2"), ({"top_k": 1.5}, "целым"),
-    ({"safety_off": 1}, "да или нет"), ({"stop": "x"}, "список"), ({"reasoning_effort": "max"}, "одно из"),
+    ({"safety_off": 1}, "да или нет"), ({"stop": "x"}, "список"), ({"reasoning_effort": "huge"}, "одно из"),
     ({"extra_body": []}, "объект"),
 ])
 def test_validate_rejects_bad_values(params, message):
@@ -96,14 +96,14 @@ def test_gemini_body():
                "extra_body": {"generationConfig": {"candidateCount": 1}, "cachedContent": "c1"}},
     ))
     assert body["systemInstruction"] == {"parts": [{"text": "Be kind."}]}
-    assert body["contents"] == [
-        {"role": "user", "parts": [{"text": "a"}, {"text": "b"}]},
+    assert body["contents"] == [  # same-role neighbours joined into one text, as SillyTavern does
+        {"role": "user", "parts": [{"text": "a\n\nb"}]},
         {"role": "model", "parts": [{"text": "c"}]},
         {"role": "user", "parts": [{"text": "late note"}]},
     ]
     assert body["generationConfig"] == {
-        "maxOutputTokens": 100, "temperature": 0.5, "stopSequences": ["x"], "topK": 40,
-        "thinkingConfig": {"thinkingBudget": 512, "includeThoughts": True}, "candidateCount": 1,
+        "candidateCount": 1, "maxOutputTokens": 100, "temperature": 0.5, "stopSequences": ["x"], "topK": 40,
+        "thinkingConfig": {"thinkingBudget": 512, "includeThoughts": True},
     }
     assert {s["threshold"] for s in body["safetySettings"]} == {"OFF"}
     assert body["cachedContent"] == "c1"
@@ -111,13 +111,13 @@ def test_gemini_body():
 
 def test_gemini_json_mode_and_effort():
     body = GeminiProvider("http://llm/v1beta").build_body(GenerationRequest(
-        messages=[ChatMessage("user", "a")], model="m", extra={"reasoning_effort": "low"},
+        messages=[ChatMessage("user", "a")], model="gemini-3-pro-preview", extra={"reasoning_effort": "low"},
         response_format={"type": "json_schema", "schema": {"type": "object"}},
     ))
     config = body["generationConfig"]
     assert config["responseMimeType"] == "application/json"
     assert config["responseJsonSchema"] == {"type": "object"}
-    assert config["thinkingConfig"] == {"thinkingLevel": "low"}
+    assert config["thinkingConfig"] == {"thinkingLevel": "low", "includeThoughts": True}
 
 
 async def test_gemini_stream_keeps_thoughts_apart():
@@ -236,8 +236,9 @@ def test_anthropic_body():
                   ChatMessage("user", "look", images=(("image/png", "QUJD"),)), ChatMessage("system", "note")],
         model="claude-x", temperature=0.5, top_p=0.9, stop=["END"], extra={"top_k": 20, "web_search": True},
     ))
-    assert body["system"] == "Be kind." and body["max_tokens"] == 4096 and body["stream"] is True
-    assert body["messages"][0] == {"role": "user", "content": [{"type": "text", "text": "."}]}
+    assert body["system"] == [{"type": "text", "text": "Be kind."}]
+    assert body["max_tokens"] == 4096 and body["stream"] is True
+    assert body["messages"][0] == {"role": "user", "content": [{"type": "text", "text": "Let's get started."}]}
     assert body["messages"][1]["role"] == "assistant"
     assert body["messages"][2]["content"] == [
         {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}},

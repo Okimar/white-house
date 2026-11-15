@@ -13,11 +13,18 @@ Entry fields we understand (anything else rides along in `extra.st_entry` and go
     "outlet", reached in ST only through a macro) is kept with place "outlet" and never sent. `order` becomes the
     rule `order` (what the lorebook budget keeps first, and the order at one depth); the role counts only for
     entries at a depth.
+    Wave 2 (2026-11-14): matchPersonaDescription, matchCharacterDescription, matchCharacterPersonality,
+    matchCharacterDepthPrompt, matchScenario, matchCreatorNotes (rule `match`), delayUntilRecursion (true = level 1,
+    a number = that level; rule `after_chain`), useGroupScoring (null = the global setting; rule `scoring`), triggers
+    (rule `triggers`). A card's embedded book carries the same fields in snake_case under `extensions`
+    (`card_rules`).
 """
 
 from __future__ import annotations
 
 from typing import Any, Callable
+
+from tavern.core.retrieval import TRIGGERS
 
 LOGIC_FROM_ST = {0: "and_any", 1: "not_all", 2: "not_any", 3: "and_all"}
 LOGIC_TO_ST = {v: k for k, v in LOGIC_FROM_ST.items()}
@@ -39,6 +46,75 @@ def _int(value: Any, low: int, high: int) -> int | None:
 
 def _strings(value: Any) -> list[str]:
     return [v.strip() for v in value if isinstance(v, str) and v.strip()] if isinstance(value, list) else []
+
+
+# (world file key, card book extension key, our source name) of the per-entry scan sources
+SOURCE_KEYS = (
+    ("matchPersonaDescription", "match_persona_description", "persona"),
+    ("matchCharacterDescription", "match_character_description", "description"),
+    ("matchCharacterPersonality", "match_character_personality", "personality"),
+    ("matchCharacterDepthPrompt", "match_character_depth_prompt", "depth_prompt"),
+    ("matchScenario", "match_scenario", "scenario"),
+    ("matchCreatorNotes", "match_creator_notes", "creator_notes"),
+)
+
+
+def _wave2_rules(value: Callable[[str, str], Any]) -> dict[str, Any]:
+    """Scan sources, «delay until recursion», group scoring and triggers. `value(world_key, card_key)` reads the
+    field from a world entry or a card book entry's extensions."""
+    rules: dict[str, Any] = {}
+    match = [ours for world, card, ours in SOURCE_KEYS if value(world, card) is True]
+    if match:
+        rules["match"] = match
+    delayed = value("delayUntilRecursion", "delay_until_recursion")
+    if delayed is True:
+        rules["after_chain"] = 1
+    elif _int(delayed, 1, 1000) is not None:
+        rules["after_chain"] = delayed
+    scoring = value("useGroupScoring", "use_group_scoring")
+    if isinstance(scoring, bool):
+        rules["scoring"] = scoring
+    triggers = value("triggers", "triggers")
+    if isinstance(triggers, list):
+        kinds = [t for t in dict.fromkeys(triggers) if isinstance(t, str) and t in TRIGGERS]
+        if kinds:
+            rules["triggers"] = kinds
+    return rules
+
+
+def card_rules(entry: dict[str, Any]) -> dict[str, Any]:
+    """The finer rules of a card's embedded book entry (`extensions`, snake_case), the same as a world entry's
+    except the second keywords (character_tree.blocks_from_book reads those) and the depth."""
+    ext = entry.get("extensions") if isinstance(entry.get("extensions"), dict) else {}
+    rules: dict[str, Any] = {}
+    position = ext.get("position")
+    if position in PLACE_FROM_ST and position != AT_DEPTH:
+        rules["place"] = PLACE_FROM_ST[position]
+    for ours, theirs, low, high in (("scan", "scan_depth", 1, 1000), ("cooldown", "cooldown", 1, 1000),
+                                    ("delay", "delay", 1, 100_000)):
+        number = _int(ext.get(theirs), low, high)
+        if number is not None:
+            rules[ours] = number
+    if ext.get("case_sensitive") is True or entry.get("case_sensitive") is True:
+        rules["case"] = True
+    if ext.get("match_whole_words") is True:
+        rules["whole"] = True
+    groups = [g.strip()[:100] for g in str(ext.get("group") or "").split(",") if g.strip()][:20]
+    if groups:
+        rules["groups"] = groups
+        if ext.get("group_override"):
+            rules["main"] = True
+        weight = _int(ext.get("group_weight"), 0, 1000)
+        if weight is not None and weight != 100:
+            rules["weight"] = weight
+    if ext.get("exclude_recursion"):
+        rules["not_woken"] = True
+    if ext.get("prevent_recursion"):
+        rules["no_wake"] = True
+    if ext.get("ignore_budget") is True:
+        rules["no_budget"] = True
+    rules.update(_wave2_rules(lambda _world, card: ext.get(card)))
+    return rules
 
 
 def is_world(data: Any) -> bool:
@@ -99,6 +175,7 @@ def block_from_entry(entry: dict[str, Any], index: int,
         rules["order"] = int(order)  # which entry the budget keeps first, and the order at one depth
     if entry.get("ignoreBudget") is True:
         rules["no_budget"] = True
+    rules.update(_wave2_rules(lambda world, _card: entry.get(world)))
     wanted = entry.get("characterFilter") if isinstance(entry.get("characterFilter"), dict) else {}
     names = _strings(wanted.get("names"))
     if names and character_ids is not None:
@@ -170,5 +247,10 @@ def entry_from_block(block: dict[str, Any], uid: int, comment: str, enabled: boo
         "excludeRecursion": bool(rules.get("not_woken")),
         "preventRecursion": bool(rules.get("no_wake")),
         "characterFilter": character_filter,
+        "delayUntilRecursion": {0: False, 1: True}.get(rules.get("after_chain", 0), rules.get("after_chain")),
+        "useGroupScoring": rules.get("scoring"),
+        "triggers": list(rules.get("triggers") or []),
     })
+    for world, _card, ours in SOURCE_KEYS:
+        entry[world] = ours in (rules.get("match") or [])
     return entry

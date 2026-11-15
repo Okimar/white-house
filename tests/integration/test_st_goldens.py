@@ -52,23 +52,19 @@ ALLOWED: dict[str, tuple[str, Any]] = {
     "include_usage": (
         "we ask a streamed reply for its token counts (stream_options.include_usage) so spending is real, not guessed",
         lambda st, ours: (st, _without_keys(ours, "stream_options", only_value={"include_usage": True}))),
-}
-
-# (c) Not decided: listed for the owner with this example; ignored here until he says which way.
-UNDECIDED: dict[str, tuple[str, Any]] = {
     "zero_penalties": (
-        "ST always sends presence_penalty 0 / frequency_penalty 0; our ST import treats 0 as «off» and sends nothing "
-        "(formats/st_preset.py OFF_VALUES: same effect on most services, some Gemini routes reject the fields)",
+        "ST always sends presence_penalty 0 / frequency_penalty 0; our ST import treats 0 as «off» and sends nothing: "
+        "the same effect, and some Gemini routes reject the fields (formats/st_preset.py OFF_VALUES; lead, 2026-11-14)",
         lambda st, ours: (_without_keys(st, "presence_penalty", "frequency_penalty", only_value=0), ours)),
 }
 
+# (c) Not decided: listed for the owner with this example; ignored here until he says which way.
+UNDECIDED: dict[str, tuple[str, Any]] = {}
+
 # (a) SillyTavern's way is needed, not done yet: the wave of the parity plan that will do it (docs/ST_PARITY.md).
 # Each takes the golden only and removes what we do not send yet; a case it changes is a strict xfail in the full test.
-WAVES: dict[str, tuple[str, Any]] = {
-    "new_chat_line": (
-        "wave 1: history starts with the system line «[Start a new Chat]» (preset new_chat_prompt), never squashed",
-        lambda st: _without_message(st, "system", "[Start a new Chat]")),
-}
+# Wave 1a (2026-11-14) landed «[Start a new Chat]»: nothing waits now.
+WAVES: dict[str, tuple[str, Any]] = {}
 
 
 def _ignore(golden: Body, ours: Body, *, waves: bool) -> tuple[Body, Body]:

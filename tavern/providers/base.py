@@ -55,6 +55,15 @@ class ChatMessage:
     content: str
     # Pictures the model should see with this message: (media type, base64 data).
     images: tuple[tuple[str, str], ...] = ()
+    # A named line (SillyTavern's example dialogue): `name` goes in the OpenAI-compatible `name` field
+    # ("example_user"); services without names get `speaker` ("Анна") in front of the text instead (`spoken`).
+    name: str = ""
+    speaker: str = ""
+
+
+def spoken(message: ChatMessage) -> str:
+    """The text for a service without a `name` field: "Speaker: text" for a named line, else the text."""
+    return f"{message.speaker}: {message.content}" if message.speaker and message.content else message.content
 
 
 @dataclass
