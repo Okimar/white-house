@@ -281,6 +281,10 @@ export function LorebookSettings({ settings = {}, onChanged, onError }) {
       <input type="checkbox" checked=${values.include_names} onChange=${(e) => save("include_names", e.target.checked)} />
       Читать сообщения с именами</label>
     <p class="hint">Ключ «Аня» найдётся и тогда, когда Аня сама пишет, но не называет себя: поиск видит «Аня: текст». Так делает SillyTavern.</p>
+    <label class="check" data-slot="lorebook-scan-notes">
+      <input type="checkbox" checked=${values.scan_notes} onChange=${(e) => save("scan_notes", e.target.checked)} />
+      Искать ключи и в заметках автора</label>
+    <p class="hint">Если включено, записи находятся и по словам из сработавших заметок автора, а не только из сообщений. В SillyTavern по умолчанию выключено.</p>
     <h2>В каком порядке берутся записи</h2>
     <ol class="hint lore-order">
       <li>Лорбуки текущего чата.</li>

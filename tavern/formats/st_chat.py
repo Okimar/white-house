@@ -111,5 +111,33 @@ def parse_st_chat(text: str) -> dict[str, Any]:
         swipes.append(values)
         metas.append(row_metas)
     return {"chat": {"leaf_id": parent}, "messages": messages, "swipes": swipes, "swipe_metas": metas,
-            "members": [], "chat_notes": [], "message_notes": [], "plugins": [],
-            "character_name": character, "user_name": user}
+            "members": [], "chat_notes": author_note(header.get("chat_metadata")), "message_notes": [],
+            "plugins": [], "character_name": character, "user_name": user}
+
+
+# The chat's author's note in the header's chat_metadata: position 0 = after the main prompt, 1 = in the chat at
+# its depth, 2 = before the main prompt; role 0 system, 1 user, 2 assistant; interval N = every N-th time, 0 = off.
+_AN_PLACES = {0: "after_main", 1: "depth", 2: "before_main"}
+_AN_ROLES = {0: "system", 1: "user", 2: "assistant"}
+
+
+def _small_int(value: Any, default: int, low: int, high: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    return min(high, max(low, int(value)))
+
+
+def author_note(metadata: Any) -> list[dict[str, Any]]:
+    """The chat's author's note as one of our chat notes (none when its text is empty). The interval becomes ours
+    (replies skipped: N − 1); an interval of 0 imports the note switched off, as SillyTavern never sends it."""
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("note_prompt"), str):
+        return []
+    text = metadata["note_prompt"]
+    if not text.strip():
+        return []
+    interval = _small_int(metadata.get("note_interval"), 1, 0, 1001)
+    return [{"title": "Заметка автора из SillyTavern", "text": text, "enabled": interval > 0,
+             "depth": _small_int(metadata.get("note_depth"), 4, 0, 1000),
+             "place": _AN_PLACES.get(_small_int(metadata.get("note_position"), 1, 0, 2), "depth"),
+             "role": _AN_ROLES.get(_small_int(metadata.get("note_role"), 0, 0, 2), "system"),
+             "interval": max(0, interval - 1), "mode": "once"}]

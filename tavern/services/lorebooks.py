@@ -38,12 +38,12 @@ from tavern.services import cast, character_tree, history
 DEFAULT_SETTINGS: dict[str, Any] = {
     "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
     "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
-    "group_scoring": False,
+    "group_scoring": False, "scan_notes": False,
 }
 SETTING_LIMITS = {"budget_tokens": (0, 1_000_000), "budget_percent": (0, 100), "budget_cap": (0, 1_000_000),
                   "recursion": (0, 10), "scan_messages": (0, 1000), "min_activations": (0, 100),
                   "min_depth_max": (0, 1000)}
-SETTING_FLAGS = ("include_names", "group_scoring")
+SETTING_FLAGS = ("include_names", "group_scoring", "scan_notes")
 STRATEGIES = ("character_first", "global_first", "evenly")
 # Tiers of the budget's ranking: the chat's books, the persona's, then characters / global by the strategy.
 TIERS = {"character_first": (2, 3), "global_first": (3, 2), "evenly": (2, 2)}
@@ -280,7 +280,7 @@ async def meaning_for_reply(
 async def select_for_chat(
     ctx: AppContext, chat: dict[str, Any], members: list[Any], history_: list[dict[str, Any]],
     *, max_context: int = 0, seed_text: str = "", meaning: dict[str, float] | None = None,
-    kind: str = "normal",
+    kind: str = "normal", notes_text: str = "",
 ) -> Selection:
     """Entries of the chat's books for this reply. Call after character_tree.select_for_chat: it
     counts the reply (the chat's generation number) that both use. `seed_text`: the text of the
@@ -303,6 +303,8 @@ async def select_for_chat(
     messages = scan_lines(history_, names=bool(lore["include_names"]), user=user)
     depth = int(lore["scan_messages"])
     scan_text = "\n".join(messages[-depth:]) if depth > 0 else ""
+    if lore["scan_notes"] and notes_text.strip():  # SillyTavern's «the author's note may be scanned» (off by default)
+        scan_text = f"{scan_text}\n{notes_text}" if scan_text else notes_text
     generation = int(ctx.chats.get_chat(chat["id"])["meta"].get("generation", 0))
     clock = len(history_)  # SillyTavern counts timers of its entries in chat messages
     budget = lore["budget_tokens"]

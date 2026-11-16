@@ -30,6 +30,9 @@ SCOPES = ("global", "character", "chat")
 ROLES = ("system", "user", "assistant")
 MODES = ("once", "hidden", "visible")
 KINDS = ("hidden", "visible")  # notes kept in the history
+# Where a note goes (SillyTavern's author's note positions): in the chat at its depth, or right before / after the
+# preset's main prompt. Outside the chat a note is never kept on a message: it acts as «once».
+PLACES = ("depth", "before_main", "after_main")
 MAX_TITLE = 200
 MAX_TEXT = 100_000
 
@@ -81,6 +84,10 @@ def clean_note(changes: dict[str, Any]) -> dict[str, Any]:
         elif key == "mode":
             if value not in MODES:
                 raise AppError("Mode must be 'once', 'hidden' or 'visible'", code="bad_note")
+            clean[key] = value
+        elif key == "place":
+            if value not in PLACES:
+                raise AppError(f"Place must be one of: {', '.join(PLACES)}", code="bad_note")
             clean[key] = value
         else:
             raise AppError(f"Unknown note field {key!r}", code="bad_note")
@@ -150,8 +157,9 @@ def for_reply(ctx: AppContext, chat_id: str, character_ids: list[str],
     """Notes that fire for the next reply, global first, then characters', then the chat's."""
     number = reply_number(history)
     return [
-        NoteInput(id=n["id"], text=n["text"], role=n["role"], depth=n["depth"], mode=n["mode"],
-                  title=n["title"])
+        NoteInput(id=n["id"], text=n["text"], role=n["role"], depth=n["depth"],
+                  mode=n["mode"] if n.get("place", "depth") == "depth" else "once", title=n["title"],
+                  place=n.get("place", "depth"))
         for n in ctx.notes.for_chat(chat_id, character_ids)
         if n["enabled"] and n["text"].strip() and fires(n["interval"], number)
     ]

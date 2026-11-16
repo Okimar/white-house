@@ -698,8 +698,14 @@ It makes no model call while a reply is built. It reuses `job.meaning` (the repl
 
 - `notes.for_reply`: enabled global, then character, then chat notes with text where `fires(interval,
   reply_number)`. Here `reply_number = 1 + non-user messages in the history` and the test is
-  `number % (interval+1) == 0`. Each becomes `NoteInput{depth (default 4), role, mode}`.
-- In assembly, each fired note is an injection at its depth. Its `placed` record goes to `record_placed` after the
+  `number % (interval+1) == 0`. Each becomes `NoteInput{depth (default 4), role, mode, place}`; a note whose
+  `place` (migration 0026) is `before_main` / `after_main` goes right before / after the main prompt entry (no main
+  switched on: at the very top), always as mode «once». They are computed before the lorebooks: with the lorebook
+  setting `scan_notes` their texts join the scan (`lorebooks.select_for_chat(notes_text=)`).
+- Lore at the note (`an_top` / `an_bottom`) rides with the first fired note (its depth and role, or next to it outside
+  the chat); without a fired note entries from SillyTavern files are not sent, ours go at depth 4.
+- An imported SillyTavern chat's `chat_metadata.note_*` becomes a chat note (`formats/st_chat.py:author_note`).
+- In assembly, each fired note with place `depth` is an injection at its depth. Its `placed` record goes to `record_placed` after the
   reply is saved:
   - `hidden` and `visible` notes are attached to the message before them (`message_notes`);
   - `once` notes are not kept.

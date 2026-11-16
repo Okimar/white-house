@@ -144,6 +144,7 @@ class NoteInput:
     depth: int = 4
     mode: str = "once"  # 'once' (not kept) | 'hidden' | 'visible' (kept in the history)
     title: str = ""
+    place: str = "depth"  # 'depth' (in the chat) | 'before_main' | 'after_main' (SillyTavern's positions)
 
 
 @dataclass
@@ -325,6 +326,18 @@ def assemble(data: PromptInput) -> Prompt:
             (after if history_seen else before).append(entry)
 
     blocks_placed: set[str] = set()
+    # Author's notes placed outside the chat go with the main prompt (a switched-off main: at the very top).
+    def note_entry(note: NoteInput) -> Entry:
+        return Entry(note.role, sub(note.text), f"note:{note.id}", "Заметка" + (f": {note.title}" if note.title else ""),
+                     "note")
+
+    outside_notes: dict[str, list[Entry]] = {"before_main": [], "after_main": []}
+    for note in data.notes:
+        if note.place in outside_notes:
+            entry = note_entry(note)
+            if entry.text.strip():
+                outside_notes[note.place].append(entry)
+    main_placed = False
     examples_mode = "room"  # the examples block's choice, read when it is placed (presets.EXAMPLE_MODES)
     slot = Entry("system", "", "", "", "_slot")  # where the preset's «memory» block stands
     slot_list: list[Entry] | None = None
@@ -443,7 +456,14 @@ def assemble(data: PromptInput) -> Prompt:
         elif kind in ("main", "post_history"):
             text, source = card_with_override(block, "system_prompt" if kind == "main" else
                                               "post_history_instructions")
+            if kind == "main":  # SillyTavern's author's note positions «before / after the main prompt»
+                for entry in outside_notes["before_main"]:
+                    place(entry, block)
             place(Entry(role, sub(text), source, block["name"], kind), block)
+            if kind == "main":
+                for entry in outside_notes["after_main"]:
+                    place(entry, block)
+                main_placed = True
         elif kind == "text" and block.get("when"):
             continue  # a behaviour block: sent at the end, only while its behaviour is on
         elif kind == "text":
@@ -507,12 +527,32 @@ def assemble(data: PromptInput) -> Prompt:
             history_seen_before, history_seen = history_seen, False
             place_blocks(member, {"position": "top", "depth": 0})
             history_seen = history_seen_before
+    if not main_placed:  # no main prompt switched on: notes «before / after main» open the prompt
+        before[0:0] = outside_notes["before_main"] + outside_notes["after_main"]
     note_depth = data.notes[0].depth if data.notes else 4  # where the author's note goes (ST's default)
     note_role = data.notes[0].role if data.notes else "system"  # lore above / below the note rides in its message
-    for entry in placed_at.pop("an_top", []):
+    an_top = placed_at.pop("an_top", [])
+    an_bottom = placed_at.pop("an_bottom", [])
+    if not data.notes:  # SillyTavern sends entries «at the author's note» only when the note fires; ours always go
+        st_lore = {f"block:{f.block['id']}" for f in data.lore if from_st(f.block)}
+        an_top = [e for e in an_top if e.source not in st_lore]
+        an_bottom = [e for e in an_bottom if e.source not in st_lore]
+    first_note = data.notes[0] if data.notes else None
+    if first_note is not None and first_note.place != "depth":  # the lore rides with the note outside the chat
+        anchor = next((e for e in before + after if e.source == f"note:{first_note.id}"), None)
+        holder = before if anchor is not None and any(e is anchor for e in before) else after
+        if anchor is None:
+            before.extend(an_top + an_bottom)
+        else:
+            index = next(i for i, e in enumerate(holder) if e is anchor)
+            for entry in an_top + an_bottom:
+                entry.role = note_role
+            holder[index + 1:index + 1] = an_bottom
+            holder[index:index] = an_top
+        an_top, an_bottom = [], []
+    for entry in an_top:
         entry.role = note_role
         injections.append(_Injection(note_depth, entry, cat=CAT_NOTE, sub=-1))
-    an_bottom = placed_at.pop("an_bottom", [])
     placed_at.pop("outlet", None)  # a SillyTavern outlet: never sent by itself
     for left in placed_at.values():  # their block is not in the preset, or it is switched off
         before.extend(e for e in left if e.text.strip())
@@ -596,8 +636,9 @@ def assemble(data: PromptInput) -> Prompt:
         messages = list(reversed(kept))
 
     for note in data.notes:
-        entry = Entry(note.role, sub(note.text), f"note:{note.id}",
-                      "Заметка" + (f": {note.title}" if note.title else ""), "note")
+        if note.place != "depth":
+            continue  # went with the main prompt
+        entry = note_entry(note)
         if entry.text.strip():
             injections.append(_Injection(note.depth, entry, note, cat=CAT_NOTE))
     for entry in an_bottom:

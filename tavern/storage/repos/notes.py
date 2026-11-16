@@ -3,6 +3,7 @@
 Note dict shape:
     id, scope ('global'|'character'|'chat'), character_id, chat_id, position, title, text,
     enabled, depth, role, interval (replies skipped between sendings), mode ('once'|'hidden'|'visible'),
+    place ('depth'|'before_main'|'after_main', migration 0026),
     created_at, updated_at
 Attached note dict shape (a note kept in the history after a message):
     id, chat_id, message_id, kind ('hidden'|'visible'), note_id (None = written by hand), title, role,
@@ -17,7 +18,7 @@ from tavern.errors import NotFound
 from tavern.storage.db import Database
 from tavern.util.ids import new_id, now_iso
 
-NOTE_FIELDS = ("position", "title", "text", "enabled", "depth", "role", "interval", "mode")
+NOTE_FIELDS = ("position", "title", "text", "enabled", "depth", "role", "interval", "mode", "place")
 
 
 def _note(row: Any) -> dict[str, Any]:

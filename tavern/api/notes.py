@@ -9,7 +9,7 @@ from starlette.routing import Route
 from tavern.api.util import BadRequest, ctx_of, field, json_body
 from tavern.services import notes as note_service
 
-NOTE_KEYS = ("title", "text", "enabled", "depth", "role", "interval", "mode", "position")
+NOTE_KEYS = ("title", "text", "enabled", "depth", "role", "interval", "mode", "position", "place")
 
 
 def _fields(body: dict) -> dict:

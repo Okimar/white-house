@@ -94,7 +94,7 @@ async def test_books_are_made_listed_renamed_and_checked(client, ctx):
     assert listed["settings"] == {  # SillyTavern's defaults: 25 %, 2 messages with names, recursion off
         "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
         "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
-        "group_scoring": False}
+        "group_scoring": False, "scan_notes": False}
     renamed = await client.put(f"/api/lorebooks/{world}", json={"name": "Мир Эйры", "description": "Север."})
     assert renamed.json()["name"] == "Мир Эйры"
     assert (await client.post(f"/api/lorebooks/{world}/undo")).json()["undone"]["what"] == "Книга изменена"

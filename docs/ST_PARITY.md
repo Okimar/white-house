@@ -24,7 +24,7 @@
 |---|---|---|
 | 0 | Основа: эталоны, тест по ним, запись запроса (`capture.py`), сравнение (`compare_requests.py`), экзамен | идёт (эталоны и тест есть, все 12 совпадают; экзамена на ваших настройках нет) |
 | 1 | Путь владельца: макросы, начало истории («[Start a new Chat]»), слова вокруг карточки, персоны и примеров, параметры запроса из пресета | сделано 2026-11-16 (часть значений для макросов ещё не подаётся, см. раздел 7) |
-| 2 | Точность лорбука и заметок автора | лорбук сделан 2026-11-16; заметки автора не начаты |
+| 2 | Точность лорбука и заметок автора | сделано 2026-11-16 |
 | 3 | Длинные чаты: что выпадает из окна и точный подсчёт текста как в ST (на чистом Python, с запоминанием по сообщению) | сделано 2026-11-16 |
 | 4 | Прямые подключения Gemini и Claude | сделано 2026-11-16 |
 | 5 | Чего нет: «продолжить это сообщение», когда срабатывает блок пресета, режимы карточек в группе | не начато |
@@ -52,6 +52,8 @@
 | 3ж | Текстовый режим | не начато |
 
 **Журнал** (что сделано, словами пользователя; всё ниже «не проверено на экране»).
+
+- 2026-11-16, волна 2 (заметки автора): у заметки есть «Где» — в чате на глубине (как было), перед главным промптом или после него, как в ST. Записи лорбука «у заметки сверху / снизу» идут вместе с заметкой; записи из файлов ST — только когда заметка сработала, как там. В настройках лорбуков есть «Искать ключи и в заметках автора» (по умолчанию выключено, как в ST). При импорте чата из ST его заметка автора становится заметкой чата (текст, глубина, место, роль, частота). Оставлено наше: несколько заметок (общие, персонажа, чата) и «Пропускать ответов».
 
 - 2026-11-16, волна 3 (длинные чаты): под ответ модели теперь оставляется место — из окна подключения вычитается «Максимум токенов ответа», как в ST. Токены считаются по-новому: русский текст стоит дороже английского (раньше считалось «4 буквы = 1 токен», и длинные русские чаты не влезали в окно). После каждого ответа сервис сообщает, сколько токенов было на самом деле, и приложение подстраивает счёт под эту модель — точнее, чем у ST для Gemini и Claude. Примеры диалогов, как в ST, идут только если после переписки осталось место (в блоке «Примеры диалогов» можно выбрать «всегда» или «никогда»). В «Что видела модель» видно, сколько оставлено под ответ и какие примеры не влезли.
 
@@ -188,10 +190,11 @@ into the connection (the page asks; the test answers yes).
 
 | ST behaviour (default) | Ours | Status | Files | Test idea |
 |---|---|---|---|---|
-| One AN per chat; position in chat at depth 4 role system; other positions after / before main; none. | Many notes (global, character, chat), each own entry; in-chat only. | partly | N, A | AN "before main". |
-| Interval: fires when the count of user messages is divisible by the interval (0 = never). | `interval` = replies skipped. | partly | N | Interval 3 with 4 user messages. |
-| Character AN replaces / goes before / after the chat AN, only when the AN fires. | Separate notes. | partly | N | — |
-| AN may be scanned by WI (default off). | No. | missing | L | — |
+| One AN per chat; position in chat at depth 4 role system; other positions after / before main; none. | Many notes (global, character, chat); each has `place` depth / before_main / after_main (migration 0026); outside the chat never kept on a message; «none» = switched off. ST chat import: `chat_metadata.note_*` → a chat note. | done 2026-11-16; many notes **отличается нарочно** | N, A, `formats/st_chat.py` | `tests/unit/test_author_notes_st.py` |
+| Interval: fires when the count of user messages is divisible by the interval (0 = never). | `interval` = replies skipped (import: N − 1, 0 = note off). | **отличается нарочно** (counts replies, also in group chats and «пусть поговорят») | N, `st_chat` | — |
+| Character AN replaces / goes before / after the chat AN, only when the AN fires. | Separate notes, each with its own place. | **отличается нарочно** | N | — |
+| AN may be scanned by WI (default off). | Lorebook setting `scan_notes` (off): fired notes join the scan text. | done 2026-11-16 | L, C | `test_author_notes_st_api.py` |
+| WI «at the AN top / bottom» goes only when the AN fires, inside its text. | Rides with the first fired note (its depth / place / role); ST-file entries only with a fired note, ours always. | done 2026-11-16 | A | — |
 
 ## 7. Macros (expanded in every prompt text, history message, WI content and keys, regex trim strings)
 

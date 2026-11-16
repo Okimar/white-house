@@ -684,10 +684,12 @@ def _writer(
             chosen = await character_tree.select_for_chat(ctx, chat, members, history, meaning=meaning)
             for member in members:
                 member.blocks = chosen.get(member.character_id, [])
+            fired_notes = note_service.for_reply(ctx, chat_id, [m.character_id for m in members], history)
             lore = await lorebooks.select_for_chat(
                 ctx, chat, members, history, max_context=max_context,
                 seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found),
-                meaning=meaning, kind=generation_kind(reply, new_swipe))
+                meaning=meaning, kind=generation_kind(reply, new_swipe),
+                notes_text="\n".join(n.text for n in fired_notes))
             # Rules "for the model" (stage 11): in a thread, because the worker is waited for.
             rewritten, lore_rewritten, thoughts_rewritten, skipped = await asyncio.to_thread(
                 regex_service.prompt_texts, ctx, chat, history, lore.found,
@@ -700,7 +702,7 @@ def _writer(
                 history=note_service.with_attached(ctx, chat_id, history), user_name=me,
                 impersonate=reply["role"] == "user",
                 max_context_tokens=prompt_budget,
-                notes=note_service.for_reply(ctx, chat_id, [m.character_id for m in members], history),
+                notes=fired_notes,
                 lore=lore.found, lore_dropped=lore.dropped,
                 load_image=lambda name: load_image(ctx, name),
                 several=speakers.several(rows),

@@ -18,6 +18,12 @@ const MODES = [
   ["visible", "Видимая: в истории и возле сообщения"],
 ];
 const KINDS = [["visible", "Видимая"], ["hidden", "Скрытая"]];
+// Where a note goes (SillyTavern's author's note positions); outside the chat it is never kept in the history.
+const PLACES = [
+  ["depth", "В чате, на глубине"],
+  ["before_main", "Перед главным промптом"],
+  ["after_main", "После главного промпта"],
+];
 const COLLAPSE_FROM = 8; // with more picked messages than this, they start folded
 
 function RoleSelect({ value, onChange }) {
@@ -50,6 +56,7 @@ function NoteRow({ note, onSave, onDelete }) {
   const [text, setText] = useState(note.text);
   const [title, setTitle] = useState(note.title);
   useEffect(() => { setText(note.text); setTitle(note.title); }, [note.id, note.updated_at]);
+  const inChat = (note.place || "depth") === "depth";
   return html`
     <li class=${"note" + (note.enabled ? "" : " off")} data-slot="note">
       <div class="row">
@@ -64,16 +71,22 @@ function NoteRow({ note, onSave, onDelete }) {
         aria-label="Текст заметки" onInput=${(e) => setText(e.target.value)}
         onBlur=${() => text !== note.text && onSave({ text })}></textarea>
       <div class="row">
-        <${NumberField} label="Глубина" value=${note.depth} min=${0} onChange=${(depth) => onSave({ depth })} />
+        <${Select} value=${note.place || "depth"} aria-label="Где заметка" data-slot="note-place"
+          onChange=${(e) => onSave({ place: e.target.value })}>
+          ${PLACES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+        </${Select}>
+        ${inChat && html`<${NumberField} label="Глубина" value=${note.depth} min=${0} onChange=${(depth) => onSave({ depth })} />`}
         <${NumberField} label="Пропускать ответов" value=${note.interval} min=${0}
           onChange=${(interval) => onSave({ interval })} />
         <${RoleSelect} value=${note.role} onChange=${(role) => onSave({ role })} />
-        <${Select} value=${note.mode} aria-label="Вид заметки" onChange=${(e) => onSave({ mode: e.target.value })}>
+        ${inChat && html`<${Select} value=${note.mode} aria-label="Вид заметки" onChange=${(e) => onSave({ mode: e.target.value })}>
           ${MODES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-        </${Select}>
+        </${Select}>`}
       </div>
-      <p class="hint">Глубина: за сколько сообщений до конца чата вставить, 0 — в самом конце. Пропуск: сколько ответов
-        пропустить между вставками, 0 — вставлять в каждый ответ.</p>
+      <p class="hint">${inChat
+        ? "Глубина: за сколько сообщений до конца чата вставить, 0 — в самом конце. "
+        : "Перед или после главного промпта, как в SillyTavern. Такая заметка не остаётся в истории чата. "}Пропуск: сколько
+        ответов пропустить между вставками, 0 — вставлять в каждый ответ.</p>
     </li>`;
 }
 
