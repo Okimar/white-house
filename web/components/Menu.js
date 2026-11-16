@@ -37,12 +37,25 @@ function Panel({ anchor, items, onClose }) {
         e.stopPropagation();
         onClose();
         anchor.focus();
+      } else if (e.key === "Tab") {
+        onClose();
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const all = [...panel.current.querySelectorAll("button:not(:disabled), a")];
+        if (!all.length) return;
         const at = all.indexOf(document.activeElement);
-        const next = all[(at + (e.key === "ArrowDown" ? 1 : -1) + all.length) % all.length];
+        const next = at < 0
+          ? (e.key === "ArrowDown" ? all[0] : all[all.length - 1])
+          : all[(at + (e.key === "ArrowDown" ? 1 : -1) + all.length) % all.length];
         if (next) next.focus();
+      } else if (e.key === "Home" || e.key === "PageUp") {
+        e.preventDefault();
+        const all = [...panel.current.querySelectorAll("button:not(:disabled), a")];
+        if (all.length) all[0].focus();
+      } else if (e.key === "End" || e.key === "PageDown") {
+        e.preventDefault();
+        const all = [...panel.current.querySelectorAll("button:not(:disabled), a")];
+        if (all.length) all[all.length - 1].focus();
       }
     };
     const leave = (e) => { if (!panel.current.contains(e.target)) onClose(); };
@@ -61,11 +74,13 @@ function Panel({ anchor, items, onClose }) {
   const body = (item) => html`
     ${item.icon && (item.emoji ? html`<span class="menu-emoji">${item.icon}</span>` : html`<${Icon} name=${item.icon} />`)}
     <span class="menu-label">${item.label}</span>`;
-  return html`<div ref=${panel} class="menu" data-slot="menu" role="menu" tabindex="-1">
+  return html`<div ref=${panel} class="menu" data-slot="menu" role="menu" aria-orientation="vertical"
+    aria-label=${anchor.getAttribute("aria-label") || "Меню"} tabindex="-1">
     ${items.filter(Boolean).map((item, i) => (item.href
       ? html`<a key=${i} role="menuitem" class=${item.danger ? "danger-text" : ""} href=${item.href}
           download=${item.download} title=${item.title || item.label} onClick=${onClose}>${body(item)}</a>`
       : html`<button key=${i} type="button" role="menuitem" disabled=${item.disabled}
+          aria-disabled=${item.disabled ? "true" : undefined}
           class=${item.danger ? "danger-text" : ""} title=${item.title || item.label}
           onClick=${() => { onClose(); item.onClick(); }}>${body(item)}</button>`))}
   </div>`;

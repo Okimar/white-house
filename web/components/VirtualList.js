@@ -184,6 +184,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
   return html`
     <div class="vlist-wrap" data-slot="virtual-list-wrap">
       <div class="vlist" ref=${box} onScroll=${onScroll}
+        role="log" aria-label="История сообщений" aria-relevant="additions text" tabindex="0"
         onTouchStart=${() => { touching.current = true; stuck.current = false; }}
         onTouchEnd=${() => { touching.current = false; markUser(700); }}
         onTouchCancel=${() => { touching.current = false; markUser(700); }}

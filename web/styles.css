@@ -9,6 +9,7 @@
   --bg: #f7f5f0; --panel: #fdfcf9; --fg: #211d18; --muted: #6b6357; --line: #e3ded5;
   --accent: #96570f; --accent-fg: #fff; --accent-hover: #7e480a; --accent-active: #663905;
   --accent-subtle: color-mix(in srgb, var(--accent) 12%, transparent);
+  --focus-ring: 2px solid var(--accent); --focus-ring-offset: 2px; --focus-ring-color: var(--accent);
   --danger: #b3362a; --danger-fg: #fff; --success: #2e7a4e; --warning: #96570f;
   --mode-always: #1d6fdc; --mode-search: #1e824c; --mode-off: #6c757d;
   --chance-75: #4b8324; --chance-50: #b27b16; --chance-25: #c45719; --chance-0: #c62828;
@@ -105,7 +106,7 @@ button {
 }
 button:hover:not(:disabled) { background: var(--raised); }
 button:disabled { opacity: .45; cursor: default; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: var(--focus-ring, 2px solid var(--accent)); outline-offset: var(--focus-ring-offset, 2px); }
 button.primary, button.primary:hover:not(:disabled) { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 button.primary:hover:not(:disabled) { background: var(--accent-hover, var(--accent)); filter: brightness(1.05); }
 button.primary:active:not(:disabled) { background: var(--accent-active, var(--accent)); transform: scale(.97); }
@@ -1740,16 +1741,37 @@ label.button:active:not(:disabled),
 .msg .body {
   max-width: 68ch; /* Optimal line length for story and dialogue reading */
 }
-/* Consistent focus ring with optical separation */
+/* Consistent focus ring with optical separation across all interactive controls */
 button:focus-visible,
 a.button:focus-visible,
+a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 .select-btn:focus-visible,
-summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+summary:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="option"]:focus-visible,
+[tabindex="0"]:focus-visible,
+.icon-btn:focus-visible {
+  outline: var(--focus-ring, 2px solid var(--accent));
+  outline-offset: var(--focus-ring-offset, 2px);
+}
+@media (forced-colors: active) {
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  .select-btn:focus-visible,
+  summary:focus-visible,
+  [role="button"]:focus-visible,
+  [tabindex="0"]:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
 }
 /* Tabular figures for numbers, timers, spending and versions */
 .msg-num, .swipes, .time, .vlist-jump, .spending-col, .param-num, .count, table td, .color-hex {
@@ -1786,6 +1808,36 @@ summary:focus-visible {
   .composer button.danger {
     min-height: 44px;
     padding: 0 16px;
+  }
+}
+
+/* ---- Chat area: accessibility, focus indicators, keyboard navigation and reduced motion (Round 6) ---- */
+.vlist:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: -2px;
+}
+.swipes:focus-visible {
+  outline: var(--focus-ring, 2px solid var(--accent));
+  outline-offset: 2px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .caret, .vlist-jump {
+    animation: none !important;
+    transform: none !important;
+  }
+  .caret {
+    opacity: 0.9 !important;
   }
 }
 

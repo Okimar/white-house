@@ -25,5 +25,7 @@
   --line-height-reading: 1.65;
   --shadow: 0 1px 3px rgba(44, 34, 26, .08);
   --menu-shadow: 0 10px 24px rgba(44, 34, 26, .14);
+  --focus-ring: 2px solid var(--accent);
+  --focus-ring-offset: 2px;
 }
 

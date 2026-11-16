@@ -227,11 +227,16 @@ function RuleRow({ rule, index, count, onMove, onEdit, onToggle, onCopy, onDelet
       <small class="muted">${WHEN_BADGE[rule.when]}${rule.render_html ? " · разметка" : ""}</small>
       ${problem && html`<small class="regex-problem" title=${problem}><${Icon} name="triangle-alert" /> ${problem}</small>`}</div>
     <div class="regex-buttons">
-      <${IconButton} icon="arrow-up" label="Выше" disabled=${index === 0} onClick=${() => onMove(index, -1)} />
-      <${IconButton} icon="arrow-down" label="Ниже" disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
-      <${IconButton} icon="pencil" label="Изменить" onClick=${() => onEdit(rule)} />
-      <${IconButton} icon="copy" label="Копия" onClick=${() => onCopy(rule)} />
-      <${IconButton} icon="trash-2" label="Удалить" onClick=${() => onDelete(rule)} />
+      <${IconButton} icon="arrow-up" label=${"Переместить правило «" + (rule.name || rule.find) + "» выше"}
+        disabled=${index === 0} onClick=${() => onMove(index, -1)} />
+      <${IconButton} icon="arrow-down" label=${"Переместить правило «" + (rule.name || rule.find) + "» ниже"}
+        disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
+      <${IconButton} icon="pencil" label=${"Изменить правило «" + (rule.name || rule.find) + "»"}
+        onClick=${() => onEdit(rule)} />
+      <${IconButton} icon="copy" label=${"Дублировать правило «" + (rule.name || rule.find) + "»"}
+        onClick=${() => onCopy(rule)} />
+      <${IconButton} icon="trash-2" label=${"Удалить правило «" + (rule.name || rule.find) + "»"}
+        onClick=${() => onDelete(rule)} />
     </div>
   </div>`;
 }

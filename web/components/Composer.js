@@ -234,7 +234,8 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
   };
 
   return html`
-    <form class="composer" data-slot="composer" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
+    <form class="composer" data-slot="composer" role="region" aria-label="Ввод сообщения" onSubmit=${(e) => { e.preventDefault(); submit(); }}>
+      <div class="sr-only" role="status" aria-live="polite">${running ? "Модель пишет ответ…" : ""}</div>
       ${images.length > 0 && html`<div class="composer-images" data-slot="composer-images">
         ${images.map((name) => html`<span key=${name} class="composer-image">
           <img src=${"/assets/" + encodeURIComponent(name)} alt="прикреплённая картинка" />
@@ -259,7 +260,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
             onClick=${() => x.view.undo.onClick()}>${x.view.undo.label}</button>`}
         </div>`)}
       <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение" data-slot="composer-input"
-        aria-label="Сообщение" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
+        aria-label="Сообщение" aria-description="Enter — отправить, Shift+Enter — перенос строки" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown} onPaste=${onPaste} onClick=${onTap} onScroll=${() => sync.current()}></textarea>
       <div ref=${layer} class="composer-marks" data-slot="composer-marks" aria-hidden="true"
         hidden=${!marks.length}><div ref=${layerText} class="composer-marks-text">${marks.length > 0
@@ -286,9 +287,9 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
         </label>
         <span class="spacer"></span>
         ${running
-          ? html`<button type="button" class="danger" data-slot="stop-button" onClick=${onStop}>
+          ? html`<button type="button" class="danger" data-slot="stop-button" aria-label="Остановить генерацию" onClick=${onStop}>
               <${Icon} name="square" /> Стоп</button>`
-          : html`<button type="submit" class="primary" data-slot="send-button"
+          : html`<button type="submit" class="primary" data-slot="send-button" aria-label="Отправить сообщение"
               disabled=${disabled || uploading || (!text.trim() && !images.length)}>
               <${Icon} name="send-horizontal" /> Отправить</button>`}
       </div>

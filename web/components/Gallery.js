@@ -98,7 +98,7 @@ export function Gallery({ settings, connections, onChanged, onError }) {
           ${busy ? "Рисую…" : "Сгенерировать"}</button>
       </div>
     </form>
-    <p class="muted" role="status">${status}</p>
+    <p class="muted" role="status" aria-live="polite">${status}</p>
 
     <h2>Библиотека</h2>
     <input ref=${fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" multiple hidden
@@ -114,8 +114,8 @@ export function Gallery({ settings, connections, onChanged, onError }) {
         <img src=${a.url} alt=${a.name} loading="lazy" />
         <span class="item" title=${a.name}>${a.name}</span>
         <div class="row">
-          <${IconButton} icon="copy" label="Скопировать адрес" onClick=${() => copy(a)} />
-          <${IconButton} icon="trash-2" label="Удалить картинку" onClick=${() => remove(a)} />
+          <${IconButton} icon="copy" label=${"Скопировать адрес картинки " + a.name} onClick=${() => copy(a)} />
+          <${IconButton} icon="trash-2" label=${"Удалить картинку " + a.name} onClick=${() => remove(a)} />
         </div>
       </div>`)}
     </div>

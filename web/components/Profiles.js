@@ -95,8 +95,8 @@ export function Profiles({ onApplied, onError }) {
         ${PARTS.map(([k, label]) => html`<label key=${k}><input type="checkbox" checked=${p.parts[k]}
           onChange=${() => toggle(p, k)} />${label}</label>`)}
         <span class="spacer"></span>
-        <${IconButton} icon="refresh-cw" label="Записать в профиль то, что выбрано сейчас" onClick=${() => recapture(p)} />
-        <${IconButton} icon="trash-2" label="Удалить профиль" onClick=${() => remove(p)} />
+        <${IconButton} icon="refresh-cw" label=${"Записать в профиль «" + p.name + "» то, что выбрано сейчас"} onClick=${() => recapture(p)} />
+        <${IconButton} icon="trash-2" label=${"Удалить профиль «" + p.name + "»"} onClick=${() => remove(p)} />
       </li>`)}
     </ul>
     <form class="row" onSubmit=${save}>
@@ -143,9 +143,12 @@ export function FallbackSteps({ conn, connections, steps, phrases, onSteps, onPh
             ${target(s).keys.map((k) => html`<option key=${k.id} value=${k.id}>${k.label || "ключ"}${k.has_proxy ? " · " + k.proxy : ""}</option>`)}
           </${Select}>
           <span class="spacer"></span>
-          <${IconButton} icon="arrow-up" label="Выше" disabled=${i === 0} onClick=${() => move(i, -1)} />
-          <${IconButton} icon="arrow-down" label="Ниже" disabled=${i === steps.length - 1} onClick=${() => move(i, 1)} />
-          <${IconButton} icon="trash-2" label="Удалить шаг" onClick=${() => onSteps(steps.filter((_, j) => j !== i))} />
+          <${IconButton} icon="arrow-up" label=${"Переместить шаг " + (i + 1) + " выше"}
+            disabled=${i === 0} onClick=${() => move(i, -1)} />
+          <${IconButton} icon="arrow-down" label=${"Переместить шаг " + (i + 1) + " ниже"}
+            disabled=${i === steps.length - 1} onClick=${() => move(i, 1)} />
+          <${IconButton} icon="trash-2" label=${"Удалить шаг " + (i + 1)}
+            onClick=${() => onSteps(steps.filter((_, j) => j !== i))} />
         </div>
       </li>`)}
     </ol>

@@ -109,38 +109,68 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
     if (active && active.scrollIntoView) active.scrollIntoView({ block: "nearest", inline: "center" });
   }, [tab]);
 
+  // Keyboard navigation for tablist (WAI-ARIA tabs pattern: Left/Right, Home/End)
+  const onKeyDownTabs = (e) => {
+    const idx = TABS.findIndex(([id]) => id === tab);
+    if (idx === -1) return;
+    let nextIdx = -1;
+    if (e.key === "ArrowRight") {
+      nextIdx = (idx + 1) % TABS.length;
+    } else if (e.key === "ArrowLeft") {
+      nextIdx = (idx - 1 + TABS.length) % TABS.length;
+    } else if (e.key === "Home") {
+      nextIdx = 0;
+    } else if (e.key === "End") {
+      nextIdx = TABS.length - 1;
+    }
+    if (nextIdx !== -1) {
+      e.preventDefault();
+      const [nextId] = TABS[nextIdx];
+      chooseTab(nextId);
+      setTimeout(() => {
+        const btn = strip.current && strip.current.querySelector(`[data-tab="${nextId}"]`);
+        if (btn && btn.focus) btn.focus();
+      }, 0);
+    }
+  };
+
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
       <div class="dialog settings-dialog" data-slot="dialog" role="dialog" aria-modal="true"
         aria-label="Настройки">
         <div class="side-head"><strong class="dialog-title">Настройки</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
-        <div class="tabs settings-tabs" role="tablist" ref=${strip}>
-          ${TABS.map(([id, label]) => html`<button key=${id} role="tab" data-tab=${id} aria-selected=${tab === id}
+        <div class="tabs settings-tabs" role="tablist" aria-label="Разделы настроек" ref=${strip} onKeyDown=${onKeyDownTabs}>
+          ${TABS.map(([id, label]) => html`<button key=${id} role="tab" id=${"settings-tab-" + id}
+            data-tab=${id} aria-selected=${tab === id} aria-controls=${"settings-panel-" + id}
+            tabIndex=${tab === id ? 0 : -1}
             onClick=${() => chooseTab(id)}>${label}</button>`)}
         </div>
-        <div class="settings-body" ref=${body} onScroll=${onScroll}>
+        <div class="settings-body" ref=${body} onScroll=${onScroll}
+          role="tabpanel" id=${"settings-panel-" + tab} aria-labelledby=${"settings-tab-" + tab} tabIndex="0">
 
         ${tab === "main" && html`
         <section class="settings-section stack" data-slot="settings-section">
           <h2>Интерфейс</h2>
           <label class="stack">Где показывать меню
             <${Select} value=${layout.mode} aria-label="Где показывать меню" data-slot="menu-mode"
+              aria-describedby="hint-menu-mode"
               onChange=${(e) => setMenuMode(e.target.value)}>
               <option value="top">Сверху: значки, списки выпадают</option>
               <option value="side">Сбоку: панель слева</option>
             </${Select}>
           </label>
-          <p class="hint">Выбор действует на этом устройстве. Меню можно свернуть кнопкой в левом верхнем углу, чтобы чату хватило места.</p>
+          <p id="hint-menu-mode" class="hint">Выбор действует на этом устройстве. Меню можно свернуть кнопкой в левом верхнем углу, чтобы чату хватило места.</p>
 
           <label class="stack">Кнопки сообщения
             <${Select} value=${settings.message_actions || "menu"} aria-label="Как показывать кнопки сообщения"
+              aria-describedby="hint-message-actions"
               onChange=${(e) => saveSetting({ message_actions: e.target.value })}>
               <option value="menu">В выпадающем списке сбоку</option>
               <option value="always">Все всегда на панели</option>
             </${Select}>
           </label>
-          <p class="hint">Отмеченные кнопки всегда на панели сообщения, остальные в списке.</p>
+          <p id="hint-message-actions" class="hint">Отмеченные кнопки всегда на панели сообщения, остальные в списке.</p>
           <div class="check-grid">
             ${MESSAGE_ACTIONS.map((a) => html`<label key=${a.id}><input type="checkbox" checked=${pinned.includes(a.id)}
               onChange=${(e) => togglePinned(a.id, e.target.checked)} /> ${a.label}</label>`)}
@@ -148,16 +178,18 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
           <label class="stack">Размышления модели
             <${Select} value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
+              aria-describedby="hint-thinking-display"
               onChange=${(e) => saveSetting({ thinking_display: e.target.value })}>
               <option value="folded">Свёрнуты, открываются по нажатию</option>
               <option value="open">Развёрнуты</option>
               <option value="hidden">Скрыты</option>
             </${Select}>
           </label>
-          <p class="hint">Отправлять ли прошлые размышления модели, настраивается в пресете: блок «История чата».</p>
+          <p id="hint-thinking-display" class="hint">Отправлять ли прошлые размышления модели, настраивается в пресете: блок «История чата».</p>
 
           <label class="stack">Заметки возле сообщения
             <${Select} value=${settings.notes_display || "few"} aria-label="Сколько заметок показывать возле сообщения"
+              aria-describedby="hint-notes-display"
               onChange=${(e) => saveSetting({ notes_display: e.target.value })}>
               <option value="few">Только последние, остальные по кнопке «Все заметки»</option>
               <option value="all">Все подряд</option>
@@ -165,19 +197,23 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           </label>
           <label class="stack">Сколько последних заметок показывать
             <input type="number" min="1" max=${MAX_SHOWN} value=${settings.notes_shown || 2}
+              aria-label="Количество последних заметок возле сообщения"
+              aria-describedby="hint-notes-display"
               onChange=${(e) => setNotesShown(e.target.value).then(onChanged).catch((err) => onError(err.message))} /></label>
-          <p class="hint">Возле сообщения видны только последние заметки, под ними строка «Видны последние N из M». Число можно менять и прямо на этой строке.</p>
+          <p id="hint-notes-display" class="hint">Возле сообщения видны только последние заметки, под ними строка «Видны последние N из M». Число можно менять и прямо на этой строке.</p>
         </section>
 
         <section class="settings-section stack" data-slot="settings-section">
           <h2>Персонажи и вы</h2>
           <label class="stack">Мой персонаж по умолчанию
-            <${Select} value=${settings.default_me || ""} aria-label="Мой персонаж по умолчанию" onChange=${(e) => saveDefaultMe(e.target.value)}>
+            <${Select} value=${settings.default_me || ""} aria-label="Мой персонаж по умолчанию"
+              aria-describedby="hint-default-me"
+              onChange=${(e) => saveDefaultMe(e.target.value)}>
               <option value="">— нет —</option>
               ${characters.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
             </${Select}>
           </label>
-          <p class="hint">Входит в каждый новый чат с пометкой «это я». Его имя подставляется вместо {{user}}.</p>
+          <p id="hint-default-me" class="hint">Входит в каждый новый чат с пометкой «это я». Его имя подставляется вместо {{user}}.</p>
 
           <label class="stack">Имя, если в чате нет «моего» персонажа
             <div class="row">
@@ -201,7 +237,7 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
         <section class="settings-section stack" data-slot="settings-section">
           <h2>Удаление и подтверждения</h2>
-          <p class="hint">Вопрос «Удалить?» с галочкой «Больше не спрашивать» можно отключить в самом окне. Здесь его можно вернуть. Персонажи, чаты, лорбуки и копии спрашивают всегда.</p>
+          <p id="hint-delete-confirms" class="hint">Вопрос «Удалить?» с галочкой «Больше не спрашивать» можно отключить в самом окне. Здесь его можно вернуть. Персонажи, чаты, лорбуки и копии спрашивают всегда.</p>
           <label class="check"><input type="checkbox" checked=${!settings.skip_delete_confirm}
             onChange=${(e) => saveSetting({ skip_delete_confirm: !e.target.checked })} />
             спрашивать при удалении пузырей</label>

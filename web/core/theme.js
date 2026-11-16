@@ -149,7 +149,6 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
   window.addEventListener("error", onError, { signal: controller.signal });
   window.addEventListener("unhandledrejection", onRejection, { signal: controller.signal });
 
-  const motion = matchMedia("(prefers-reduced-motion: reduce)");
   const api = {
     id: theme.id,
     scene,
@@ -165,10 +164,10 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
       }
       return () => bus.removeEventListener(type, handler);
     },
-    reducedMotion: motion.matches,
-    phone: matchMedia("(max-width: 720px)").matches,
-    coarse: matchMedia("(pointer: coarse)").matches,
-    dark: theme.base === "dark" || (theme.base !== "light" && matchMedia("(prefers-color-scheme: dark)").matches),
+    get reducedMotion() { return matchMedia("(prefers-reduced-motion: reduce)").matches; },
+    get phone() { return matchMedia("(max-width: 720px)").matches; },
+    get coarse() { return matchMedia("(pointer: coarse)").matches; },
+    get dark() { return theme.base === "dark" || (theme.base !== "light" && matchMedia("(prefers-color-scheme: dark)").matches); },
     signal: controller.signal,
   };
   try {
@@ -203,8 +202,8 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
 const BAR = "display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;"
   + "background:var(--panel,#1f1f24);color:var(--fg,#eee);border-bottom:2px solid var(--warning,#e0a030);"
   + "font:14px/1.4 system-ui,sans-serif;";
-const BTN = "padding:6px 12px;min-height:36px;border-radius:6px;border:1px solid currentColor;"
-  + "background:transparent;color:inherit;font:inherit;cursor:pointer;";
+const BTN = "padding:8px 14px;min-height:44px;border-radius:6px;border:1px solid currentColor;"
+  + "background:transparent;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;";
 
 function el(tag, style, text, children = []) {
   const node = document.createElement(tag);
@@ -218,6 +217,14 @@ function button(label, onClick) {
   const node = el("button", BTN, label);
   node.type = "button";
   node.addEventListener("click", onClick);
+  node.addEventListener("focus", () => {
+    node.style.outline = "2px solid currentColor";
+    node.style.outlineOffset = "2px";
+  });
+  node.addEventListener("blur", () => {
+    node.style.outline = "";
+    node.style.outlineOffset = "";
+  });
   return node;
 }
 
@@ -232,6 +239,7 @@ async function post(path, body) {
 function safeBar() {
   const bar = el("div", BAR);
   bar.setAttribute("role", "status");
+  bar.setAttribute("aria-live", "polite");
   bar.dataset.slot = "safe-mode-bar";
   const how = [];
   if (LOOK.safe_persistent) how.push("Включён навсегда: команда `python -m tavern safe-mode on`.");
@@ -256,6 +264,7 @@ let noticeBox = null;
 function parkedBar() {
   const bar = el("div", BAR);
   bar.setAttribute("role", "alert");
+  bar.setAttribute("aria-live", "assertive");
   bar.dataset.slot = "look-parked-bar";
   const text = el("span", "", parkedText(LOOK.parked));
   text.dataset.part = "text";
@@ -314,7 +323,8 @@ function mountNotices() {
   const hideOld = document.createElement("style");
   hideOld.textContent = ".safe-banner{display:none!important}"; // this bar replaces the page's own safe-mode line
   document.head.appendChild(hideOld);
-  const box = el("div", "position:fixed;top:0;left:0;right:0;z-index:100000");
+  const box = el("aside", "position:fixed;top:0;left:0;right:0;z-index:100000");
+  box.setAttribute("aria-label", "Системные уведомления оформления");
   box.dataset.slot = "look-notices";
   noticeBox = box;
   for (const bar of bars) box.appendChild(bar);

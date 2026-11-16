@@ -124,7 +124,9 @@ export function Skills({ onError }) {
   const item = (s) => html`<div key=${s.id} class=${"skills-item" + (s.id === openId ? " open" : "") + (s.used ? "" : " off")}>
     <input type="checkbox" checked=${s.enabled} aria-label=${"Включить: " + s.title}
       onChange=${() => toggle(s)} />
-    <button class="link" onClick=${() => pick(s.id)}>${s.title}</button>
+    <button class="link" aria-current=${s.id === openId ? "true" : undefined}
+      aria-label=${"Выбрать инструкцию " + s.title}
+      onClick=${() => pick(s.id)}>${s.title}</button>
     <small class="muted">${status(s)}</small>
   </div>`;
 
@@ -133,9 +135,9 @@ export function Skills({ onError }) {
       <p class="hint">Инструкции помощнику для разных работ. Он сам выбирает подходящую; в беседе видно строку
         <${Icon} name="book-open" /> «Инструкция: …». Текст на английском — так модели держат его надёжнее.</p>
       ${list.length >= 4 && html`
-        <div class="settings-filter-bar">
-          <input placeholder="Быстрый поиск инструкции..." value=${searchQuery}
-            onInput=${(e) => setSearchQuery(e.target.value)} aria-label="Фильтр инструкций" />
+        <div class="settings-filter-bar" role="search">
+          <input type="search" placeholder="Быстрый поиск инструкции..." value=${searchQuery}
+            onInput=${(e) => setSearchQuery(e.target.value)} aria-label="Поиск по инструкциям" />
         </div>`}
       <button onClick=${create}><${Icon} name="plus" /> Новая инструкция</button>
       <div class="skills-import" data-slot="skills-import">

@@ -311,7 +311,9 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
       <span class="muted">${plugin.version} · ${SOURCE[plugin.source.kind] || plugin.source.kind}
         ${plugin.author ? ` · ${plugin.author}` : ""}</span>
       <span class="spacer"></span>
-      <button aria-expanded=${open} onClick=${() => setOpen(!open)}>${open ? "Свернуть" : "Подробнее"}</button>
+      <button aria-expanded=${open}
+        aria-label=${open ? "Свернуть подробности «" + plugin.name + "»" : "Подробнее о «" + plugin.name + "»"}
+        onClick=${() => setOpen(!open)}>${open ? "Свернуть" : "Подробнее"}</button>
     </div>
     ${plugin.error && html`<p class="error" data-slot="plugin-error">${plugin.error}</p>`}
     ${plugin.server_off && plugin.enabled && html`<p class="muted">White House запущен без дополнений: серверная часть не работает.</p>`}
@@ -401,9 +403,9 @@ export function Plugins({ onError }) {
       </form>
     </div>
     ${data.plugins.length >= 3 && html`
-      <div class="settings-filter-bar">
-        <input placeholder="Быстрый поиск дополнения..." value=${filterQuery}
-          onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Фильтр дополнений" />
+      <div class="settings-filter-bar" role="search">
+        <input type="search" placeholder="Быстрый поиск дополнения..." value=${filterQuery}
+          onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Поиск по дополнениям" />
       </div>`}
     ${data.plugins.length === 0 && html`<${EmptyNote} title="Дополнений пока нет"
       hint="Установите первое из файла или по ссылке на GitHub." />`}
@@ -419,7 +421,8 @@ export function Plugins({ onError }) {
 export function PluginAsks({ asks, onError }) {
   const first = asks[0];
   const answer = (allow) => api.post(`/plugins/asks/${first.id}`, { allow }).catch((e) => onError(e.message));
-  return html`<div class="overlay">
+  useEscape(() => answer(false));
+  return html`<div class="overlay" ...${backdrop(() => answer(false))}>
     <div class="dialog" data-slot="plugin-ask" role="alertdialog" aria-modal="true" aria-label="Запрос дополнения">
       <p class="ask-text">Дополнение «${first.name}» хочет обратиться к модели</p>
       <p class="muted">Это один запрос за ваш счёт. Спрашивать каждый раз можно перестать в настройках → «Дополнения».

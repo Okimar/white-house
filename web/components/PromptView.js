@@ -38,11 +38,11 @@ function Part({ entry, onVersions, onError }) {
         <strong>${entry.label || entry.kind}</strong>
         <span class="muted">≈${tokens(entry.text)} ${tokenWord(tokens(entry.text))}</span>
         <span class="spacer"></span>
-        ${entry.versions > 1 && html`<button onClick=${() => onVersions(entry)}>Версии: ${entry.versions}</button>`}
+        ${entry.versions > 1 && html`<button type="button" onClick=${() => onVersions(entry)}>Версии: ${entry.versions}</button>`}
         <${IconButton} icon="copy" label="Копировать" onClick=${() => copy(entry.text, onError)} />
       </div>
       <pre class="prompt-text">${open ? entry.text : entry.text.slice(0, PREVIEW) + "…"}</pre>
-      ${entry.text.length > PREVIEW && html`<button class="link" onClick=${() => setOpen(!open)}>
+      ${entry.text.length > PREVIEW && html`<button type="button" class="link" onClick=${() => setOpen(!open)}>
         ${open ? "Свернуть" : "Показать всё"}</button>`}
     </div>`;
 }
@@ -58,7 +58,7 @@ function Versions({ entry, onBack, onError }) {
   useEffect(load, [entry.source]);
   return html`
     <div class="stack">
-      <div class="row"><button onClick=${onBack}><${Icon} name="chevron-left" /> Назад</button><strong>Версии: ${entry.label}</strong></div>
+      <div class="row"><button type="button" onClick=${onBack}><${Icon} name="chevron-left" /> Назад</button><strong>Версии: ${entry.label}</strong></div>
       <p class="muted">Все тексты, с которыми эта часть уходила модели. Только просмотр и копирование.</p>
       ${list === null && html`<${Pending} error=${error} onRetry=${load} />`}
       ${(list || []).map((v, i) => html`
@@ -111,8 +111,8 @@ export function PromptView({ message, onClose, onError }) {
 
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
-      <div class="dialog wide" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Что видела модель">
-        <div class="side-head"><strong>Что видела модель — №${message.depth + 1}</strong><span class="spacer"></span>
+      <div class="dialog wide" data-slot="dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-view-title">
+        <div class="side-head"><strong id="prompt-view-title">Что видела модель — №${message.depth + 1}</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         ${missing && html`<p class="muted">Для этого сообщения промпт не сохранён: оно написано вручную,
           импортировано или создано до появления этой функции.</p>`}
@@ -135,8 +135,8 @@ export function PromptView({ message, onClose, onError }) {
             ${(dropped.extras || []).length > 0 && html`<div class="notice">
               Не влезло в бюджет памяти: ${dropped.extras.join(", ")}</div>`}
             <div class="row">
-              <button onClick=${count} disabled=${counting}>${counting ? "Считаю…" : "Посчитать точно"}</button>
-              <button onClick=${() => copy(whole, onError)}>Копировать всё</button>
+              <button type="button" onClick=${count} disabled=${counting}>${counting ? "Считаю…" : "Посчитать точно"}</button>
+              <button type="button" onClick=${() => copy(whole, onError)}>Копировать всё</button>
             </div>
           </div>
           ${record.entries.map((entry, i) => html`

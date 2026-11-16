@@ -211,8 +211,12 @@ function GoogleDrive({ drive, onError, reload }) {
           <span class="grow"><${Icon} name="cloud" /> ${when(f.created_at)} · ${KINDS[f.kind] || f.kind}
             ${f.reason && html`<span class="muted"> (${REASONS[f.reason] || f.reason})</span>`}
             <span class="muted"> · ${size(f.size)}${f.here ? " · есть здесь" : ""}</span></span>
-          ${!f.here && html`<button disabled=${Boolean(busy)} onClick=${() => download(f)}>Скачать сюда</button>`}
-          <button disabled=${Boolean(busy)} onClick=${() => restore(f)}>Восстановить</button>
+          ${!f.here && html`<button disabled=${Boolean(busy)}
+            aria-label=${"Скачать с Диска копию от " + when(f.created_at)}
+            onClick=${() => download(f)}>Скачать сюда</button>`}
+          <button disabled=${Boolean(busy)}
+            aria-label=${"Восстановить с Диска копию от " + when(f.created_at)}
+            onClick=${() => restore(f)}>Восстановить</button>
         </li>`)}
       </ul>`}
     </section>`;
@@ -354,11 +358,17 @@ export function BackupsTab({ onError }) {
             <span class="muted tabular-nums"> · ${size(b.size)}${b.where === "own" ? " · своя папка" : ""}</span>
             ${b.drive && html`<span class="muted" title="Есть на Google Диске"> · <${Icon} name="cloud" /> на Диске</span>`}</span>
           <span class="backup-actions">
-            <button disabled=${Boolean(busy)} onClick=${() => restore(b)}>Восстановить</button>
+            <button disabled=${Boolean(busy)}
+              aria-label=${"Восстановить копию от " + when(b.created_at)}
+              onClick=${() => restore(b)}>Восстановить</button>
             ${drive && drive.signed_in && !b.drive && b.kind !== "migrate" && html`<button disabled=${Boolean(busy)}
+              aria-label=${"Отправить на Диск копию от " + when(b.created_at)}
               onClick=${() => toDrive(b)}>${busy === "drive" ? "Отправляю…" : "На Диск"}</button>`}
-            <a class="button" href=${"/api/backups/" + encodeURIComponent(b.name)} download=${b.name}>Скачать</a>
-            <${IconButton} icon="trash-2" label="Удалить копию" class="danger-text" disabled=${Boolean(busy)}
+            <a class="button" href=${"/api/backups/" + encodeURIComponent(b.name)}
+              download=${b.name}
+              aria-label=${"Скачать копию от " + when(b.created_at)}>Скачать</a>
+            <${IconButton} icon="trash-2" label=${"Удалить копию от " + when(b.created_at)}
+              class="danger-text" disabled=${Boolean(busy)}
               onClick=${() => remove(b)} />
           </span>
         </li>`)}

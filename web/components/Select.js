@@ -100,6 +100,10 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
       } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         if (s.enabled.length) setActive((a) => (Math.max(a, 0) + (e.key === "ArrowDown" ? 1 : -1) + s.enabled.length) % s.enabled.length);
+      } else if (e.key === "PageDown" || e.key === "PageUp") {
+        e.preventDefault();
+        const delta = e.key === "PageDown" ? 5 : -5;
+        if (s.enabled.length) setActive((a) => Math.max(0, Math.min(s.enabled.length - 1, a + delta)));
       } else if (e.key === "Home" || e.key === "End") {
         if (document.activeElement && document.activeElement.tagName === "INPUT") return;
         e.preventDefault();
@@ -145,16 +149,20 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
   }, []);
 
   let at = -1;
+  const listboxId = "sel-listbox-" + (anchor.id || Math.random().toString(36).slice(2, 7));
   return html`<div ref=${panel} class="select-list" data-slot="select-list" tabindex="-1">
     ${filtering && html`<input type="search" class="select-filter" data-slot="select-filter" placeholder="Найти…"
+      role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls=${listboxId}
+      aria-activedescendant=${active >= 0 ? listboxId + "-opt-" + active : undefined}
       aria-label="Найти в списке" value=${query} onInput=${(e) => setQuery(e.target.value)} />`}
-    <div ref=${list} class="select-options" role="listbox" aria-label=${anchor.getAttribute("aria-label") || undefined}>
+    <div ref=${list} id=${listboxId} class="select-options" role="listbox" aria-label=${anchor.getAttribute("aria-label") || undefined}>
       ${shown.map((r, i) => {
         if (r.group !== undefined) return html`<div key=${"g" + i} class="select-group" role="presentation">${r.group}</div>`;
         if (!r.disabled) at += 1;
         const mine = at;
         const chosen = r.value === value;
-        return html`<div key=${"o" + i} role="option" class=${"select-option" + (chosen ? " selected" : "") + (!r.disabled && mine === active ? " active" : "")}
+        return html`<div key=${"o" + i} id=${listboxId + "-opt-" + mine} role="option"
+          class=${"select-option" + (chosen ? " selected" : "") + (!r.disabled && mine === active ? " active" : "")}
           data-slot="select-option" aria-selected=${chosen ? "true" : "false"} aria-disabled=${r.disabled ? "true" : undefined}
           onPointerMove=${(e) => { if (e.pointerType === "mouse" && !r.disabled && active !== mine) setActive(mine); }}
           onClick=${() => { if (!r.disabled) onPick(r.value); }}>

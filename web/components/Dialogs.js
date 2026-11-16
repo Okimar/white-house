@@ -60,29 +60,62 @@ export const askText = (text, { value = "", placeholder = "", ok = "Сохран
 function Question({ question, onDone }) {
   const [value, setValue] = useState(question.value || "");
   const [never, setNever] = useState(false);
-  const first = useRef(null);
+  const formRef = useRef(null);
+  const inputRef = useRef(null);
+  const okRef = useRef(null);
+  const cancelRef = useRef(null);
+  const opener = useRef(document.activeElement);
+
   useEffect(() => {
-    if (!first.current) return;
-    first.current.focus();
-    if (first.current.select) first.current.select();
+    if (question.input && inputRef.current) {
+      inputRef.current.focus();
+      if (inputRef.current.select) inputRef.current.select();
+    } else if (question.danger && question.cancel && cancelRef.current) {
+      cancelRef.current.focus();
+    } else if (okRef.current) {
+      okRef.current.focus();
+    }
   }, []);
-  const cancel = () => onDone(question.input ? null : false);
+
+  const finish = (ans) => {
+    onDone(ans);
+    try { opener.current?.focus?.(); } catch (e) { /* opener detached */ }
+  };
+  const cancel = () => finish(question.input ? null : false);
   useEscape(cancel);
+
+  const onKeyDown = (e) => {
+    if (e.key === "Tab" && formRef.current) {
+      const focusable = [...formRef.current.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
+
   return html`<div class="overlay ask-overlay" ...${backdrop(cancel)}>
-    <form class="dialog ask" data-slot="dialog" role="alertdialog" aria-modal="true"
+    <form ref=${formRef} class="dialog ask" data-slot="dialog" role="alertdialog" aria-modal="true"
       aria-labelledby="ask-dialog-title" aria-describedby=${question.hint ? "ask-dialog-hint" : undefined}
-      onSubmit=${(e) => { e.preventDefault(); open.remember = never; onDone(question.input ? value : true); }}>
+      onKeyDown=${onKeyDown}
+      onSubmit=${(e) => { e.preventDefault(); open.remember = never; finish(question.input ? value : true); }}>
       <p id="ask-dialog-title" class="ask-text">${question.text}</p>
       ${question.hint && html`<p id="ask-dialog-hint" class="muted ask-hint">${question.hint}</p>`}
       ${question.skip && html`<label class="ask-never" data-slot="ask-never"><input type="checkbox" checked=${never}
         onChange=${(e) => setNever(e.target.checked)} /> <span>Больше не спрашивать</span>
         <span class="hint">Вернуть вопрос можно в настройках, вкладка «Основное», раздел «Удаление».</span></label>`}
-      ${question.input && html`<input ref=${first} value=${value} placeholder=${question.placeholder}
+      ${question.input && html`<input ref=${inputRef} value=${value} placeholder=${question.placeholder}
         aria-label=${question.text} enterkeyhint="done" onInput=${(e) => setValue(e.target.value)} />`}
       <div class="row ask-actions">
         <span class="spacer"></span>
-        ${question.cancel && html`<button type="button" class="ask-cancel" onClick=${cancel}>${question.cancel}</button>`}
-        <button ref=${question.input ? null : first} type="submit"
+        ${question.cancel && html`<button ref=${cancelRef} type="button" class="ask-cancel" onClick=${cancel}>${question.cancel}</button>`}
+        <button ref=${okRef} type="submit"
           class=${question.danger ? "danger" : "primary"}>${question.ok}</button>
       </div>
     </form>

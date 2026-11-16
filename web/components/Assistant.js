@@ -60,20 +60,22 @@ function ago(iso) {
 function ConversationList({ chats, current, onPick, onNew, onRename, onDelete, onImport }) {
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(SHOWN_STEP);
+  const searchInput = useRef(null);
+  useEffect(() => { searchInput.current?.focus(); }, []);
   const needle = query.trim().toLowerCase();
   const found = needle ? chats.filter((c) => (c.title || "Без названия").toLowerCase().includes(needle)) : chats;
   const sorted = [...found].sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));
-  return html`<div class="assistant-convs" data-slot="assistant-convs">
+  return html`<div class="assistant-convs" data-slot="assistant-convs" role="region" aria-label="Список бесед">
     <div class="assistant-convs-top">
-      <input type="search" value=${query} placeholder="Найти беседу" aria-label="Найти беседу"
+      <input ref=${searchInput} type="search" value=${query} placeholder="Найти беседу" aria-label="Найти беседу"
         onInput=${(e) => { setQuery(e.target.value); setShown(SHOWN_STEP); }} />
-      <button class="primary" onClick=${onNew}><${Icon} name="plus" /> Новая</button>
+      <button type="button" class="primary" onClick=${onNew}><${Icon} name="plus" /> Новая</button>
     </div>
     <div class="assistant-conv-rows" role="list" aria-label="Беседы помощника">
       ${sorted.slice(0, shown).map((c) => html`<div key=${c.id} role="listitem"
           class=${"assistant-conv" + (c.id === current ? " current" : "")} data-slot="assistant-conv"
           aria-current=${c.id === current ? "true" : "false"}>
-        <button class="assistant-conv-open" onClick=${() => onPick(c.id)}
+        <button type="button" class="assistant-conv-open" onClick=${() => onPick(c.id)}
           aria-label=${(c.title || "Без названия") + (c.running ? " (работает)" : "")}>
           <span class="assistant-conv-title">${c.running ? html`<span class="assistant-running" title="Работает">● работает: </span>` : ""}${c.title || "Без названия"}</span>
           <small class="muted">${ago(c.updated_at)}${c.imported ? " · из файла" : ""}</small>
@@ -92,14 +94,14 @@ function ConversationList({ chats, current, onPick, onNew, onRename, onDelete, o
 function LibraryPicker({ taken, onPick, onClose, onError }) {
   const [assets, setAssets] = useState(null);
   useEffect(() => { api.get("/assets").then((r) => setAssets(r.assets)).catch((e) => { onError(e.message); onClose(); }); }, []);
-  return html`<div class="assistant-library" data-slot="assistant-library">
+  return html`<div class="assistant-library" data-slot="assistant-library" role="dialog" aria-modal="true" aria-label="Картинки из библиотеки">
     <div class="row"><strong>Картинки из библиотеки</strong><span class="spacer"></span>
-      <${IconButton} icon="x" label="Закрыть выбор" onClick=${onClose} /></div>
-    ${assets === null ? html`<p class="muted">Загрузка…</p>`
-      : assets.length === 0 ? html`<p class="muted">В библиотеке пока нет картинок.</p>`
-      : html`<div class="assistant-library-grid">${assets.filter((a) => !a.name.toLowerCase().endsWith(".svg")).map((a) => html`
-        <button key=${a.name} type="button" disabled=${taken.includes(a.name)} title=${a.name}
-          onClick=${() => onPick(a.name)}><img src=${"/assets/" + encodeURIComponent(a.name)} alt=${a.name} loading="lazy" /></button>`)}</div>`}
+      <${IconButton} icon="x" label="Закрыть выбор картинок" onClick=${onClose} /></div>
+    ${assets === null ? html`<p class="muted" role="status">Загрузка…</p>`
+      : assets.length === 0 ? html`<p class="muted" role="status">В библиотеке пока нет картинок.</p>`
+      : html`<div class="assistant-library-grid" role="list" aria-label="Картинки">${assets.filter((a) => !a.name.toLowerCase().endsWith(".svg")).map((a) => html`
+        <button key=${a.name} type="button" disabled=${taken.includes(a.name)} title=${a.name} aria-label=${"Выбрать картинку " + a.name}
+          onClick=${() => onPick(a.name)}><img src=${"/assets/" + encodeURIComponent(a.name)} alt="" loading="lazy" /></button>`)}</div>`}
   </div>`;
 }
 

@@ -103,7 +103,7 @@ export function NoteList({ scope, ownerId, initial, onError }) {
         hint="Заметка — текст, который модель получает вместе с историей чата." /></li>`}
       ${notes.map((n) => html`<${NoteRow} key=${n.id} note=${n} onSave=${(p) => save(n, p)} onDelete=${() => remove(n)} />`)}
     </ul>
-    <button onClick=${add}><${Icon} name="plus" /> Добавить заметку</button>`;
+    <button type="button" onClick=${add}><${Icon} name="plus" /> Добавить заметку</button>`;
 }
 
 const TABS = [["chat", "Чат"], ["characters", "Персонажи"], ["global", "Общие"], ["numbers", "По номерам"]];
@@ -130,19 +130,28 @@ export function Notes({ chat, showHidden, onShowHidden, onClearHidden, onEditNum
     if (await ask("Удалить из чата все скрытые заметки? Модель перестанет их видеть.", { ok: "Удалить", danger: true })) onClearHidden();
   };
 
+  const onTabKey = (e) => {
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      const idx = TABS.findIndex(([tid]) => tid === tab);
+      const next = (idx + (e.key === "ArrowRight" ? 1 : -1) + TABS.length) % TABS.length;
+      setTab(TABS[next][0]);
+    }
+  };
+
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
-      <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заметки автора">
-        <div class="side-head"><strong>Заметки автора</strong><span class="spacer"></span>
+      <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-labelledby="notes-dialog-title">
+        <div class="side-head"><strong id="notes-dialog-title">Заметки автора</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         <div class="row">
           <label><input type="checkbox" checked=${showHidden} onChange=${(e) => onShowHidden(e.target.checked)} />
             показать все скрытые заметки</label>
-          <button onClick=${clearHidden}>Удалить все скрытые</button>
+          <button type="button" onClick=${clearHidden}>Удалить все скрытые</button>
         </div>
-        <div class="tabs" role="tablist">
-          ${TABS.map(([id, label]) => html`<button key=${id} role="tab" aria-selected=${tab === id}
-            onClick=${() => setTab(id)}>${label}</button>`)}
+        <div class="tabs" role="tablist" onKeyDown=${onTabKey}>
+          ${TABS.map(([id, label]) => html`<button key=${id} type="button" role="tab" aria-selected=${tab === id}
+            tabindex=${tab === id ? 0 : -1} onClick=${() => setTab(id)}>${label}</button>`)}
         </div>
         ${!data && tab !== "numbers" && html`<${Pending} error=${loadError} onRetry=${load} />`}
         ${data && tab === "chat" && html`
@@ -164,8 +173,8 @@ export function Notes({ chat, showHidden, onShowHidden, onClearHidden, onEditNum
             <input class="grow" value=${numbers} placeholder="Номера: 1-52 68-72" aria-label="Номера сообщений"
               onInput=${(e) => setNumbers(e.target.value)}
               onKeyDown=${(e) => e.key === "Enter" && numbers.trim() && onEditNumbers(numbers)} />
-            <button class="primary" disabled=${!numbers.trim()} onClick=${() => onEditNumbers(numbers)}>Изменить</button>
-            <button disabled=${!numbers.trim()} onClick=${removeByNumbers}>Удалить</button>
+            <button type="button" class="primary" disabled=${!numbers.trim()} onClick=${() => onEditNumbers(numbers)}>Изменить</button>
+            <button type="button" disabled=${!numbers.trim()} onClick=${removeByNumbers}>Удалить</button>
           </div>`}
       </div>
     </div>`;
@@ -206,7 +215,7 @@ function NewNote({ messageId, chatId, hasNotes, onChanged, onError }) {
       aria-label="Новая заметка" onInput=${(e) => setText(e.target.value)}></textarea>
     ${text.trim() && html`<div class="row"><${RoleSelect} value=${role} onChange=${setRole} />
       <${KindSelect} value=${kind} onChange=${setKind} />
-      <button class="primary" onClick=${add}>Добавить</button></div>`}
+      <button type="button" class="primary" onClick=${add}>Добавить</button></div>`}
   </div>`;
 }
 
@@ -231,8 +240,8 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
   const folded = items && items.length > COLLAPSE_FROM;
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
-      <div class="dialog wide" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заметки по номерам">
-        <div class="side-head"><strong>Заметки у сообщений ${numbers}</strong><span class="spacer"></span>
+      <div class="dialog wide" data-slot="dialog" role="dialog" aria-modal="true" aria-labelledby="notes-by-numbers-title">
+        <div class="side-head"><strong id="notes-by-numbers-title">Заметки у сообщений ${numbers}</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         ${!items && html`<${Pending} />`}
         ${items && html`
@@ -241,11 +250,11 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
             <textarea rows="3" value=${common} aria-label="Общая заметка" onInput=${(e) => setCommon(e.target.value)}></textarea>
             <div class="row"><${RoleSelect} value=${commonRole} onChange=${setCommonRole} />
               <${KindSelect} value=${commonKind} onChange=${setCommonKind} />
-              <button class="primary" disabled=${!common.trim()} onClick=${addToAll}>Добавить всем</button></div>
+              <button type="button" class="primary" disabled=${!common.trim()} onClick=${addToAll}>Добавить всем</button></div>
           </details>
           <div class="row">
-            <button onClick=${() => kindForAll("visible")}>Все заметки видимыми</button>
-            <button onClick=${() => kindForAll("hidden")}>Все заметки скрытыми</button>
+            <button type="button" onClick=${() => kindForAll("visible")}>Все заметки видимыми</button>
+            <button type="button" onClick=${() => kindForAll("hidden")}>Все заметки скрытыми</button>
           </div>
           <ul class="numbered">
             ${items.map((item) => html`<li key=${item.message.id} data-slot="numbered-message">
@@ -282,8 +291,8 @@ export function MessageNotes({ chatId, message, shown, onShown, onClose, onChang
 
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
-      <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заметки сообщения">
-        <div class="side-head"><strong>Заметки сообщения #${number}</strong><span class="spacer"></span>
+      <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-labelledby="message-notes-title">
+        <div class="side-head"><strong id="message-notes-title">Заметки сообщения #${number}</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         <p class="muted message-preview">${message.content.slice(0, 200)}</p>
         ${!notes && html`<${Pending} />`}
@@ -293,8 +302,8 @@ export function MessageNotes({ chatId, message, shown, onShown, onClose, onChang
               показывать все заметки возле сообщения, и скрытые тоже</label>
           </div>
           ${notes.length > 1 && html`<div class="row">
-            <button onClick=${() => kindForAll("visible")}>Все видимыми</button>
-            <button onClick=${() => kindForAll("hidden")}>Все скрытыми</button>
+            <button type="button" onClick=${() => kindForAll("visible")}>Все видимыми</button>
+            <button type="button" onClick=${() => kindForAll("hidden")}>Все скрытыми</button>
           </div>`}
           ${notes.map((n) => html`<${AttachedNote} key=${n.id} note=${n} onChanged=${changed} onError=${onError} />`)}
           <${NewNote} messageId=${message.id} chatId=${chatId} hasNotes=${notes.length > 0}

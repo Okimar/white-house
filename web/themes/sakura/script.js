@@ -52,11 +52,24 @@ export default function setup(t) {
   rig.setAttribute("role", "img");
   rig.setAttribute("aria-label", "Маскот темы");
 
-  // Beside the chat on wide screens (and clickable); faint, behind the chat on narrow ones.
+  // Beside the chat on wide screens (and clickable / focusable); faint, behind the chat on narrow ones.
   const wide = matchMedia(WIDE);
   const place = () => {
-    rig.classList.toggle("is-wide", wide.matches);
-    (wide.matches ? t.overlay : t.scene).append(rig);
+    const isWide = wide.matches;
+    rig.classList.toggle("is-wide", isWide);
+    if (isWide) {
+      rig.setAttribute("role", "button");
+      rig.setAttribute("tabindex", "0");
+      rig.setAttribute("aria-label", "Маскот темы (нажмите или нажмите Enter для реакции)");
+      rig.removeAttribute("aria-hidden");
+      t.overlay.append(rig);
+    } else {
+      rig.setAttribute("role", "presentation");
+      rig.setAttribute("tabindex", "-1");
+      rig.setAttribute("aria-hidden", "true");
+      rig.removeAttribute("aria-label");
+      t.scene.append(rig);
+    }
   };
   place();
   wide.addEventListener("change", place, { signal: t.signal });
@@ -82,7 +95,14 @@ export default function setup(t) {
       rig.append(piece);
     }
   };
-  rig.addEventListener("click", () => { react("happy"); burst(); }, { signal: t.signal });
+  const onInteract = () => { react("happy"); burst(); };
+  rig.addEventListener("click", onInteract, { signal: t.signal });
+  rig.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onInteract();
+    }
+  }, { signal: t.signal });
 
   // Eyes follow the pointer; at most one style update per frame.
   let frame = 0;

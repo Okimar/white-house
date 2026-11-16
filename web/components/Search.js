@@ -40,7 +40,20 @@ function dateText(iso) {
 function Hit({ hit, onPick }) {
   const chats = hit.scope === "chats";
   const who = chats ? (hit.name || roleOf(hit.role).label) : (HELPER_ROLES[hit.role] || hit.role);
+  const onKeyDown = (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const hits = [...document.querySelectorAll(".search-results-list .search-hit")];
+      const idx = hits.indexOf(e.currentTarget);
+      if (e.key === "ArrowDown" && idx < hits.length - 1) hits[idx + 1].focus();
+      else if (e.key === "ArrowUp") {
+        if (idx > 0) hits[idx - 1].focus();
+        else document.querySelector(".search-form input")?.focus();
+      }
+    }
+  };
   return html`<button class="search-hit" data-slot="search-hit" onClick=${() => onPick(hit)}
+    onKeyDown=${onKeyDown}
     title=${chats && !hit.on_path ? "Сообщение в другой ветке чата: откроется она" : "Открыть на этом сообщении"}>
     <span class="search-hit-head">
       <${Icon} name=${chats ? "message-square" : "wand"} />
@@ -69,7 +82,30 @@ export function Search({ characters, onOpen, onClose, onError }) {
   const { groups } = useGroups("chat", onError);
   const token = useRef("");
   const controller = useRef(null);
-  useEscape(onClose);
+  const winRef = useRef(null);
+  const opener = useRef(document.activeElement);
+
+  const close = () => {
+    onClose();
+    try { opener.current?.focus?.(); } catch (e) { /* opener gone */ }
+  };
+  useEscape(close);
+
+  const onWinKeyDown = (e) => {
+    if (e.key === "Tab" && winRef.current) {
+      const focusable = [...winRef.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
 
   useEffect(() => { api.get("/search/info").then(setInfo).catch(() => setInfo(null)); }, []);
   useEffect(() => () => { // closing the window ends a search that is still running

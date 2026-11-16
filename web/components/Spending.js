@@ -136,7 +136,8 @@ export function SpendingSettings({ onError }) {
             onInput=${(e) => setPrice(i, { in: e.target.value })} /></label>
           <label>Ответ, $ <input class="num" type="text" inputmode="decimal" value=${p.out}
             onInput=${(e) => setPrice(i, { out: e.target.value })} /></label>
-          <${IconButton} icon="trash-2" label="Убрать цену" onClick=${() => { setPrices(prices.filter((_, j) => j !== i)); setDirty(true); }} />
+          <${IconButton} icon="trash-2" label=${"Убрать цену для модели " + (p.model || ("№" + (i + 1)))}
+            onClick=${() => { setPrices(prices.filter((_, j) => j !== i)); setDirty(true); }} />
         </li>`)}
       </ul>
       <div class="row">

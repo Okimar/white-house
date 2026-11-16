@@ -78,9 +78,9 @@ export function Connections({ onChanged, onError }) {
     <h2>Подключения к моделям</h2>
     <p class="hint">Основное подключение отвечает во всех чатах, где не выбрано другое. Нажмите на строку, чтобы открыть настройки.</p>
     ${connections.length >= 3 && html`
-      <div class="settings-filter-bar">
-        <input placeholder="Быстрый поиск подключения..." value=${filterQuery}
-          onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Фильтр подключений" />
+      <div class="settings-filter-bar" role="search">
+        <input type="search" placeholder="Быстрый поиск подключения..." value=${filterQuery}
+          onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Поиск по подключениям" />
       </div>`}
     <ul class="list conn-list" data-slot="conn-list">
       ${connections.length === 0 && html`<li><${EmptyNote} title="Подключений пока нет"
@@ -91,10 +91,13 @@ export function Connections({ onChanged, onError }) {
         <li key=${c.id} class="conn">
           <div class=${"conn-card" + (c.id === openId ? " open" : "")}>
             <label class="conn-active">
-              <input type="radio" name="active" checked=${c.id === active} onChange=${() => choose(c.id)} />
+              <input type="radio" name="active" checked=${c.id === active}
+                aria-label=${"Сделать «" + c.name + "» основным подключением"}
+                onChange=${() => choose(c.id)} />
               <span>${c.id === active ? "Основное" : "Выбрать"}</span>
             </label>
             <button class="conn-pick" aria-expanded=${c.id === openId}
+              aria-label=${"Настройки подключения " + c.name}
               onClick=${() => setOpenId(c.id === openId ? null : c.id)}>
               <strong>${c.name}</strong>
               <span class="muted">${serviceName(c.service) || c.base_url}${c.model ? " · " + c.model : ""}</span>
@@ -398,10 +401,14 @@ function Keys({ conn, onSaved, onError }) {
           <span>${i + 1}. <strong>${k.label || "без названия"}</strong></span>
           <span class="muted">${k.has_key ? "ключ задан" : "без ключа"}${k.has_proxy ? " · через " + k.proxy : ""}</span>
           <span class="spacer"></span>
-          <${IconButton} icon="arrow-up" label="Выше" disabled=${i === 0} onClick=${() => move(i, -1)} />
-          <${IconButton} icon="arrow-down" label="Ниже" disabled=${i === conn.keys.length - 1} onClick=${() => move(i, 1)} />
-          <${IconButton} icon="pencil" label="Изменить ключ" onClick=${() => start(k)} />
-          <${IconButton} icon="trash-2" label="Удалить ключ" class="danger-text" onClick=${() => del(k)} />
+          <${IconButton} icon="arrow-up" label=${"Переместить ключ «" + (k.label || ("Ключ " + (i + 1))) + "» выше"}
+            disabled=${i === 0} onClick=${() => move(i, -1)} />
+          <${IconButton} icon="arrow-down" label=${"Переместить ключ «" + (k.label || ("Ключ " + (i + 1))) + "» ниже"}
+            disabled=${i === conn.keys.length - 1} onClick=${() => move(i, 1)} />
+          <${IconButton} icon="pencil" label=${"Изменить ключ «" + (k.label || ("Ключ " + (i + 1))) + "»"}
+            onClick=${() => start(k)} />
+          <${IconButton} icon="trash-2" label=${"Удалить ключ «" + (k.label || ("Ключ " + (i + 1))) + "»"}
+            class="danger-text" onClick=${() => del(k)} />
         </li>`)}
     </ul>
     ${editing === null && html`<button onClick=${() => start(null)}><${Icon} name="plus" /> Ключ</button>`}
@@ -523,7 +530,8 @@ function ParamRow({ spec, value, on, mark, limit, templates, onSet, onDrop }) {
 
   return html`
     <div class=${"param " + mark + (on ? " on" : "")} title=${spec.hint}>
-      <label class="param-name"><input type="checkbox" checked=${on} onChange=${toggle} />
+      <label class="param-name"><input type="checkbox" checked=${on} onChange=${toggle}
+        aria-label=${"Отправлять параметр «" + spec.label + "»"} />
         <span>${spec.label}</span> <span class="muted param-id">${spec.id}</span></label>
       <span class="param-control">${control}</span>
       <span class=${"param-mark " + mark} title=${word} role="img" aria-label=${word}><${Icon} name=${sign} /></span>

@@ -31,13 +31,21 @@ function ThemeCard({ theme, active, onPick, onCopy, onDelete, onVersions }) {
       ${theme.script && html`<span class="hint">Эффекты: тема запускает свой скрипт, например анимации</span>`}
       ${theme.error && html`<span class="hint danger-text">Не работает: ${theme.error}</span>`}
       <div class="row">
-        <button class=${active ? "primary" : ""} disabled=${!!theme.error} onClick=${() => onPick(theme)}>
+        <button class=${active ? "primary" : ""} disabled=${!!theme.error}
+          aria-label=${(active ? "Текущая тема: " : "Выбрать тему ") + theme.name}
+          onClick=${() => onPick(theme)}>
           ${active ? "Выбрана" : "Выбрать"}</button>
-        <button title="Сделать свою копию темы, чтобы менять" disabled=${!!theme.error} onClick=${() => onCopy(theme)}>Дублировать</button>
+        <button title="Сделать свою копию темы, чтобы менять"
+          aria-label=${"Дублировать тему " + theme.name}
+          disabled=${!!theme.error} onClick=${() => onCopy(theme)}>Дублировать</button>
         ${!theme.error && html`<a class="button" title="Сохранить тему одним файлом, чтобы поделиться"
+          aria-label=${"Скачать тему " + theme.name}
           href=${`/api/themes/${theme.id}/export`}>Скачать</a>`}
-        ${theme.versions > 0 && html`<button title="Вернуть прошлую версию" onClick=${() => onVersions(theme)}>Версии</button>`}
-        ${!theme.builtin && html`<${IconButton} icon="trash-2" label="Удалить тему" title="Удалить (можно вернуть через версии)"
+        ${theme.versions > 0 && html`<button title="Вернуть прошлую версию"
+          aria-label=${"История версий темы " + theme.name}
+          onClick=${() => onVersions(theme)}>Версии</button>`}
+        ${!theme.builtin && html`<${IconButton} icon="trash-2" label=${"Удалить тему " + theme.name}
+          title="Удалить (можно вернуть через версии)"
           onClick=${() => onDelete(theme)} />`}
       </div>
     </div>`;

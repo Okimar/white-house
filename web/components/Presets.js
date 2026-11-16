@@ -56,14 +56,18 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
       <div class="row">
         <input type="checkbox" checked=${block.enabled} disabled=${readOnly} aria-label=${"Включить блок: " + block.name}
           onChange=${(e) => set({ enabled: e.target.checked })} />
-        <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}>
+        <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}
+          aria-label=${"Настройки блока «" + block.name + "»"}>
           <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> ${block.name} <span class="muted">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
           ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
           ${block.group && html`<span class="tag" title="Из блоков группы включён только один"><${Icon} name="arrow-left-right" /> ${block.group}</span>`}</button>
         ${!readOnly && html`
-          <${IconButton} icon="arrow-up" label="Выше" disabled=${index === 0} onClick=${() => onMove(index, -1)} />
-          <${IconButton} icon="arrow-down" label="Ниже" disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
-          ${REMOVABLE.includes(block.kind) && !block.when && html`<${IconButton} icon="trash-2" label="Удалить блок" class="danger-text"
+          <${IconButton} icon="arrow-up" label=${"Переместить блок «" + block.name + "» выше"}
+            disabled=${index === 0} onClick=${() => onMove(index, -1)} />
+          <${IconButton} icon="arrow-down" label=${"Переместить блок «" + block.name + "» ниже"}
+            disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
+          ${REMOVABLE.includes(block.kind) && !block.when && html`<${IconButton} icon="trash-2"
+            label=${"Удалить блок «" + block.name + "»"} class="danger-text"
             onClick=${() => onRemove(index)} />`}`}
       </div>
       ${open && html`<div class="stack block-edit">

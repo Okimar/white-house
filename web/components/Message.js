@@ -62,7 +62,7 @@ function NoteColumn({ notes, side, few, onHide, onMore }) {
     ${shown.map((n) => html`<${NoteCard} key=${n.id} note=${n} onHide=${onHide} />`)}
     ${shown.length < notes.length && html`<div class="notes-line" data-slot="notes-more">
       <span>Видны последние</span><${NotesShownInput} value=${limit} /><span>из ${notes.length}.</span>
-      <button class="notes-more" onClick=${onMore}>Все заметки</button></div>`}
+      <button type="button" class="notes-more" onClick=${onMore}>Все заметки</button></div>`}
   </aside>`;
 }
 
@@ -217,6 +217,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (excluded ? " msg-excluded" : "")}
       data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}
       data-excluded=${excluded ? "true" : "false"} data-pending=${pending ? "true" : "false"}
+      aria-busy=${streaming ? "true" : "false"}
       ref=${msgRef} onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
       onPointerUp=${onPointerEnd} onPointerCancel=${onPointerEnd}>
       <header data-slot="message-header">
@@ -230,15 +231,25 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           onClick=${(e) => pickRole(e.currentTarget)} />
         <strong class="msg-name" data-slot="message-name">${message.name || fallbackName}</strong>
         ${message.swipe_count > 1 && html`
-          <span class="swipes" data-slot="message-swipes">
+          <span class="swipes" data-slot="message-swipes" role="group"
+            tabindex="0" aria-label=${`Варианты ответа: вариант ${message.active_swipe + 1} из ${message.swipe_count}`}
+            onKeyDown=${(e) => {
+              if (busy) return;
+              if (e.key === "ArrowLeft" && message.active_swipe > 0) {
+                e.preventDefault(); onSwipe(message.id, message.active_swipe - 1);
+              } else if (e.key === "ArrowRight" && message.active_swipe < message.swipe_count - 1) {
+                e.preventDefault(); onSwipe(message.id, message.active_swipe + 1);
+              }
+            }}>
             <${IconButton} icon="chevron-left" label="Предыдущий вариант" disabled=${busy || message.active_swipe === 0}
               onClick=${() => onSwipe(message.id, message.active_swipe - 1)} />
-            <span class="swipe-count">${message.active_swipe + 1} / ${message.swipe_count}</span>
+            <span class="swipe-count" aria-live="polite" aria-atomic="true">${message.active_swipe + 1} / ${message.swipe_count}</span>
             <${IconButton} icon="chevron-right" label="Следующий вариант" disabled=${busy || message.active_swipe >= message.swipe_count - 1}
               onClick=${() => onSwipe(message.id, message.active_swipe + 1)} />
           </span>`}
         <span class="spacer"></span>
         ${editing === null && !streaming && html`<span class="msg-actions" data-slot="message-actions"
+          role="toolbar" aria-label="Действия с сообщением"
           style=${pending ? { visibility: "hidden" } : null} inert=${pending ? true : null} aria-hidden=${pending ? "true" : null}>
           ${bar.map((id) => {
             const a = describe(id);
@@ -264,12 +275,12 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
               else if (e.key === "Escape") { e.preventDefault(); cancel(); }
             }}></textarea>
           <div class="edit-bar" data-slot="message-edit-bar">
-            <button class="primary" disabled=${saving} onClick=${save}>Сохранить</button>
-            <button disabled=${saving} onClick=${cancel}>Отмена</button>
+            <button type="button" class="primary" disabled=${saving} onClick=${save}>Сохранить</button>
+            <button type="button" disabled=${saving} onClick=${cancel}>Отмена</button>
           </div>`
         : html`${thinking && thinkingDisplay !== "hidden" && html`<details class="thinking" data-slot="message-thinking"
             open=${thinkingDisplay === "open" || (streaming && !text)}>
-            <summary><${Icon} name="brain" /> Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text">${thinking}</div>
+            <summary><${Icon} name="brain" /> Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${thinking}</div>
           </details>`}
           ${(pending ? [] : messageTrees(message)).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
@@ -279,7 +290,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           ${meta.via && !streaming && html`<div class="msg-via muted" data-slot="message-via"
             title="Основное подключение не ответило, ответил запасной путь"><${Icon} name="corner-down-right" /> через ${String(meta.via).replaceAll("↪", "→")}</div>`}
           ${excluded && html`<div class="msg-excluded-note muted" data-slot="message-excluded"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
-          <div class=${"body" + (shown && shown.pending ? " regex-pending" : "")} data-slot="message-body">${shown && shown.nodes
+          <div class=${"body" + (shown && shown.pending ? " regex-pending" : "")} data-slot="message-body"
+            aria-live=${streaming ? "polite" : null}>${shown && shown.nodes
             ? html`<${RegexNodes} nodes=${shown.nodes} />` : shown && !shown.pending ? shown.text : text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
           ${typeof meta.regex_before === "string" && !streaming && !pending && onRegexUndo && html`<div class="msg-regex-note muted" data-slot="message-regex-note">
             Текст изменён регекс-правилом. <button type="button" class="link" onClick=${() => onRegexUndo(message.id)}>Вернуть как было</button></div>`}
