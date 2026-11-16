@@ -197,8 +197,11 @@ body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
 .msg header { display: flex; gap: 4px; align-items: center; min-height: var(--tap); max-width: 100%; }
 .msg header .role-icon {
   width: 28px; height: 28px; min-height: 28px; min-width: 28px; padding: 0;
-  border-radius: var(--radius-xs); color: var(--text2);
+  border-radius: var(--radius-xs); color: var(--text2); position: relative;
   transition: transform 120ms var(--ease), background-color 120ms ease, color 120ms ease;
+}
+@media (pointer: coarse) {
+  .msg header .role-icon::after { content: ""; position: absolute; inset: -8px; min-width: 44px; min-height: 44px; }
 }
 .msg header .role-icon:hover:not(:disabled) { background: var(--raised); color: var(--fg); }
 .msg-user header .role-icon { color: color-mix(in srgb, var(--accent) 75%, var(--fg)); }
@@ -1272,6 +1275,8 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
   .topbar > .spacer { display: none; }
   .phone-nav { flex: none; display: flex; align-items: center; gap: 1px; }
   .phone-nav .icon-btn, .topbar .export-chat { width: 36px; min-height: 44px; position: relative; } /* height is 44 for touch */
+  .phone-folded { flex: none; display: flex; align-items: center; gap: 2px; }
+  .phone-folded .icon-btn { width: 36px; min-height: 44px; }
   .has-mark { position: relative; color: var(--accent); }
   .has-mark::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .search { display: none; order: 10; flex-basis: 100%; padding: 4px 8px 4px 0; }

@@ -121,7 +121,13 @@ function addedSince(nodes, classes) {
 }
 
 // theme: summary from /api/themes. runScript: the user allowed this exact script (or built-in).
-export async function applyTheme(theme, { runScript, onScriptError }) {
+export async function applyTheme(theme, opts = {}) {
+  const { runScript = false, onScriptError } = typeof opts === "object" && opts !== null ? opts : {};
+  if (typeof theme === "string") {
+    // If called with a string id directly (e.g. from debug/console or test scripts)
+    const hasCss = theme === "sakura" || theme === "sepia" || theme === "nord" || theme === "forest" || theme === "amethyst";
+    theme = { id: theme, base: theme === "dark" ? "dark" : theme === "light" ? "light" : "auto", has_css: hasCss, builtin: true };
+  }
   if (SAFE_MODE || !theme || theme.error) {
     stopScript();
     setLook("default", "auto", false);
