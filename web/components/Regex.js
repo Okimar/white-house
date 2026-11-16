@@ -198,12 +198,12 @@ function RuleEditor({ rule, scope, owner, chatId, onClose, onSaved }) {
         ${probe && !probe.ok && html`<p class="error" role="alert" data-slot="regex-try-error">${probe.error}</p>`}
         ${probe && probe.ok && html`
           <div class="rx-panels stack">
-            <div>
-              <small class="muted">Найдено совпадений: <strong>${probe.matches.length}</strong></small>
+            <div class="rx-panel-box">
+              <div class="rx-panel-header"><small class="muted">Найдено совпадений: <strong>${probe.matches.length}</strong></small></div>
               <${Highlighted} text=${sample} matches=${probe.matches} />
             </div>
-            <div>
-              <small class="muted">Результат замены:</small>
+            <div class="rx-panel-box">
+              <div class="rx-panel-header"><small class="muted">Результат замены:</small></div>
               <div class="rx-result" data-slot="regex-result">
                 ${probe.nodes ? html`<${RegexNodes} nodes=${probe.nodes} />` : html`<div class="rx-sample">${probe.result}</div>`}
               </div>
@@ -231,9 +231,15 @@ function RuleRow({ rule, index, count, onMove, onEdit, onToggle, onCopy, onDelet
   return html`<div class=${"regex-rule" + (rule.enabled ? "" : " off")} data-slot="regex-rule">
     <input type="checkbox" checked=${rule.enabled} aria-label=${"Включить: " + (rule.name || rule.find)}
       onChange=${() => onToggle(rule)} />
-    <div class="regex-name"><button type="button" class="link" onClick=${() => onEdit(rule)} title=${rule.name || rule.find}>${rule.name || rule.find}</button>
-      <small class="muted">${WHEN_BADGE[rule.when]}${rule.render_html ? " · разметка" : ""}</small>
-      ${problem && html`<small class="regex-problem" title=${problem}><${Icon} name="triangle-alert" /> ${problem}</small>`}</div>
+    <div class="regex-name">
+      <button type="button" class="link regex-title" onClick=${() => onEdit(rule)} title=${rule.name ? `${rule.name} (${rule.find})` : rule.find}>
+        ${rule.name ? html`<strong>${rule.name}</strong> <code class="regex-mono-preview">${rule.find}</code>` : html`<code class="regex-mono-preview">${rule.find}</code>`}
+      </button>
+      <div class="regex-meta">
+        <span class="badge regex-badge">${WHEN_BADGE[rule.when]}${rule.render_html ? " · разметка" : ""}</span>
+        ${problem && html`<small class="regex-problem" title=${problem}><${Icon} name="triangle-alert" /> ${problem}</small>`}
+      </div>
+    </div>
     <div class="regex-buttons">
       <${IconButton} icon="arrow-up" label=${"Переместить правило «" + (rule.name || rule.find) + "» выше"}
         disabled=${index === 0} onClick=${() => onMove(index, -1)} />

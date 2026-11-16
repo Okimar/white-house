@@ -8,6 +8,7 @@
   --accent-fg: #ffffff;
   --accent-hover: #7b3815;
   --accent-active: #632c0f;
+  --accent-subtle: color-mix(in srgb, var(--accent) 12%, transparent);
   --danger: #ad3428;
   --danger-fg: #ffffff;
   --success: #2e7a4e;
@@ -23,7 +24,12 @@
   --msg-bot-bg: var(--panel);
   --font-reading: "Georgia", "PT Serif", "Charter", "Noto Serif", "Liberation Serif", serif;
   --line-height-reading: 1.65;
-  --shadow: 0 1px 3px rgba(44, 34, 26, .08);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow-sm: 0 1px 2px rgba(44, 34, 26, .05);
+  --shadow: 0 1px 3px rgba(44, 34, 26, .08), 0 1px 2px -1px rgba(44, 34, 26, .08);
+  --shadow-md: 0 4px 12px -2px rgba(44, 34, 26, .1), 0 2px 6px -1px rgba(44, 34, 26, .06);
+  --shadow-lg: 0 12px 28px -4px rgba(44, 34, 26, .12), 0 4px 10px -2px rgba(44, 34, 26, .08);
   --menu-shadow: 0 10px 24px rgba(44, 34, 26, .14);
   --focus-ring: 2px solid var(--accent);
   --focus-ring-offset: 2px;

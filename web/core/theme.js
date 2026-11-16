@@ -326,14 +326,40 @@ function parkedBar() {
 }
 
 function dropParked() {
-  if (parkedNode) parkedNode.remove();
+  if (!parkedNode) return;
+  const node = parkedNode;
   parkedNode = null;
-  const remainingHeight = (noticeBox && noticeBox.isConnected && noticeBox.children.length) ? noticeBox.offsetHeight : 0;
-  if (!remainingHeight && noticeBox) {
-    noticeBox.remove();
-    noticeBox = null;
+  const prefersReducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (prefersReducedMotion || !node.isConnected) {
+    node.remove();
+    const remainingHeight = (noticeBox && noticeBox.isConnected && noticeBox.children.length) ? noticeBox.offsetHeight : 0;
+    if (!remainingHeight && noticeBox) {
+      noticeBox.remove();
+      noticeBox = null;
+    }
+    document.documentElement.style.setProperty("--notice-h", remainingHeight + "px");
+    return;
   }
-  document.documentElement.style.setProperty("--notice-h", remainingHeight + "px");
+  node.style.overflow = "hidden";
+  node.style.maxHeight = node.offsetHeight + "px";
+  node.style.transition = "max-height 220ms ease, opacity 180ms ease, padding 220ms ease, margin 220ms ease";
+  requestAnimationFrame(() => {
+    node.style.maxHeight = "0px";
+    node.style.opacity = "0";
+    node.style.paddingTop = "0px";
+    node.style.paddingBottom = "0px";
+    node.style.marginTop = "0px";
+    node.style.marginBottom = "0px";
+  });
+  setTimeout(() => {
+    if (node.isConnected) node.remove();
+    const remainingHeight = (noticeBox && noticeBox.isConnected && noticeBox.children.length) ? noticeBox.offsetHeight : 0;
+    if (!remainingHeight && noticeBox) {
+      noticeBox.remove();
+      noticeBox = null;
+    }
+    document.documentElement.style.setProperty("--notice-h", remainingHeight + "px");
+  }, 240);
 }
 
 // The page's theme choice changed (picked in «Оформление», by the assistant, an undo): ask the server again,

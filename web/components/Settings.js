@@ -195,11 +195,13 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
               <option value="all">Все подряд</option>
             </${Select}>
           </label>
-          <label class="stack">Сколько последних заметок показывать
-            <input type="number" min="1" max=${MAX_SHOWN} value=${settings.notes_shown || 2}
-              aria-label="Количество последних заметок возле сообщения"
-              aria-describedby="hint-notes-display"
-              onChange=${(e) => setNotesShown(e.target.value).then(onChanged).catch((err) => onError(err.message))} /></label>
+          ${(settings.notes_display || "few") === "few" && html`
+            <label class="stack">Сколько последних заметок показывать
+              <input type="number" min="1" max=${MAX_SHOWN} value=${settings.notes_shown || 2}
+                aria-label="Количество последних заметок возле сообщения"
+                aria-describedby="hint-notes-display"
+                onChange=${(e) => setNotesShown(e.target.value).then(onChanged).catch((err) => onError(err.message))} /></label>
+          `}
           <p id="hint-notes-display" class="hint">Возле сообщения видны только последние заметки, под ними строка «Видны последние N из M». Число можно менять и прямо на этой строке.</p>
         </section>
 
@@ -217,7 +219,7 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
           <label class="stack">Имя, если в чате нет «моего» персонажа
             <div class="row">
-              <input value=${userName} placeholder="User" aria-label="Имя пользователя по умолчанию"
+              <input class="grow" value=${userName} placeholder="User" aria-label="Имя пользователя по умолчанию"
                 onInput=${(e) => setUserName(e.target.value)}
                 onKeyDown=${(e) => { if (e.key === "Enter" && userName.trim() !== (settings.user_name || "")) saveName(); }} />
               <button class=${userName.trim() !== (settings.user_name || "") ? "primary" : ""}

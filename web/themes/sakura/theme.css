@@ -4,8 +4,9 @@
    - no backdrop-filter / big blur on elements that scroll: it is what makes phones lag;
    - few moving things on phones, none with "reduce motion". */
 :root {
-  --bg: #120d24; --panel: #1d1638; --fg: #f3e9ff; --muted: #b9abd8; --line: #3a2f63;
+  --bg: #120d24; --panel: #1d1638; --fg: #f3e9ff; --muted: #9e8ec0; --line: #3a2f63;
   --accent: #ff8fb8; --accent-fg: #2a0f1f; --accent-hover: #ffa8c8; --accent-active: #f07aa5;
+  --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
   --danger: #ff6b81;
   --user: #6e2d5a; --bot: #2b1f54;
   --app-bg: linear-gradient(180deg, #0b0820 0%, #1b1240 55%, #3a1f4f 100%);
@@ -15,12 +16,19 @@
   --dialog-bg: #1d1638; --overlay-bg: rgba(5, 3, 15, .6);
   --radius: 16px; --radius-sm: 10px;
   --line-height-reading: 1.65;
+  --shadow-sm: 0 1px 2px rgba(10, 5, 20, .35), 0 0 0 1px rgba(255, 170, 210, .08);
+  --shadow: 0 1px 3px rgba(10, 5, 20, .45), 0 1px 2px -1px rgba(10, 5, 20, .35), 0 0 0 1px rgba(255, 170, 210, .08);
+  --shadow-md: 0 4px 14px -2px rgba(10, 5, 20, .55), 0 2px 6px -1px rgba(10, 5, 20, .35), 0 0 0 1px rgba(255, 170, 210, .1);
+  --shadow-lg: 0 12px 28px -4px rgba(10, 5, 20, .65), 0 4px 8px -2px rgba(10, 5, 20, .4), 0 0 0 1px rgba(255, 170, 210, .12);
+  --menu-shadow: 0 14px 32px -4px rgba(10, 5, 20, .7), 0 4px 10px -2px rgba(10, 5, 20, .45), 0 0 0 1px rgba(255, 170, 210, .12);
   --focus-ring: 2px solid var(--accent);
   --focus-ring-offset: 2px;
 }
 
 [data-slot="message-name"] { color: var(--accent); }
 [data-slot="message"][data-role="user"] [data-slot="message-name"] { color: #ffd1e6; }
+[data-slot="message"][data-role="user"] .time,
+[data-slot="message"][data-role="user"] .msg-num { color: #d6c5eb; }
 [data-slot="message"][data-streaming="true"] { border-color: rgba(255, 143, 184, .55); }
 [data-slot="send-button"] { background: linear-gradient(135deg, #ff9cc4, #c77dff); border: 0; color: #2a0f1f; font-weight: 600; }
 [data-slot="topbar"] [data-slot="title"] { letter-spacing: .02em; }

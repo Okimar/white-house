@@ -56,12 +56,13 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
   };
   return html`
     <li class=${"preset-block" + (block.enabled ? "" : " off")} data-slot="preset-block">
-      <div class="row">
+      <div class="row preset-block-row">
+        ${!readOnly && html`<span class="block-grip" title="Порядок блоков настраивается стрелками" aria-hidden="true"><${Icon} name="grip-vertical" /></span>`}
         <input type="checkbox" checked=${block.enabled} disabled=${readOnly} aria-label=${"Включить блок: " + block.name}
           onChange=${(e) => set({ enabled: e.target.checked })} />
         <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}
           aria-label=${"Настройки блока «" + block.name + "»"}>
-          <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> <span class="block-name">${block.name}</span> <span class="muted">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
+          <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> <span class="block-name">${block.name}</span> <span class="muted block-desc">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
           ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
           ${block.group && html`<span class="tag" title="Из блоков группы включён только один"><${Icon} name="arrow-left-right" /> ${block.group}</span>`}</button>
         ${!readOnly && html`<div class="actions">

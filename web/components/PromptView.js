@@ -124,8 +124,8 @@ export function PromptView({ message, onClose, onError }) {
           <div class="prompt-meta">
             <div>Пресет: <strong>${meta.preset_name}</strong> · модель: <strong>${meta.model || "—"}</strong>
               ${` (${meta.connection_name})`}</div>
-            <div>Примерно ${estimate} ${tokenWord(estimate)}${meta.max_context_tokens ? ` из ${meta.max_context_tokens}` : ""}
-              ${exact !== null && html` · точно: <strong>${exact}</strong>`}</div>
+            <div>Примерно <strong class="tabular">${estimate}</strong> ${tokenWord(estimate)}${meta.max_context_tokens ? html` из <span class="tabular">${meta.max_context_tokens}</span>` : ""}
+              ${exact !== null && html` · точно: <strong class="tabular">${exact}</strong>`}</div>
             ${(dropped.messages > 0 || (dropped.members || []).length > 0) && html`<div class="notice">
               Не влезло в память модели: ${dropped.messages > 0 ? `старых сообщений — ${dropped.messages}` : ""}
               ${(dropped.members || []).length ? ` карточки: ${dropped.members.join(", ")}` : ""}</div>`}

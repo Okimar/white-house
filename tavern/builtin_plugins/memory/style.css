@@ -32,8 +32,10 @@
 .memory-actions button:focus-visible, .memory-transfer button:focus-visible, .memory-bulk > button:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px; }
 .memory-summary { display: flex; flex-direction: column; gap: 8px; }
-.memory-label { font-weight: 600; }
-.memory-text { width: 100%; box-sizing: border-box; min-height: calc(var(--tap) * 2); font-size: 16px; resize: vertical; }
+.memory-label { font-weight: 600; font-size: var(--text-sm); color: var(--fg); }
+.memory-text { width: 100%; box-sizing: border-box; min-height: calc(var(--tap) * 2); font-size: 16px; font-family: var(--font);
+  background: var(--dialog-bg); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; resize: vertical; }
+.memory-text:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
 .memory-versions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .memory-versions li { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .memory-member { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; border-top: 1px solid var(--line); }

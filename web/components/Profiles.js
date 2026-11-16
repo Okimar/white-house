@@ -93,6 +93,7 @@ export function Profiles({ onApplied, onError }) {
         <div class="profile-head">
           <button class=${p.id === active ? "primary" : ""} onClick=${async () => { if (await apply(p.id)) onApplied(); }}
             title=${`${p.connection_name} · ${p.model || "модель не выбрана"}`}>${p.name}</button>
+          ${p.id === active && html`<span class="badge badge-ok profile-active-badge">Активен</span>`}
           <span class="muted profile-meta">${p.connection_name || ""}${p.model ? " · " + p.model : ""}</span>
           <div class="profile-actions">
             <${IconButton} icon="refresh-cw" label=${"Записать в профиль «" + p.name + "» то, что выбрано сейчас"} onClick=${() => recapture(p)} />
@@ -100,6 +101,7 @@ export function Profiles({ onApplied, onError }) {
           </div>
         </div>
         <div class="profile-parts">
+          <span class="profile-parts-label muted">Переключать:</span>
           ${PARTS.map(([k, label]) => html`<label key=${k} class="check"><input type="checkbox" checked=${p.parts[k]}
             onChange=${() => toggle(p, k)} />${label}</label>`)}
         </div>
