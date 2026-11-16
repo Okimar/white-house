@@ -143,7 +143,9 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
     const el = box.current;
     if (!el) return;
     if (jump.current && Date.now() > jump.current.until) jump.current = null;
-    const isScrolling = userScrolling();
+    // Never write scrollTop while the finger (or its inertia) owns the scroll: the browser drops the touch and the
+    // list "sticks". onScroll keeps the anchor fresh meanwhile; the position is corrected after the finger lets go.
+    if (userScrolling() && !jump.current) return;
     const jumpIndex = jump.current ? items.findIndex((i) => i.id === jump.current.id) : -1;
     if (jumpIndex >= 0) {
       stuck.current = false;
@@ -152,14 +154,8 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
       el.scrollTop = el.scrollHeight;
     } else if (anchor.current) {
       const idx = items.findIndex((i) => keyOf(i) === anchor.current.id);
-      // Prepending older items (idx > 0) must adjust el.scrollTop even if the user was recently scrolling,
-      // so the loaded content does not cause the viewport to jump to the top.
-      const prepended = idx > 0;
-      if (idx >= 0 && (prepended || !isScrolling)) {
-        const targetScroll = offsets[idx] - anchor.current.offset;
-        if (Math.abs(targetScroll - el.scrollTop) > 1) {
-          el.scrollTop = targetScroll;
-        }
+      if (idx > 0 && Math.abs(offsets[idx] - anchor.current.offset - el.scrollTop) > 1) {
+        el.scrollTop = offsets[idx] - anchor.current.offset;
       }
     }
     anchor.current = captureAnchor(el.scrollTop);

@@ -618,8 +618,15 @@ input.num { width: 4.5em; }
 .tree-empty-card .empty-icon { color: var(--accent); margin-bottom: 2px; }
 .tree-empty-card .empty-title { font-weight: 600; margin: 0; font-size: var(--text-base); }
 .tree-empty-card .empty-hint { font-size: var(--text-sm); line-height: 1.45; margin: 0; text-wrap: pretty; }
+.tree-empty-card { width: min(360px, calc(100% - 32px)); box-sizing: border-box; }
+/* Phone: the card sits at the bottom of the map (the root bubble in the middle stays visible and tappable),
+   left of the zoom buttons, and never grows taller than the map. */
 @media (max-width: 720px) {
-  .tree-empty-card { max-width: calc(100% - 32px); padding: 16px; }
+  .tree-empty-card { left: 8px; right: 60px; top: 8px; bottom: auto; transform: none; width: auto; max-width: none;
+    padding: 8px 12px 12px; gap: 4px; max-height: calc(100% - 16px); overflow-y: auto; }
+  .tree-empty-card .empty-icon, .tree-empty-card .empty-hint { display: none; }
+  .tree-empty-card .empty-title { font-size: var(--text-sm); }
+  .tree-empty-card .empty-actions { margin-top: 4px !important; }
 }
 .tree-zoom-controls { position: absolute; right: 14px; bottom: 14px; z-index: 6; display: flex; flex-direction: column;
   background: color-mix(in srgb, var(--dialog-bg) 88%, transparent); backdrop-filter: blur(8px);
@@ -1493,14 +1500,16 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 .only-wide { }
 @media (max-width: 720px) {
   .only-wide { display: none !important; }
-  .topbar { min-height: calc(var(--bar-h) + env(safe-area-inset-top)); padding: 4px 6px 4px 10px; padding-top: max(4px, env(safe-area-inset-top)); gap: 2px; }
-  .topbar .title { flex: 1 1 auto; min-width: 72px; padding-right: 4px; letter-spacing: -0.01em; }
-  .topbar .title.title-interactive { min-height: 44px; display: inline-flex; align-items: center; }
+  /* One row on a phone: back + title + 7 icons + menu fit 375px only with 36px-wide icons (44 high).
+     It still wraps, but only for the opened search field and the spending line (flex-basis 100%). */
+  .topbar { min-height: calc(var(--bar-h) + env(safe-area-inset-top)); padding: 4px 4px 4px 8px; padding-top: max(4px, env(safe-area-inset-top)); gap: 0; }
+  .topbar .title { flex: 1 1 0; min-width: 0; padding-right: 4px; letter-spacing: -0.01em; }
+  .topbar .title.title-interactive { min-height: 44px; display: block; line-height: 44px; margin: 0; padding: 0 4px; }
   .topbar > .spacer { display: none; }
-  .phone-nav { flex: none; display: flex; align-items: center; gap: 1px; }
-  .phone-nav .icon-btn, .topbar .export-chat { width: 36px; min-height: 44px; position: relative; } /* height is 44 for touch */
-  .phone-folded { flex: none; display: flex; align-items: center; gap: 2px; }
-  .phone-folded .icon-btn { width: 36px; min-height: 44px; }
+  .phone-nav { flex: none; display: flex; align-items: center; gap: 0; }
+  .topbar .icon-btn, .phone-nav .icon-btn, .topbar .export-chat, .topbar .home-back { width: 36px; min-width: 0; min-height: 44px; flex: none; position: relative; } /* height is 44 for touch */
+  .phone-folded { flex: none; display: flex; align-items: center; gap: 0; }
+  .phone-folded .icon-btn { width: 36px; min-width: 0; min-height: 44px; }
   .has-mark { position: relative; color: var(--accent); }
   .has-mark::after { content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .search { display: none; order: 10; flex-basis: 100%; padding: 4px 8px 4px 0; }
@@ -2342,19 +2351,14 @@ label.button:active:not(:disabled),
 }
 /* Phone ergonomics: touch targets (>=44px), gaps (>=4px), safe areas and keyboard-open layouts */
 @media (pointer: coarse) {
-  .row, .chat-actions, .swipes, .msg-actions, .topbar {
+  .row, .chat-actions, .swipes, .msg-actions {
     gap: max(4px, var(--tap-gap, 4px));
   }
-  /* Avoid sticky hover background on mobile touch devices */
-  button:hover:not(:disabled):not(:active),
-  a.button:hover:not(:disabled):not(:active) { background: var(--panel); }
-  button.primary:hover:not(:disabled):not(:active) { background: var(--accent); }
-  .icon-btn:hover:not(:disabled):not(:active) { background: transparent; color: var(--text2); }
-  .sidebar .list .item:hover:not(:active) { background: transparent; }
-  .sidebar .list li.active .item:hover:not(:active) { background: var(--raised); }
+  /* No hover overrides here: with their (0,3,1) weight they beat selected tabs, pressed section icons and red
+     buttons after a tap (white text on a light background). Width stays per place (36px in tight rows). */
   /* Inputs 16px to prevent iOS auto-zoom on focus and satisfy touch legibility (QA Round 9 #2) */
   input, select, textarea, .num { font-size: 16px; }
-  .icon-btn { min-width: var(--tap); min-height: var(--tap); }
+  .icon-btn { min-height: var(--tap); }
 }
 /* Keyboard-open layout & short viewports (375x410): keep reading area and dialogs accessible */
 @media (max-height: 520px) and (max-width: 720px), (max-height: 480px) {
@@ -2693,11 +2697,9 @@ summary:focus-visible,
 .theme-card .row a.button:active:not(:disabled) {
   transform: scale(0.96);
 }
-/* Smooth, composite-only entrance and press feedback for dialogs and modals */
-.dialog {
-  will-change: transform, opacity;
-  transform-origin: center center;
-}
+/* No permanent will-change on .dialog: it makes the window the containing block of every position:fixed child
+   (a window opened from a window then scrolls away with it) and keeps a full-screen layer on a phone. */
+.dialog { transform-origin: center center; }
 /* Comprehensive reduced-motion overrides for all theme elements: preserve calm color/opacity crossfades without layout shifts */
 @media (prefers-reduced-motion: reduce) {
   .theme-card,
@@ -2926,3 +2928,8 @@ summary:focus-visible,
 
 /* Touch: checkboxes and radios big enough to see and hit (the label stays the tap area). */
 @media (pointer: coarse) { input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; } }
+
+/* ==== Phone fixes after the overnight polish (2026-11-16). Kept last on purpose: they win the cascade. ==== */
+/* A window that scrolls as a whole (.dialog.stack) never squeezes its parts: the tab row of the card window
+   collapsed to 5px because a scrolling child may shrink to nothing in a flex column. */
+.dialog.stack > *, .dialog > .tabs, .dialog > .side-head { flex-shrink: 0; }

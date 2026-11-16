@@ -178,48 +178,15 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   ];
 
   const dividers = streaming || pending ? [] : messageDividers(message);
-  const msgRef = useRef(null);
-  const touchTimer = useRef(null);
-  const touchStart = useRef(null);
-
-  const onPointerDown = (e) => {
-    if (e.pointerType !== "touch" || editing !== null || streaming || pending) return;
-    if (e.target.closest("button, a, input, textarea, select, .thinking, .msg-note, .swipes")) return;
-    touchStart.current = { x: e.clientX, y: e.clientY };
-    clearTimeout(touchTimer.current);
-    touchTimer.current = setTimeout(() => {
-      const items = menuItems();
-      if (!items.length) return;
-      navigator.vibrate?.(10);
-      const target = msgRef.current || e.currentTarget;
-      openMenu(target, items);
-      touchStart.current = null;
-    }, 350);
-  };
-  const onPointerMove = (e) => {
-    if (!touchStart.current) return;
-    const dx = Math.abs(e.clientX - touchStart.current.x);
-    const dy = Math.abs(e.clientY - touchStart.current.y);
-    if (dx > 8 || dy > 8) {
-      clearTimeout(touchTimer.current);
-      touchStart.current = null;
-    }
-  };
-  const onPointerEnd = () => {
-    clearTimeout(touchTimer.current);
-    touchStart.current = null;
-  };
-  useEffect(() => () => clearTimeout(touchTimer.current), []);
-
+  // No long-press menu on a message: a finger resting on the text before a scroll opened it, and it took away
+  // text selection. The «…» button is the way to the menu.
   const row = html`<div class="msg-row" data-slot="message-row">
     ${showHiddenHere && hidden.length > 0 && html`<${NoteColumn} notes=${hidden} side="left" few=${few}
       onHide=${hide} onMore=${more} />`}
     <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (excluded ? " msg-excluded" : "")}
       data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}
       data-excluded=${excluded ? "true" : "false"} data-pending=${pending ? "true" : "false"}
-      aria-busy=${streaming ? "true" : "false"}
-      ref=${msgRef} onPointerDown=${onPointerDown} onPointerMove=${onPointerMove}
-      onPointerUp=${onPointerEnd} onPointerCancel=${onPointerEnd}>
+      aria-busy=${streaming ? "true" : "false"}>
       <header data-slot="message-header">
         ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy || pending}
           aria-label=${"Выбрать сообщение " + (message.depth + 1)} onChange=${() => onSelect(message.id)} />`}
