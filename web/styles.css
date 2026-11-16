@@ -2923,3 +2923,6 @@ summary:focus-visible,
 }
 
 
+
+/* Touch: checkboxes and radios big enough to see and hit (the label stays the tap area). */
+@media (pointer: coarse) { input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; } }
