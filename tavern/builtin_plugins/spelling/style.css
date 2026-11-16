@@ -13,4 +13,4 @@
 .composer-helper[data-plugin="spelling"] button:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px;
 }
-.composer-helper[data-plugin="spelling"] .composer-helper-note { font-size: var(--text-sm); overflow-wrap: anywhere; }
+.composer-helper[data-plugin="spelling"] .composer-helper-note { font-size: var(--text-sm); line-height: 1.45; color: var(--text2); overflow-wrap: anywhere; text-wrap: pretty; }

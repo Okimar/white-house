@@ -194,7 +194,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
       const target = msgRef.current || e.currentTarget;
       openMenu(target, items);
       touchStart.current = null;
-    }, 450);
+    }, 350);
   };
   const onPointerMove = (e) => {
     if (!touchStart.current) return;

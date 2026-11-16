@@ -349,9 +349,9 @@ export function BackupsTab({ onError }) {
       <h3>${d.label}</h3>
       <ul class="list backup-list">
         ${d.items.map((b) => html`<li key=${b.name} class="backup-item" data-kind=${b.kind}>
-          <span class="backup-what"><strong>${timeWords(b.created_at)}</strong> · ${KINDS[b.kind] || b.kind}
+          <span class="backup-what"><strong class="tabular-nums">${timeWords(b.created_at)}</strong> · ${KINDS[b.kind] || b.kind}
             ${b.reason && b.kind !== "migrate" && html`<span class="muted"> (${REASONS[b.reason] || b.reason})</span>`}
-            <span class="muted"> · ${size(b.size)}${b.where === "own" ? " · своя папка" : ""}</span>
+            <span class="muted tabular-nums"> · ${size(b.size)}${b.where === "own" ? " · своя папка" : ""}</span>
             ${b.drive && html`<span class="muted" title="Есть на Google Диске"> · <${Icon} name="cloud" /> на Диске</span>`}</span>
           <span class="backup-actions">
             <button disabled=${Boolean(busy)} onClick=${() => restore(b)}>Восстановить</button>

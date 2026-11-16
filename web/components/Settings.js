@@ -115,8 +115,8 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
         aria-label="Настройки">
         <div class="side-head"><strong class="dialog-title">Настройки</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
-        <div class="tabs" role="tablist" ref=${strip}>
-          ${TABS.map(([id, label]) => html`<button key=${id} role="tab" aria-selected=${tab === id}
+        <div class="tabs settings-tabs" role="tablist" ref=${strip}>
+          ${TABS.map(([id, label]) => html`<button key=${id} role="tab" data-tab=${id} aria-selected=${tab === id}
             onClick=${() => chooseTab(id)}>${label}</button>`)}
         </div>
         <div class="settings-body" ref=${body} onScroll=${onScroll}>
@@ -205,10 +205,15 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           <label class="check"><input type="checkbox" checked=${!settings.skip_delete_confirm}
             onChange=${(e) => saveSetting({ skip_delete_confirm: !e.target.checked })} />
             спрашивать при удалении пузырей</label>
-          ${SKIP_ASKS.map(([key, label]) => html`<label key=${key} class="check"><input type="checkbox"
-            checked=${!(settings.skip_confirms || {})[key]}
-            onChange=${(e) => setSkip(key, !e.target.checked).then(onChanged).catch((err) => onError(err.message))} />
-            спрашивать: ${label[0].toLowerCase() + label.slice(1)}</label>`)}
+          <details class="settings-details">
+            <summary>Другие подтверждения (${SKIP_ASKS.length})</summary>
+            <div class="stack" style="margin-top: 8px;">
+              ${SKIP_ASKS.map(([key, label]) => html`<label key=${key} class="check"><input type="checkbox"
+                checked=${!(settings.skip_confirms || {})[key]}
+                onChange=${(e) => setSkip(key, !e.target.checked).then(onChanged).catch((err) => onError(err.message))} />
+                спрашивать: ${label[0].toLowerCase() + label.slice(1)}</label>`)}
+            </div>
+          </details>
         </section>
 
         <section class="settings-section stack" data-slot="settings-section">

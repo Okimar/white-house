@@ -34,6 +34,7 @@ export function Skills({ onError }) {
   const [draft, setDraft] = useState(null);
   const [link, setLink] = useState("");
   const [notes, setNotes] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const fileInput = useRef(null);
 
@@ -117,6 +118,9 @@ export function Skills({ onError }) {
   const status = (s) => (s.replaced ? "заменена вашим дубликатом" : !s.enabled ? "выключена"
     : s.used ? "включена, помощник читает" : "включена, только для программиста");
 
+  const q = searchQuery.trim().toLowerCase();
+  const filteredList = list.filter((s) => !q || s.title.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q)));
+
   const item = (s) => html`<div key=${s.id} class=${"skills-item" + (s.id === openId ? " open" : "") + (s.used ? "" : " off")}>
     <input type="checkbox" checked=${s.enabled} aria-label=${"Включить: " + s.title}
       onChange=${() => toggle(s)} />
@@ -128,6 +132,11 @@ export function Skills({ onError }) {
     <div class="skills-list" data-slot="skills-list">
       <p class="hint">Инструкции помощнику для разных работ. Он сам выбирает подходящую; в беседе видно строку
         <${Icon} name="book-open" /> «Инструкция: …». Текст на английском — так модели держат его надёжнее.</p>
+      ${list.length >= 4 && html`
+        <div class="settings-filter-bar">
+          <input placeholder="Быстрый поиск инструкции..." value=${searchQuery}
+            onInput=${(e) => setSearchQuery(e.target.value)} aria-label="Фильтр инструкций" />
+        </div>`}
       <button onClick=${create}><${Icon} name="plus" /> Новая инструкция</button>
       <div class="skills-import" data-slot="skills-import">
         <div class="row">
@@ -145,8 +154,10 @@ export function Skills({ onError }) {
       ${!loaded.data && html`<${Pending} error=${loaded.error} onRetry=${loaded.reload} />`}
       ${loaded.data && list.length === 0 && html`<${EmptyNote} title="Инструкций пока нет"
         hint="Создайте свою или дублируйте встроенную." />`}
+      ${loaded.data && list.length > 0 && filteredList.length === 0 && html`<${EmptyNote} title="Ничего не найдено"
+        hint="Попробуйте изменить поисковый запрос." />`}
       ${GROUPS.map(([source, label]) => {
-        const items = list.filter((s) => groupOf(s) === source);
+        const items = filteredList.filter((s) => groupOf(s) === source);
         if (!items.length) return null;
         if (source === "dev") {
           return html`<details key=${source} class="skills-group skills-dev" open=${skill?.source === "dev" || undefined}>

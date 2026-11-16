@@ -347,6 +347,7 @@ export function Plugins({ onError }) {
   const data = list.data;
   const [spending, setSpending] = useState(null);
   const [url, setUrl] = useState("");
+  const [filterQuery, setFilterQuery] = useState("");
   const [installing, setInstalling] = useState(false);
   const picker = useRef(null);
 
@@ -399,10 +400,17 @@ export function Plugins({ onError }) {
         <button type="submit" disabled=${installing || !url.trim()}>${installing ? "Устанавливаю…" : "Установить по ссылке"}</button>
       </form>
     </div>
+    ${data.plugins.length >= 3 && html`
+      <div class="settings-filter-bar">
+        <input placeholder="Быстрый поиск дополнения..." value=${filterQuery}
+          onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Фильтр дополнений" />
+      </div>`}
     ${data.plugins.length === 0 && html`<${EmptyNote} title="Дополнений пока нет"
       hint="Установите первое из файла или по ссылке на GitHub." />`}
     <ul class="list plugin-list">
-      ${data.plugins.map((p) => html`<${PluginCard} key=${p.id} plugin=${p} spending=${spending}
+      ${data.plugins
+        .filter((p) => !filterQuery.trim() || p.name.toLowerCase().includes(filterQuery.trim().toLowerCase()) || (p.description && p.description.toLowerCase().includes(filterQuery.trim().toLowerCase())))
+        .map((p) => html`<${PluginCard} key=${p.id} plugin=${p} spending=${spending}
         onChanged=${load} onError=${onError} />`)}
     </ul>
   </section>`;

@@ -49,7 +49,7 @@ function Panel({ panel: p }) {
         onClick=${() => setPanelFolded(p.key, !folded)} />
       <strong>${p.icon} ${title}</strong><span class="spacer"></span>
       <${IconButton} icon="x" label="Закрыть" class="close-panel" onClick=${() => togglePanel(p.key, false)} /></header>
-    ${!folded && (tree ? html`<${Tree} tree=${tree} />` : html`<p class="muted">Пока пусто.</p>`)}
+    ${!folded && (tree ? html`<${Tree} tree=${tree} />` : html`<p class="muted" role="status">Пока пусто.</p>`)}
   </aside>`;
 }
 

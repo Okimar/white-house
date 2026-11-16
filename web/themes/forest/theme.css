@@ -2,10 +2,12 @@
   --bg: #0f1715;
   --panel: #16221f;
   --fg: #e6edea;
-  --muted: #7e948c;
+  --muted: #879e96;
   --line: #233530;
   --accent: #d4a359;
   --accent-fg: #191409;
+  --accent-hover: #e0b46f;
+  --accent-active: #c59345;
   --danger: #e25b5b;
   --danger-fg: #ffffff;
   --success: #3db87a;
@@ -19,6 +21,8 @@
   --composer-bg: var(--panel);
   --msg-user-bg: var(--user);
   --msg-bot-bg: var(--panel);
+  --line-height-reading: 1.65;
   --shadow: 0 1px 3px rgba(0, 0, 0, .4);
   --menu-shadow: 0 12px 30px rgba(0, 0, 0, .6);
 }
+

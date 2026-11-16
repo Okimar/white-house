@@ -640,7 +640,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
         onChange=${(e) => { const list = e.target.files; if (list.length) attachFiles(list); e.target.value = ""; }} />
       <div class="assistant-body" data-slot="assistant-body" hidden=${listOpen}>
         ${loadError && html`<${Pending} error=${loadError} onRetry=${() => loadChat(convId)} />`}
-        ${items.length === 0 && !loadError && html`<${EmptyNote} title="Чем помочь?"
+        ${items.length === 0 && !loadError && html`<${EmptyNote} title="Чем помочь?" icon="wand"
           hint="Например: создать персонажа или лорбук, сменить тему, скрыть сообщения от модели, объяснить ответ. Любое изменение можно отменить." />`}
         ${items.map((item) => {
           if (item.a) return html`<${ActionLine} key=${item.key} action=${item.a} onUndo=${undo} />`;

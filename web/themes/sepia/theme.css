@@ -2,10 +2,12 @@
   --bg: #ece3d2;
   --panel: #f7f1e4;
   --fg: #2c221a;
-  --muted: #796b5a;
+  --muted: #655644;
   --line: #d8cdb8;
   --accent: #92451d;
   --accent-fg: #ffffff;
+  --accent-hover: #7b3815;
+  --accent-active: #632c0f;
   --danger: #ad3428;
   --danger-fg: #ffffff;
   --success: #2e7a4e;
@@ -19,7 +21,9 @@
   --composer-bg: var(--panel);
   --msg-user-bg: var(--user);
   --msg-bot-bg: var(--panel);
-  --font-reading: "Georgia", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  --font-reading: "Georgia", "PT Serif", "Charter", "Noto Serif", "Liberation Serif", serif;
+  --line-height-reading: 1.65;
   --shadow: 0 1px 3px rgba(44, 34, 26, .08);
   --menu-shadow: 0 10px 24px rgba(44, 34, 26, .14);
 }
+

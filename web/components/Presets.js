@@ -78,10 +78,10 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
                 <option value="last">последние N сообщений</option>
               </${Select}></label>
             ${block.history.mode === "last" && html`<label>N
-              <input type="number" min="1" value=${block.history.count} disabled=${readOnly}
+              <input class="num" type="number" min="1" value=${block.history.count} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, count: Number(e.target.value) || 1 } })} /></label>`}
             <label>Не больше токенов
-              <input type="number" min="0" value=${block.history.max_tokens} disabled=${readOnly}
+              <input class="num" type="number" min="0" value=${block.history.max_tokens} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, max_tokens: Number(e.target.value) || 0 } })} /></label>
             <label>Слать прошлые размышления (ответов)
               <input type="number" min="0" value=${block.history.thoughts || 0} disabled=${readOnly}
@@ -112,10 +112,10 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
                 <option value="depth">внутри чата, на глубине</option>
               </${Select}></label>
             ${block.position === "depth" && html`<label>Глубина
-              <input type="number" min="0" max="1000" value=${block.depth} disabled=${readOnly}
+              <input class="num" type="number" min="0" max="1000" value=${block.depth} disabled=${readOnly}
                 onInput=${(e) => set({ depth: Number(e.target.value) || 0 })} /></label>`}
             ${block.position === "depth" && html`<label>Порядок на глубине
-              <input type="number" step="1" value=${block.order ?? 100} disabled=${readOnly}
+              <input class="num" type="number" step="1" value=${block.order ?? 100} disabled=${readOnly}
                 onInput=${(e) => set({ order: Math.round(Number(e.target.value) || 0) })} /></label>`}
             <label>Группа «один из»
               <${Suggest} value=${block.group || ""} options=${groups} disabled=${readOnly} aria-label="Группа" placeholder="нет"

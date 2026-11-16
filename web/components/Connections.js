@@ -33,6 +33,7 @@ export function Connections({ onChanged, onError }) {
   const [openId, setOpenIdRaw] = useState(() => getChoice("connection"));
   const setOpenId = (id) => { setOpenIdRaw(id); setChoice("connection", id); };
   const [adding, setAdding] = useState(false);
+  const [filterQuery, setFilterQuery] = useState("");
   const [revealId, setRevealId] = useState(null); // just created: scroll to its editor
 
   const reload = () => api.get("/connections").then((d) => {
@@ -70,13 +71,23 @@ export function Connections({ onChanged, onError }) {
 
   if (!catalog) return html`<${Pending} error=${cat.error} onRetry=${cat.reload} />`;
 
+  const q = filterQuery.trim().toLowerCase();
+  const shownConns = connections.filter((c) => !q || c.name.toLowerCase().includes(q) || (c.model && c.model.toLowerCase().includes(q)) || (serviceName(c.service) && serviceName(c.service).toLowerCase().includes(q)));
+
   return html`
     <h2>Подключения к моделям</h2>
     <p class="hint">Основное подключение отвечает во всех чатах, где не выбрано другое. Нажмите на строку, чтобы открыть настройки.</p>
+    ${connections.length >= 3 && html`
+      <div class="settings-filter-bar">
+        <input placeholder="Быстрый поиск подключения..." value=${filterQuery}
+          onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Фильтр подключений" />
+      </div>`}
     <ul class="list conn-list" data-slot="conn-list">
       ${connections.length === 0 && html`<li><${EmptyNote} title="Подключений пока нет"
         hint="Подключение говорит Таверне, к какой модели обращаться. Добавьте первое." /></li>`}
-      ${connections.map((c) => html`
+      ${connections.length > 0 && shownConns.length === 0 && html`<li><${EmptyNote} title="Ничего не найдено"
+        hint="Попробуйте изменить поисковый запрос." /></li>`}
+      ${shownConns.map((c) => html`
         <li key=${c.id} class="conn">
           <div class=${"conn-card" + (c.id === openId ? " open" : "")}>
             <label class="conn-active">

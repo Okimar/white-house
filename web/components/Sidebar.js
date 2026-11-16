@@ -68,7 +68,8 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
         </div>
         <input ref=${chatFileInput} type="file" hidden
           onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
-        ${chats.length === 0 && html`<${EmptyNote} icon="message-square" hint="Чатов пока нет. Выберите персонажа или начните новый чат.">
+        ${chats.length === 0 && html`<${EmptyNote} icon="message-square" title="Чатов пока нет"
+          hint="Выберите персонажа или начните беседу без него.">
           <div class="empty-actions"><button type="button" class="empty-btn" onClick=${() => onNewChat(null)}>Новый чат</button></div>
         <//>`}
         <${GroupedItems} kind="chat" items=${chats} idOf=${(c) => c.id} labelOf=${(c) => c.title} activeId=${chatId}
@@ -90,7 +91,8 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
           <${IconButton} icon="upload" label="Импорт карточки" onClick=${() => fileInput.current.click()} />
         </div>
         <input ref=${fileInput} type="file" accept=".json,.png,application/json,image/png" hidden onChange=${pickFile} />
-        ${characters.length === 0 && html`<${EmptyNote} icon="users" hint="Создайте персонажа или загрузите карточку, чтобы начать беседу.">
+        ${characters.length === 0 && html`<${EmptyNote} icon="users" title="Персонажей пока нет"
+          hint="Создайте персонажа или загрузите карточку, чтобы начать беседу.">
           <div class="empty-actions"><button type="button" class="primary empty-btn" onClick=${() => onEditCharacter(null)}>+ Новый персонаж</button></div>
         <//>`}
         <${GroupedItems} kind="character" items=${characters} idOf=${(c) => c.id} labelOf=${(c) => c.name}

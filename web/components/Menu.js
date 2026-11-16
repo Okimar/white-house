@@ -64,9 +64,9 @@ function Panel({ anchor, items, onClose }) {
   return html`<div ref=${panel} class="menu" data-slot="menu" role="menu" tabindex="-1">
     ${items.filter(Boolean).map((item, i) => (item.href
       ? html`<a key=${i} role="menuitem" class=${item.danger ? "danger-text" : ""} href=${item.href}
-          download=${item.download} onClick=${onClose}>${body(item)}</a>`
+          download=${item.download} title=${item.title || item.label} onClick=${onClose}>${body(item)}</a>`
       : html`<button key=${i} type="button" role="menuitem" disabled=${item.disabled}
-          class=${item.danger ? "danger-text" : ""}
+          class=${item.danger ? "danger-text" : ""} title=${item.title || item.label}
           onClick=${() => { onClose(); item.onClick(); }}>${body(item)}</button>`))}
   </div>`;
 }

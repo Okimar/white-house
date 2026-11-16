@@ -5,7 +5,8 @@
    - few moving things on phones, none with "reduce motion". */
 :root {
   --bg: #120d24; --panel: #1d1638; --fg: #f3e9ff; --muted: #b9abd8; --line: #3a2f63;
-  --accent: #ff8fb8; --accent-fg: #2a0f1f; --danger: #ff6b81;
+  --accent: #ff8fb8; --accent-fg: #2a0f1f; --accent-hover: #ffa8c8; --accent-active: #f07aa5;
+  --danger: #ff6b81;
   --user: #6e2d5a; --bot: #2b1f54;
   --app-bg: linear-gradient(180deg, #0b0820 0%, #1b1240 55%, #3a1f4f 100%);
   --sidebar-bg: rgba(20, 14, 42, .94); --topbar-bg: rgba(20, 14, 42, .86); --composer-bg: rgba(20, 14, 42, .9);
@@ -13,6 +14,7 @@
   --msg-border: 1px solid rgba(255, 170, 210, .16); --msg-shadow: 0 4px 16px rgba(0, 0, 0, .25);
   --dialog-bg: #1d1638; --overlay-bg: rgba(5, 3, 15, .6);
   --radius: 16px; --radius-sm: 10px;
+  --line-height-reading: 1.65;
 }
 
 [data-slot="message-name"] { color: var(--accent); }

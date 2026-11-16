@@ -69,15 +69,16 @@ function Question({ question, onDone }) {
   const cancel = () => onDone(question.input ? null : false);
   useEscape(cancel);
   return html`<div class="overlay ask-overlay" ...${backdrop(cancel)}>
-    <form class="dialog ask" data-slot="dialog" role="alertdialog" aria-modal="true" aria-label=${question.text}
+    <form class="dialog ask" data-slot="dialog" role="alertdialog" aria-modal="true"
+      aria-labelledby="ask-dialog-title" aria-describedby=${question.hint ? "ask-dialog-hint" : undefined}
       onSubmit=${(e) => { e.preventDefault(); open.remember = never; onDone(question.input ? value : true); }}>
-      <p class="ask-text">${question.text}</p>
-      ${question.hint && html`<p class="muted">${question.hint}</p>`}
+      <p id="ask-dialog-title" class="ask-text">${question.text}</p>
+      ${question.hint && html`<p id="ask-dialog-hint" class="muted ask-hint">${question.hint}</p>`}
       ${question.skip && html`<label class="ask-never" data-slot="ask-never"><input type="checkbox" checked=${never}
-        onChange=${(e) => setNever(e.target.checked)} /> Больше не спрашивать
+        onChange=${(e) => setNever(e.target.checked)} /> <span>Больше не спрашивать</span>
         <span class="hint">Вернуть вопрос можно в настройках, вкладка «Основное», раздел «Удаление».</span></label>`}
       ${question.input && html`<input ref=${first} value=${value} placeholder=${question.placeholder}
-        aria-label=${question.text} onInput=${(e) => setValue(e.target.value)} />`}
+        aria-label=${question.text} enterkeyhint="done" onInput=${(e) => setValue(e.target.value)} />`}
       <div class="row ask-actions">
         <span class="spacer"></span>
         ${question.cancel && html`<button type="button" class="ask-cancel" onClick=${cancel}>${question.cancel}</button>`}

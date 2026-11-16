@@ -452,7 +452,7 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
     </aside>`;
 }
 
-const ROW_H = 38; // list view: every row is one line of this height, so only rows in view are drawn
+const ROW_H = COARSE ? 44 : 38; // list view: 44px touch targets on coarse pointer, 38px on desktop
 
 // List view: the tree as rows; a branch opens and closes with its arrow (only the top level is open at
 // first). Thousands of rows stay smooth: only the rows in view (plus a margin) are in the page.

@@ -180,8 +180,8 @@ export function createPainter(canvas, host, getLive) {
       && Object.keys(next).every((k) => next[k] === colors[k])) return;
     colors = next;
     font = nf;
-    fonts = { title: fontStr(font.size), bold: fontStr(font.size, 600), badge: fontStr(font.size * 0.75),
-      vec: fontStr(font.size * 0.9), chance: fontStr(font.size * 0.7), num: fontStr(font.size * 0.65) };
+    fonts = { title: fontStr(font.size, 500), bold: fontStr(font.size, 600), badge: fontStr(font.size * 0.75, 600),
+      vec: fontStr(font.size * 0.9, 600), chance: fontStr(font.size * 0.7, 600), num: fontStr(font.size * 0.65, 600) };
     gen += 1;
     widths.clear();
     labels.clear();
@@ -353,6 +353,7 @@ export function createPainter(canvas, host, getLive) {
     ctx.stroke();
     if (dashed) ctx.setLineDash([]);
     if (st.title) {
+      if (alpha < 0.75) ctx.globalAlpha = 0.75;
       const cy = y + H / 2 + 0.5;
       let left;
       let title;
@@ -397,6 +398,7 @@ export function createPainter(canvas, host, getLive) {
       }
       ctx.font = it.root ? fonts.bold : fonts.title; ctx.fillStyle = colors.fg;
       ctx.fillText(title, left, cy);
+      if (alpha < 0.75) ctx.globalAlpha = alpha;
     }
     if (st.ports && (!it.root || it.space)) {
       const hot = selected || target || live.hover === it.id;
@@ -439,6 +441,7 @@ export function createPainter(canvas, host, getLive) {
         ctx.strokeStyle = mc; ctx.lineWidth = 1;
         for (let i = 0; i < n; i += 1) { const b = list[i].shp.num; if (b) ctx.stroke(b); }
       }
+      if (alpha < 0.75) ctx.globalAlpha = 0.75;
       ctx.font = fonts.title; ctx.fillStyle = colors.fg;
       for (let i = 0; i < n; i += 1) {
         const it = list[i]; const L = it.lay;
@@ -471,6 +474,7 @@ export function createPainter(canvas, host, getLive) {
         }
         ctx.textAlign = "left";
       }
+      if (alpha < 0.75) ctx.globalAlpha = alpha;
     }
     // Touch: ports on every bubble (hovered and picked ones are drawn by drawBubble).
     if (st.ports && st.coarse) {
