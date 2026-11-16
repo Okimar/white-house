@@ -220,13 +220,16 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           <label class="stack">Имя, если в чате нет «моего» персонажа
             <div class="row">
               <input class="grow" value=${userName} placeholder="User" aria-label="Имя пользователя по умолчанию"
+                aria-describedby="hint-default-user-name"
                 onInput=${(e) => setUserName(e.target.value)}
                 onKeyDown=${(e) => { if (e.key === "Enter" && userName.trim() !== (settings.user_name || "")) saveName(); }} />
-              <button class=${userName.trim() !== (settings.user_name || "") ? "primary" : ""}
+              <button type="button" class=${userName.trim() !== (settings.user_name || "") ? "primary" : ""}
                 disabled=${userName.trim() === (settings.user_name || "")}
+                aria-label="Сохранить имя пользователя по умолчанию"
                 onClick=${saveName}>Сохранить</button>
             </div>
           </label>
+          <p id="hint-default-user-name" class="hint">Подставляется в промпт вместо {{user}}, если чат ведётся без карточки «это я».</p>
 
           <label class="check"><input type="checkbox" checked=${Boolean(settings.open_new_bubble)}
             onChange=${(e) => saveSetting({ open_new_bubble: e.target.checked })} />

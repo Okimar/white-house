@@ -120,8 +120,8 @@ export function Templates({ onError }) {
         <optgroup label="Встроенные">${templates.filter((t) => t.builtin).map((t) =>
           html`<option key=${t.id} value=${t.id}>${t.name}</option>`)}</optgroup>
       </${Select}>
-      <button onClick=${create}><${Icon} name="plus" /> Новый</button>
-      <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
+      <button type="button" onClick=${create}><${Icon} name="plus" /> Новый</button>
+      <button type="button" onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
       ${open && !open.builtin && html`<label><input type="checkbox" checked=${mergeInto}
         onChange=${(e) => setMergeInto(e.target.checked)} /> добавить файл ST в этот шаблон</label>`}
       <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${importFile} />
@@ -130,18 +130,18 @@ export function Templates({ onError }) {
     ${!draft && html`<${EmptyNote} icon="terminal" title="Шаблон разметки не выбран"
       hint="Выберите шаблон из выпадающего списка выше для просмотра и редактирования, или создайте новый для точной разметки диалога в текстовом режиме.">
       <div class="empty-actions">
-        <button class="empty-btn" onClick=${create}><${Icon} name="plus" /> Создать новый шаблон</button>
+        <button type="button" class="empty-btn" onClick=${create}><${Icon} name="plus" /> Создать новый шаблон</button>
       </div>
     </${EmptyNote}>`}
     ${draft && html`
-      <section class="template-editor stack" data-slot="template-editor">
+      <section class="template-editor stack" data-slot="template-editor" aria-label=${"Редактирование шаблона «" + draft.name + "»"}>
         <div class="row">
           <input value=${draft.name} disabled=${readOnly} aria-label="Название шаблона" onInput=${set("name")} />
           ${readOnly && html`<span class="badge">встроенный</span>`}
           <span class="spacer"></span>
-          <a class="button" href=${`/api/templates/${draft.id}/export`}><${Icon} name="download" /> Файл White House</a>
-          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-instruct`}><${Icon} name="download" /> ST instruct</a>
-          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-context`}><${Icon} name="download" /> ST context</a>
+          <a class="button" href=${`/api/templates/${draft.id}/export`} aria-label=${"Скачать шаблон «" + draft.name + "» в формате White House"}><${Icon} name="download" /> Файл White House</a>
+          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-instruct`} aria-label=${"Скачать шаблон «" + draft.name + "» в формате SillyTavern Instruct"}><${Icon} name="download" /> ST instruct</a>
+          <a class="button" href=${`/api/templates/${draft.id}/export?format=st-context`} aria-label=${"Скачать шаблон «" + draft.name + "» в формате SillyTavern Context"}><${Icon} name="download" /> ST context</a>
         </div>
         <label class="stack">Названия моделей для «auto» (регулярное выражение)
           <input value=${draft.models} disabled=${readOnly} onInput=${set("models")} class="mono" /></label>
@@ -156,16 +156,16 @@ export function Templates({ onError }) {
           у модели нет роли «система» — отправлять системный текст как сообщение пользователя</label>
         <div class="row">
           ${readOnly
-            ? html`<button class="primary" onClick=${copy}>Дублировать для правки</button>`
-            : html`<button class="primary" disabled=${!dirty} onClick=${save}>Сохранить</button>
-                   <button onClick=${copy}><${Icon} name="copy" /> Дублировать</button>
-                   <button class="danger-text" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
+            ? html`<button type="button" class="primary" onClick=${copy} aria-label=${"Дублировать шаблон «" + draft.name + "» для правки"}>Дублировать для правки</button>`
+            : html`<button type="button" class="primary" disabled=${!dirty} onClick=${save} aria-label=${"Сохранить шаблон «" + draft.name + "»"}>Сохранить</button>
+                   <button type="button" onClick=${copy} aria-label=${"Дублировать шаблон «" + draft.name + "»"}><${Icon} name="copy" /> Дублировать</button>
+                   <button type="button" class="danger-text" onClick=${remove} aria-label=${"Удалить шаблон «" + draft.name + "»"}><${Icon} name="trash-2" /> Удалить</button>
                    ${dirty && html`<span class="muted">Есть несохранённые изменения</span>`}`}
         </div>
         <h3>Как это увидит модель</h3>
         ${preview && (preview.error
-          ? html`<p class="muted">${preview.error}</p>`
-          : html`<pre class="template-preview" data-slot="template-preview">${preview.text}</pre>
+          ? html`<p class="muted error" role="alert">${preview.error}</p>`
+          : html`<pre class="template-preview" data-slot="template-preview" aria-label="Предпросмотр разметки для модели">${preview.text}</pre>
                  <p class="muted">Стоп: ${preview.stop.map((s) => JSON.stringify(s)).join(", ") || "нет"}</p>`)}
       </section>`}
   `;

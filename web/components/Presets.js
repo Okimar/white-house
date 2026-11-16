@@ -60,7 +60,8 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
         ${!readOnly && html`<span class="block-grip" title="Порядок блоков настраивается стрелками" aria-hidden="true"><${Icon} name="grip-vertical" /></span>`}
         <input type="checkbox" checked=${block.enabled} disabled=${readOnly} aria-label=${"Включить блок: " + block.name}
           onChange=${(e) => set({ enabled: e.target.checked })} />
-        <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}
+        <button type="button" class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}
+          aria-controls=${"block-edit-" + block.id}
           aria-label=${"Настройки блока «" + block.name + "»"}>
           <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> <span class="block-name">${block.name}</span> <span class="muted block-desc">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
           ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
@@ -75,7 +76,7 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
             onClick=${dropBlock} />`}
         </div>`}
       </div>
-      ${open && html`<div class="stack block-edit">
+      ${open && html`<div class="stack block-edit" id=${"block-edit-" + block.id} role="region" aria-label=${"Редактирование блока «" + block.name + "»"}>
         <label class="stack">Название
           <input value=${block.name} disabled=${readOnly} onInput=${(e) => set({ name: e.target.value })} /></label>
         ${block.kind === "history" ? html`
@@ -247,10 +248,10 @@ function RetrievalSettings({ settings, onChanged, onError }) {
       Прерывать фоновую работу при запросе</label>
     <p class="hint">Векторизация и другая фоновая работа ждут, пока идёт ответ, и не занимают лимит запросов.</p>
     <div class="row">
-      <button disabled=${!settings.embedding_connection || vecCheck?.busy} onClick=${checkVectors}>Проверить векторы</button>
+      <button type="button" disabled=${!settings.embedding_connection || vecCheck?.busy} onClick=${checkVectors}>Проверить векторы</button>
     </div>
-    ${vecCheck && !vecCheck.busy && html`<p class=${vecCheck.ok ? "hint" : "hint err"} role="status">${vecCheck.text}</p>`}
-    ${vecCheck?.busy && html`<p class="hint" role="status">Проверяю…</p>`}`;
+    ${vecCheck && !vecCheck.busy && html`<p class=${vecCheck.ok ? "hint" : "hint err"} role="status" aria-live="polite">${vecCheck.text}</p>`}
+    ${vecCheck?.busy && html`<p class="hint" role="status" aria-live="polite">Проверяю…</p>`}`;
 }
 
 // Words that embedding models carry in their names; a chat model has none of them (same list as providers/catalog.py).
@@ -412,19 +413,22 @@ export function Presets({ settings, onChanged, onError }) {
     <ul class="list">
       ${presets.map((p) => html`<li key=${p.id} class=${current && current.id === p.id ? "active" : ""}>
         <label class="pick-active">
-          <input type="radio" name="active-preset" checked=${p.id === active} onChange=${() => choose(p.id)} />
+          <input type="radio" name="active-preset" checked=${p.id === active}
+            aria-label=${"Сделать пресет «" + p.name + "» общим"}
+            onChange=${() => choose(p.id)} />
           <span>${p.id === active ? "Общий" : "Выбрать"}</span>
         </label>
-        <button class="item" onClick=${() => go(p.id)}>${p.name}${p.builtin ? " · встроенный" : ""}</button>
-        <${IconButton} icon="copy" label="Дублировать" onClick=${() => copyOf(p)} />
-        <${IconButton} icon="download" label="Скачать файл пресета" onClick=${() => setExporting(p)} />
-        ${!p.builtin && html`<${IconButton} icon="trash-2" label="Удалить" class="danger-text" onClick=${() => remove(p)} />`}
+        <button type="button" class="item" onClick=${() => go(p.id)}
+          aria-label=${"Открыть пресет «" + p.name + "»"}>${p.name}${p.builtin ? " · встроенный" : ""}</button>
+        <${IconButton} icon="copy" label=${"Дублировать пресет «" + p.name + "»"} onClick=${() => copyOf(p)} />
+        <${IconButton} icon="download" label=${"Скачать файл пресета «" + p.name + "»"} onClick=${() => setExporting(p)} />
+        ${!p.builtin && html`<${IconButton} icon="trash-2" label=${"Удалить пресет «" + p.name + "»"} class="danger-text" onClick=${() => remove(p)} />`}
       </li>`)}
     </ul>
     <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${importFile} />
     <div class="row">
-      <button onClick=${createNew}><${Icon} name="plus" /> Новый пресет</button>
-      <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Загрузить из файла</button>
+      <button type="button" onClick=${createNew}><${Icon} name="plus" /> Новый пресет</button>
+      <button type="button" onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Загрузить из файла</button>
     </div>
     <p class="hint">Файл пресета: наш или SillyTavern.</p>
     ${exporting && html`<${ExportDialog} preset=${exporting} onClose=${() => setExporting(null)} />`}

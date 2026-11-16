@@ -139,19 +139,19 @@ export function Skills({ onError }) {
           <input type="search" placeholder="Быстрый поиск инструкции..." value=${searchQuery}
             onInput=${(e) => setSearchQuery(e.target.value)} aria-label="Поиск по инструкциям" />
         </div>`}
-      <button onClick=${create}><${Icon} name="plus" /> Новая инструкция</button>
+      <button type="button" onClick=${create}><${Icon} name="plus" /> Новая инструкция</button>
       <div class="skills-import" data-slot="skills-import">
         <div class="row">
           <input value=${link} placeholder="Ссылка на файл SKILL.md" aria-label="Ссылка на файл инструкции"
             onInput=${(e) => setLink(e.target.value)} onKeyDown=${(e) => { if (e.key === "Enter") fromLink(); }} />
-          <button disabled=${busy || !link.trim()} onClick=${fromLink}><${Icon} name="download" /> Загрузить</button>
+          <button type="button" disabled=${busy || !link.trim()} onClick=${fromLink}><${Icon} name="download" /> Загрузить</button>
         </div>
-        <button onClick=${() => fileInput.current && fileInput.current.click()} disabled=${busy}><${Icon} name="upload" /> Загрузить из файла</button>
+        <button type="button" onClick=${() => fileInput.current && fileInput.current.click()} disabled=${busy}><${Icon} name="upload" /> Загрузить из файла</button>
         <input ref=${fileInput} type="file" hidden onChange=${fromFile} />
         <p class="hint">Подходят инструкции в формате Claude Code (SKILL.md). Загружается только текст, ничего не запускается;
           файлы, на которые ссылается инструкция, не переносятся. Ссылка открывается через защищённую загрузку: адреса вашей
           сети и этого устройства закрыты.</p>
-        ${notes.length > 0 && html`<ul class="skills-notes">${notes.map((n, i) => html`<li key=${i}>${n}</li>`)}</ul>`}
+        ${notes.length > 0 && html`<ul class="skills-notes" role="status" aria-live="polite">${notes.map((n, i) => html`<li key=${i}>${n}</li>`)}</ul>`}
       </div>
       ${!loaded.data && html`<${Pending} error=${loaded.error} onRetry=${loaded.reload} />`}
       ${loaded.data && list.length === 0 && html`<${EmptyNote} icon="book-open" title="Инструкций пока нет"
@@ -220,9 +220,9 @@ export function Skills({ onError }) {
           <textarea class="skills-text" rows="18" value=${draft.body} onInput=${(e) => setDraft({ ...draft, body: e.target.value })}></textarea>
           <span class="hint">Разделы «## Plan» и «## Write» читают только планировщик и писатель; строки «- …» под «## Check» — проверки для критика.</span></label>
         <div class="row">
-          <button class="primary" disabled=${!changed} onClick=${save}>Сохранить</button>
-          <button onClick=${copy}><${Icon} name="copy" /> Дублировать</button>
-          <button class="danger-text" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
+          <button type="button" class="primary" disabled=${!changed} onClick=${save}>Сохранить</button>
+          <button type="button" onClick=${copy}><${Icon} name="copy" /> Дублировать</button>
+          <button type="button" class="danger-text" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
           ${changed && html`<span class="muted">Есть несохранённые изменения</span>`}
         </div>`}
     </div>`}

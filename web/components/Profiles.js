@@ -91,7 +91,8 @@ export function Profiles({ onApplied, onError }) {
     <ul class="list profiles" data-slot="profiles">
       ${profiles.map((p) => html`<li key=${p.id} class=${"profile-row" + (p.id === active ? " active" : "")}>
         <div class="profile-head">
-          <button class=${p.id === active ? "primary" : ""} onClick=${async () => { if (await apply(p.id)) onApplied(); }}
+          <button type="button" class=${p.id === active ? "primary" : ""} onClick=${async () => { if (await apply(p.id)) onApplied(); }}
+            aria-label=${"Применить профиль «" + p.name + "»"}
             title=${`${p.connection_name} · ${p.model || "модель не выбрана"}`}>${p.name}</button>
           ${p.id === active && html`<span class="badge badge-ok profile-active-badge">Активен</span>`}
           <span class="muted profile-meta">${p.connection_name || ""}${p.model ? " · " + p.model : ""}</span>
@@ -103,6 +104,7 @@ export function Profiles({ onApplied, onError }) {
         <div class="profile-parts">
           <span class="profile-parts-label muted">Переключать:</span>
           ${PARTS.map(([k, label]) => html`<label key=${k} class="check"><input type="checkbox" checked=${p.parts[k]}
+            aria-label=${"Переключать " + label + " в профиле «" + p.name + "»"}
             onChange=${() => toggle(p, k)} />${label}</label>`)}
         </div>
       </li>`)}

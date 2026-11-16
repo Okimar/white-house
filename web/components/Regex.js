@@ -197,7 +197,7 @@ function RuleEditor({ rule, scope, owner, chatId, onClose, onSaved }) {
         <textarea rows="3" value=${sample} aria-label="Текст для пробы" onInput=${(e) => setSample(e.target.value)}></textarea>
         ${probe && !probe.ok && html`<p class="error" role="alert" data-slot="regex-try-error">${probe.error}</p>`}
         ${probe && probe.ok && html`
-          <div class="rx-panels stack">
+          <div class="rx-panels stack" role="status" aria-live="polite">
             <div class="rx-panel-box">
               <div class="rx-panel-header"><small class="muted">Найдено совпадений: <strong>${probe.matches.length}</strong></small></div>
               <${Highlighted} text=${sample} matches=${probe.matches} />
@@ -318,8 +318,8 @@ function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed
       </div>
     </${EmptyNote}>`}
     <div class="row regex-actions">
-      <button onClick=${() => setEditing({})}><${Icon} name="plus" /> Новое правило</button>
-      <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
+      <button type="button" onClick=${() => setEditing({})}><${Icon} name="plus" /> Новое правило</button>
+      <button type="button" onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
       <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${importFile} />
       ${rules.length > 0 && html`<a class="button" href=${exportHref} download><${Icon} name="download" /> Экспорт</a>`}
     </div>

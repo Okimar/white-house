@@ -145,24 +145,24 @@ export function SpendingSettings({ onError }) {
         </li>`)}
       </ul>
       <div class="row">
-        <button onClick=${() => { setPrices([...prices, { model: "", in: 0, out: 0 }]); setDirty(true); }}><${Icon} name="plus" /> Цена</button>
+        <button type="button" onClick=${() => { setPrices([...prices, { model: "", in: 0, out: 0 }]); setDirty(true); }}><${Icon} name="plus" /> Цена</button>
         <span class="spacer"></span>
-        <button class="primary" disabled=${!dirty} onClick=${save}>Сохранить</button>
+        <button type="button" class="primary" disabled=${!dirty} onClick=${save}>Сохранить</button>
       </div>
 
       ${report && html`
         <h3>За последний месяц</h3>
         <p class="hint">С ${report.since}</p>
         ${!report.models.length && html`<p class="muted">Запросов пока не было.</p>`}
-        ${report.models.length > 0 && html`<div class="table-wrap"><table class="spend-table" data-slot="spending-report">
+        ${report.models.length > 0 && html`<div class="table-wrap"><table class="spend-table" data-slot="spending-report" aria-label="Отчёт о расходах по моделям">
           <thead><tr><th>Модель</th><th>Запросов</th><th>Токены (запрос / ответ)</th><th>Стоимость</th><th>Цена за 1M</th><th></th></tr></thead>
           <tbody>${report.models.map((r) => html`<tr key=${r.connection_id + r.model}>
             <td>${r.model || "—"}<div class="muted">${r.connection_name}</div></td>
-            <td>${r.requests}</td>
-            <td>${tokens(r.prompt_tokens)} / ${tokens(r.completion_tokens)}</td>
-            <td>${money(r.cost, settings)}${r.unpriced ? html`<div class="muted">без цены: ${r.unpriced} ${requestWord(r.unpriced)}</div>` : ""}</td>
+            <td class="tabular-nums">${r.requests}</td>
+            <td class="tabular-nums">${tokens(r.prompt_tokens)} / ${tokens(r.completion_tokens)}</td>
+            <td class="tabular-nums">${money(r.cost, settings)}${r.unpriced ? html`<div class="muted">без цены: ${r.unpriced} ${requestWord(r.unpriced)}</div>` : ""}</td>
             <td>${priceText(r.price)}</td>
-            <td>${r.price.source !== "own" && html`<button onClick=${() => ownPrice(r)}>Своя цена</button>`}</td>
+            <td>${r.price.source !== "own" && html`<button type="button" aria-label=${"Установить свою цену для модели " + (r.model || r.connection_name)} onClick=${() => ownPrice(r)}>Своя цена</button>`}</td>
           </tr>`)}</tbody>
         </table></div>`}
         ${(report.plugins || []).length > 0 && html`<h3>Дополнения</h3>

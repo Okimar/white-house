@@ -311,13 +311,14 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
       <span class="muted">${plugin.version} · ${SOURCE[plugin.source.kind] || plugin.source.kind}
         ${plugin.author ? ` · ${plugin.author}` : ""}</span>
       <span class="spacer"></span>
-      <button aria-expanded=${open}
+      <button type="button" aria-expanded=${open}
+        aria-controls=${"plugin-more-" + plugin.id}
         aria-label=${open ? "Свернуть подробности «" + plugin.name + "»" : "Подробнее о «" + plugin.name + "»"}
         onClick=${() => setOpen(!open)}>${open ? "Свернуть" : "Подробнее"}</button>
     </div>
     ${plugin.error && html`<p class="error" data-slot="plugin-error">${plugin.error}</p>`}
     ${plugin.server_off && plugin.enabled && html`<p class="muted">White House запущен без дополнений: серверная часть не работает.</p>`}
-    ${open && html`<div class="plugin-more">
+    ${open && html`<div class="plugin-more" id=${"plugin-more-" + plugin.id} role="region" aria-label=${"Подробности дополнения «" + plugin.name + "»"}>
       ${plugin.description && html`<p>${plugin.description}</p>`}
       ${plugin.uses.length > 0 && html`<p class="muted">Заявляет: ${plugin.uses.map((u) => USES[u] || u).join("; ")}</p>`}
       ${plugin.commands.length > 0 && html`<p class="muted">Команды: ${plugin.commands.map((c) => "/" + c).join(", ")}</p>`}

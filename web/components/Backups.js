@@ -110,12 +110,12 @@ function Doctor({ onError }) {
   return html`<section class="doctor stack" data-slot="doctor">
     <h3>Проверка данных</h3>
     <div class="row">
-      <button disabled=${!!busy} onClick=${check}>${busy === "check" ? "Проверяю…" : "Проверить"}</button>
-      ${fixable && html`<button disabled=${!!busy} onClick=${fix}
+      <button type="button" disabled=${!!busy} onClick=${check}>${busy === "check" ? "Проверяю…" : "Проверить"}</button>
+      ${fixable && html`<button type="button" disabled=${!!busy} onClick=${fix}
         title="Сначала делается копия">${busy === "fix" ? (byModel ? "Модель пишет ключевые слова…" : "Исправляю…") : "Исправить"}</button>`}
     </div>
     ${fixable && html`<p class="hint">Перед исправлением сначала делается копия.</p>`}
-    ${notes.length > 0 && html`<ul class="list doctor-notes" role="status">
+    ${notes.length > 0 && html`<ul class="list doctor-notes" role="status" aria-live="polite">
       ${notes.map((n, i) => html`<li key=${i}>${n}</li>`)}
     </ul>`}
     ${findings && !findings.length && html`<p><${Icon} name="check" /> Всё в порядке</p>`}
@@ -341,17 +341,17 @@ export function BackupsTab({ onError }) {
       <span>${newest ? html`<strong>Последняя копия: ${whenWords(newest.created_at)}.</strong>` : html`<strong>Копий пока нет.</strong>`}
         ${okLine ? " Всё в порядке." : problems.filter((p) => p !== "Копий пока нет.").map((p) => " " + p)}</span>
     </div>
-    <button class="primary big-action" disabled=${Boolean(busy)} onClick=${createNow}>
+    <button type="button" class="primary big-action" disabled=${Boolean(busy)} onClick=${createNow}>
       ${busy === "create" ? "Создаю…" : "Сделать копию сейчас"}</button>
     <p class="hint">В копию входит всё: чаты, персонажи, лорбуки, настройки, картинки, темы, дополнения. Ключей API в ней нет,
       поэтому копию можно передать. Если с прошлой копии ничего не изменилось, новая не делается.</p>
-    ${busy === "restore" && html`<p class="muted">Восстанавливаю…</p>`}
+    ${busy === "restore" && html`<p class="muted" role="status" aria-live="polite">Восстанавливаю…</p>`}
 
     <h2>Копии</h2>
     ${!data.backups.length && html`<${EmptyNote} icon="history" title="Резервных копий пока нет"
       hint="Резервная копия сохраняет все ваши чаты, персонажей, лорбуки, картинки и настройки без ключей API.">
       <div class="empty-actions">
-        <button class="primary empty-btn" disabled=${Boolean(busy)} onClick=${createNow}>
+        <button type="button" class="primary empty-btn" disabled=${Boolean(busy)} onClick=${createNow}>
           ${busy === "create" ? "Создаю…" : "Сделать первую копию"}
         </button>
       </div>
@@ -365,10 +365,10 @@ export function BackupsTab({ onError }) {
             <span class="muted tabular-nums"> · ${size(b.size)}${b.where === "own" ? " · своя папка" : ""}</span>
             ${b.drive && html`<span class="muted" title="Есть на Google Диске"> · <${Icon} name="cloud" /> на Диске</span>`}</span>
           <span class="backup-actions">
-            <button disabled=${Boolean(busy)}
+            <button type="button" disabled=${Boolean(busy)}
               aria-label=${"Восстановить копию от " + when(b.created_at)}
               onClick=${() => restore(b)}>Восстановить</button>
-            ${drive && drive.signed_in && !b.drive && b.kind !== "migrate" && html`<button disabled=${Boolean(busy)}
+            ${drive && drive.signed_in && !b.drive && b.kind !== "migrate" && html`<button type="button" disabled=${Boolean(busy)}
               aria-label=${"Отправить на Диск копию от " + when(b.created_at)}
               onClick=${() => toDrive(b)}>${busy === "drive" ? "Отправляю…" : "На Диск"}</button>`}
             <a class="button" href=${"/api/backups/" + encodeURIComponent(b.name)}

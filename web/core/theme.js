@@ -239,11 +239,13 @@ function el(tag, style, text, children = []) {
   return node;
 }
 
-function button(label, onClick, primary = false) {
+function button(label, onClick, primary = false, ariaLabel = "") {
   const node = el("button", primary ? BTN_PRIMARY : BTN, label);
   node.type = "button";
+  if (ariaLabel) node.setAttribute("aria-label", ariaLabel);
   node.addEventListener("click", onClick);
   node.addEventListener("pointerdown", () => {
+    node.style.outline = "";
     if (!node.disabled && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       node.style.transform = "scale(0.97)";
     }
@@ -263,8 +265,15 @@ function button(label, onClick, primary = false) {
       : "color-mix(in srgb,var(--panel,#1b1917) 80%,transparent)";
   });
   node.addEventListener("focus", () => {
-    node.style.outline = "var(--focus-ring, 2px solid var(--accent))";
-    node.style.outlineOffset = "2px";
+    try {
+      if (node.matches(":focus-visible")) {
+        node.style.outline = "var(--focus-ring, 2px solid var(--accent))";
+        node.style.outlineOffset = "2px";
+      }
+    } catch (e) {
+      node.style.outline = "var(--focus-ring, 2px solid var(--accent))";
+      node.style.outlineOffset = "2px";
+    }
   });
   node.addEventListener("blur", () => {
     node.style.outline = "";
@@ -285,6 +294,7 @@ function safeBar() {
   const bar = el("div", BAR);
   bar.setAttribute("role", "status");
   bar.setAttribute("aria-live", "polite");
+  bar.setAttribute("aria-atomic", "true");
   bar.dataset.slot = "safe-mode-bar";
   const how = [];
   if (LOOK.safe_persistent) how.push("Включён постоянный режим (`python -m tavern safe-mode on`).");
@@ -300,7 +310,7 @@ function safeBar() {
       if (btn) { btn.disabled = true; btn.textContent = "Выход…"; }
       try { if (LOOK.safe_persistent) await post("/api/look/safe", { on: false }); } catch (err) { /* try anyway */ }
       location.href = "/";
-    }, true));
+    }, true, "Выйти из безопасного режима и вернуть стороннее оформление"));
   } else {
     bar.appendChild(el("span", "opacity:.85;font-size:var(--text-xs,12px);", "Для выхода закройте программу и запустите её снова без флага `--safe`."));
   }
@@ -314,6 +324,7 @@ function parkedBar() {
   const bar = el("div", BAR);
   bar.setAttribute("role", "alert");
   bar.setAttribute("aria-live", "assertive");
+  bar.setAttribute("aria-atomic", "true");
   bar.dataset.slot = "look-parked-bar";
   const badge = el("span", "display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:var(--text-xs,12px);font-weight:700;letter-spacing:0.02em;background:color-mix(in srgb,var(--warning,#e5a855) 25%,transparent);color:var(--fg,#f2ece2);border:1px solid color-mix(in srgb,var(--warning,#e5a855) 40%,transparent);margin-right:4px;", "Обновление");
   const text = el("span", "", parkedText(LOOK.parked));
@@ -335,19 +346,36 @@ function parkedBar() {
       confirm.disabled = false;
       confirm.textContent = "Не удалось восстановить. Попробуйте ещё раз";
     }
-  }, true);
+  }, true, "Подтвердить восстановление прежнего оформления");
   confirm.style.display = "none";
   const ask = button("Вернуть прежний вид", () => {
     warning.style.display = "block";
     confirm.style.display = "";
     ask.style.display = "none";
-  });
+    ask.setAttribute("aria-expanded", "true");
+    confirm.focus();
+  }, false, "Показать подтверждение восстановления прежнего оформления");
+  ask.setAttribute("aria-expanded", "false");
   const ok = button("Понятно", async () => {
     ok.disabled = true;
     ok.textContent = "Закрытие…";
     try { await post("/api/look/dismiss"); } catch (e) { /* the notice may come back once more */ }
     dropParked();
+  }, false, "Закрыть уведомление об обновлении");
+
+  bar.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (confirm.style.display !== "none") {
+        e.stopPropagation();
+        warning.style.display = "none";
+        confirm.style.display = "none";
+        ask.style.display = "";
+        ask.setAttribute("aria-expanded", "false");
+        ask.focus();
+      }
+    }
   });
+
   actions.append(ask, confirm, ok);
   bar.append(actions, warning);
   parkedNode = bar;

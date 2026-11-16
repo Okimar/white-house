@@ -1472,8 +1472,6 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
   .sidebar .list li .icon-btn { min-width: 44px; min-height: 44px; opacity: 1; }
   .sidebar .list li .icon-btn::after { content: ""; position: absolute; inset: -4px; min-width: 44px; min-height: 44px; }
 }
-  .sidebar .list li .icon-btn { opacity: 1; }
-}
 @media (prefers-reduced-motion: reduce) { .menu, .select-list, .state-spinner { animation: none; } }
 .count { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 

@@ -106,7 +106,8 @@ export function Connections({ onChanged, onError }) {
                 onChange=${() => choose(c.id)} />
               <span>${c.id === active ? "Основное" : "Выбрать"}</span>
             </label>
-            <button class="conn-pick" aria-expanded=${c.id === openId}
+            <button type="button" class="conn-pick" aria-expanded=${c.id === openId}
+              aria-controls=${"conn-editor-" + c.id}
               aria-label=${"Настройки подключения " + c.name}
               onClick=${() => setOpenId(c.id === openId ? null : c.id)}>
               <strong>${c.name}</strong>
@@ -119,7 +120,7 @@ export function Connections({ onChanged, onError }) {
             onSaved=${reload} onRemoved=${removed} onError=${onError} />`}
         </li>`)}
     </ul>
-    ${!adding && html`<button onClick=${() => { setAdding(true); setOpenId(null); }}><${Icon} name="plus" /> Новое подключение</button>`}
+    ${!adding && html`<button type="button" onClick=${() => { setAdding(true); setOpenId(null); }}><${Icon} name="plus" /> Новое подключение</button>`}
     ${adding && html`<${NewConnection} catalog=${catalog} onCreated=${created} onCancel=${() => setAdding(false)}
       onError=${onError} />`}
     <details class="conn-more">
@@ -176,7 +177,7 @@ function NewConnection({ catalog, onCreated, onCancel, onError }) {
           <h3 key=${gid}>${label}</h3>
           ${GROUP_HINT[gid] && html`<p class="hint">${GROUP_HINT[gid]}</p>`}
           <div class="service-grid">
-            ${items.map((s) => html`<button key=${s.id} class="service" onClick=${() => pick(s)}>${s.name}</button>`)}
+            ${items.map((s) => html`<button key=${s.id} type="button" class="service" onClick=${() => pick(s)}>${s.name}</button>`)}
           </div>`;
       })}
     </div>`;
@@ -306,14 +307,14 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
   const dropParam = (id) => { const next = { ...params }; delete next[id]; setParams(next); setDirty(true); };
 
   return html`
-    <section ref=${root} class="conn-editor stack" data-slot="conn-editor" aria-label=${"Подключение " + conn.name}>
+    <section ref=${root} id=${"conn-editor-" + conn.id} class="conn-editor stack" data-slot="conn-editor" aria-label=${"Подключение " + conn.name}>
       <div class="conn-head-row">
         <label class="stack grow">Название
           <input value=${head.name} onInput=${(e) => setHead({ ...head, name: e.target.value })}
             onChange=${(e) => saveHead({ name: e.target.value })} /></label>
         <div class="conn-head-actions">
           <span class="badge">${KIND_LABEL[conn.kind] || "протокол " + conn.kind}</span>
-          <button class="danger-text conn-delete-btn" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
+          <button type="button" class="danger-text conn-delete-btn" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
         </div>
       </div>
       <label class="stack">Адрес API
@@ -331,10 +332,14 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
             onInput=${(e) => setHead({ ...head, model: e.target.value })}
             onChange=${(e) => saveHead({ model: e.target.value })} /></label>
         <div class="model-btn-group">
-          <button type="button" disabled=${Boolean(busy)} onClick=${inspect} title="Бесплатно: спросить у сервиса модели и их возможности">
+          <button type="button" disabled=${Boolean(busy)} onClick=${inspect}
+            title="Бесплатно: спросить у сервиса модели и их возможности"
+            aria-label="Спросить у сервиса список моделей и их возможности">
             ${busy === "inspect" ? "Проверяю…" : "Проверить"}
           </button>
-          <button type="button" disabled=${Boolean(busy)} onClick=${probe} title="По одному крошечному запросу на каждую настройку">
+          <button type="button" disabled=${Boolean(busy)} onClick=${probe}
+            title="По одному крошечному запросу на каждую настройку"
+            aria-label="Отправить пробные запросы по каждой настройке модели">
             ${busy === "probe" ? "Запросы…" : "Пробные запросы"}
           </button>
         </div>
@@ -343,7 +348,7 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
         «Пробные запросы» платные: по одному крошечному запросу на каждую настройку.</p>
       ${info && html`<${ModelFacts} info=${info} />`}
 
-      <div class="conn-log" data-slot="conn-log" role="log" aria-live="polite">
+      <div class="conn-log" data-slot="conn-log" role="log" aria-live="polite" aria-label="Журнал проверки подключения">
         ${log.length === 0 && html`<div class="muted">› готово к работе</div>`}
         ${log.map((l, i) => html`<div key=${i} class=${"line " + l.kind}><span class="muted">${l.at}</span> › ${l.text}</div>`)}
       </div>
@@ -442,7 +447,7 @@ function Keys({ conn, onSaved, onError }) {
             class="danger-text" onClick=${() => del(k)} />
         </li>`)}
     </ul>
-    ${editing === null && html`<button onClick=${() => start(null)}><${Icon} name="plus" /> Ключ</button>`}
+    ${editing === null && html`<button type="button" onClick=${() => start(null)}><${Icon} name="plus" /> Ключ</button>`}
     ${editing !== null && html`
       <form class="stack key-form" onSubmit=${submit}>
         <label class="stack">Название ключа
