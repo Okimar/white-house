@@ -361,7 +361,14 @@ Sources of injections: depth blocks, member depth, bubbles/lore with depth, note
 
 ### 3.5 Tail, final list, roles
 
-`entries = before + chat_part + after + tail`, where:
+`entries = before + chat_part + after + tail + ending`, where:
+- any block (behaviour blocks too) with `triggers` is skipped unless `PromptInput.generation_kind` is in them
+  (wave 5, ST `injection_trigger`; the chat passes normal / continue / impersonate / swipe);
+- `ending` is «Дописать» only (`PromptInput.continue_id`, `services/chat.py:start_continue_message`, `_writer(continuing=
+  True)`): the continued message is taken out of `chat_part` and goes last (depth-0 injections stay before it),
+  then `prompts.continue_nudge` ({{lastChatMessage}} = its text) unless the preset's `continue_prefill`; no preset
+  prefill and no send_if_empty then. The reply is saved as old + `continue_postfix` + new (`continued_text`) in the
+  same version; the first stream delta is the old text, so the page shows it growing;
 - `chat_part` is the injections, each message, and the message's notes;
 - `tail` is the behaviour blocks (`core/presets.py:WHEN`, `when_texts`, enabled with text), in this order:
   - `no_write_for_me`: «me» has `model_may_write=False`, and this is not impersonation;

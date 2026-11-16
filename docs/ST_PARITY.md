@@ -27,7 +27,7 @@
 | 2 | Точность лорбука и заметок автора | сделано 2026-11-16 |
 | 3 | Длинные чаты: что выпадает из окна и точный подсчёт текста как в ST (на чистом Python, с запоминанием по сообщению) | сделано 2026-11-16 |
 | 4 | Прямые подключения Gemini и Claude | сделано 2026-11-16 |
-| 5 | Чего нет: «продолжить это сообщение», когда срабатывает блок пресета, режимы карточек в группе | не начато |
+| 5 | Чего нет: «продолжить это сообщение», когда срабатывает блок пресета, режимы карточек в группе | сделано 2026-11-17 (режимы карточек — наши, нарочно) |
 | 6 | Текстовый режим | не начато |
 
 **Правила.**
@@ -52,6 +52,8 @@
 | 3ж | Текстовый режим | не начато |
 
 **Журнал** (что сделано, словами пользователя; всё ниже «не проверено на экране»).
+
+- 2026-11-17, волна 5: в меню последнего сообщения есть «Дописать» — модель продолжает это же сообщение, текст растёт на месте, новой версии нет. Как в ST: сообщение уходит в конец запроса, за ним строка «[Continue your last message…]»; в пресете можно поменять эту строку, выбрать, чем соединять старый и новый текст (пробел, ничего, перенос, пустая строка), и включить «сообщение как начало ответа». У каждого блока пресета есть «Только для»: обычный ответ, «Дописать», «Написать за меня», другой вариант (в ST — «триггеры»). Всё это переносится при импорте и экспорте пресетов ST. Режимы карточек в группе (swap / join) не повторяли: у нас для этого настройка «что модель знает о других» в «Участниках». Проверено на экране (телефон и ПК).
 
 - 2026-11-16, волна 2 (заметки автора): у заметки есть «Где» — в чате на глубине (как было), перед главным промптом или после него, как в ST. Записи лорбука «у заметки сверху / снизу» идут вместе с заметкой; записи из файлов ST — только когда заметка сработала, как там. В настройках лорбуков есть «Искать ключи и в заметках автора» (по умолчанию выключено, как в ST). При импорте чата из ST его заметка автора становится заметкой чата (текст, глубина, место, роль, частота). Оставлено наше: несколько заметок (общие, персонажа, чата) и «Пропускать ответов».
 
@@ -121,7 +123,7 @@ into the connection (the page asks; the test answers yes).
 | Each marker / prompt is its own message (description, personality, scenario, persona separate). Empty ones not sent. Each marker has its own on/off flag. | `cast` is one entry (description + personality + scenario joined); takes the first marker's flag. | partly | A `card_text`, SP `MARKER_KINDS` | Order list with scenario after main, description after WI: ST gives scenario before WI; ours with the description. Flags differ between the three: ST sends the ones that are on. |
 | Prompt `role` and `injection_position` 0 = relative, 1 = in chat at `injection_depth` (default 4) with `injection_order` (default 100). | `position: depth`, `depth`, `order`, `role` mapped; order now imported and used (see section 4). | same / done for order | SP, A | Role user, position 1, depth 2, order 50. |
 | A prompt switched off is not sent, but the main prompt off still leaves an empty anchor for author's note "before / after main". | Off block skipped entirely. | partly (matters only with AN before/after main, which we lack) | A | AN "after main", main off. |
-| Per-prompt generation-type trigger list (`injection_trigger`: normal, continue, impersonate, swipe, regenerate, quiet); empty = always. | Not read. | missing | SP, P, A, C | Trigger ["impersonate"]: absent in a normal reply, present when writing for the user. |
+| Per-prompt generation-type trigger list (`injection_trigger`: normal, continue, impersonate, swipe, regenerate, quiet); empty = always. | Block `triggers` («Только для»), imported / exported; the chat passes normal / continue / impersonate / swipe (`PromptInput.generation_kind`). | done 2026-11-17 | SP, P, A, C | `tests/unit/test_continue_and_triggers.py` |
 | Card's system prompt replaces main; card's post-history instructions replace jailbreak; `{{original}}` = preset text. Only with "prefer card prompt" (default on) and prompt on and not `forbid_overrides`. | `prefer_card_prompts` and `{{original}}` handled; `forbid_overrides` ignored. | partly | SP, P, A | Main with `forbid_overrides: true` + card system prompt: ST keeps preset text. |
 | Chat-level overrides of system prompt / scenario / examples. | None. | missing (rare) | C, A | — |
 | `enhanceDefinitions` and `nsfw` are ordinary text prompts. | Imported as text blocks. | same | SP | — |
@@ -150,7 +152,7 @@ into the connection (the page asks; the test answers yes).
 | `send_if_empty`: when the last history message is from the assistant, a user message with this text is appended. | Same (`send_if_empty`, empty by default; counts for depths, notes land on the real message). | done 2026-11-16 | A, SP | "[continue]" + last message assistant. |
 | Group nudge: system message right after the last history message, before post-history prompts; not when writing for the user; never squashed. | Same; ST's default text (old default texts upgraded once, own texts kept). | done 2026-11-16 | A `tail`, P | ST order …last msg, nudge, jailbreak. |
 | Impersonation prompt: a **system** message at the very end. Claude uses `assistant_impersonation` as prefill. | Same; `impersonation_prefill` for Claude / text mode. | done 2026-11-16 | P, SP, anthropic | Last message role system. |
-| Continue (append to the last message): last message moved to the end; then a system nudge `continue_nudge_prompt` or, with `continue_prefill`, the message as the final assistant turn. Later gets `continue_postfix`. | No "continue this message" generation. | missing | C, A, T | Continue on "He opened the". |
+| Continue (append to the last message): last message moved to the end; then a system nudge `continue_nudge_prompt` or, with `continue_prefill`, the message as the final assistant turn. Later gets `continue_postfix`. | «Дописать» (`chat.start_continue_message`, POST /api/chats/{id}/continue-message): the message goes last (depth 0 before it), then `prompts.continue_nudge` or nothing with `continue_prefill`; saved as old + `continue_postfix` + new in the same version. | done 2026-11-17 | C, A | `test_continue_message_api.py` |
 | Assistant prefill: **Claude only**; not on background requests; not with continue-prefill; trailing spaces cut. | Same: only for the connection kinds anthropic and text mode (`PromptInput.provider_kind`, `chat.prompt_kind`), trailing spaces cut. | done 2026-11-16 | A `tail`, C | Gemini connection + prefill: no trailing model turn. |
 | Quiet prompts last as system. | Own prompts for background tasks. | n/a | — | — |
 
@@ -275,7 +277,7 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 
 | ST (default) | Ours | Status | Files |
 |---|---|---|---|
-| Card mode swap (default) / join / join including muted; prefix / suffix. | All cards with "### Name" + "Also in the scene:". | partly | A, S |
+| Card mode swap (default) / join / join including muted; prefix / suffix. | All cards with "### Name" + "Also in the scene:", tuned by the chat's «что модель знает о других» (`speakers` `others`). | **отличается нарочно** (finer control per chat) | A, S |
 | Activation: natural, list, manual, pooled; muted skipped. | Own orders. | partly | S |
 | Group nudge, new-chat separator, group macros, names before every character line. | See sections 3 and 7. | partly | A, M |
 | Other members' past reasoning never sent. | Per message regardless of speaker. | partly | A |

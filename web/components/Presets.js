@@ -46,7 +46,14 @@ const SERVICE_TEXTS = [
     "Только для пресетов из SillyTavern: стоит перед каждым блоком <START> примеров."],
   ["send_if_empty", "Ваша реплика, если чат кончается ответом модели", 2,
     "Если последнее сообщение — ответ модели (например, «пусть поговорят»), в конец уходит ваша реплика с этим текстом. Пусто — нет."],
+  ["continue_nudge", "Строка для «Дописать»", 2,
+    "Идёт после сообщения, которое модель дописывает. {{lastChatMessage}} — его текст. Пусто — нет."],
 ];
+// What joins the old text and the new one on «Дописать» (SillyTavern's continue_postfix choices).
+const POSTFIXES = [[" ", "пробел"], ["", "ничего"], ["\n", "перенос строки"], ["\n\n", "пустая строка"]];
+// Kinds of generation a block may be limited to (SillyTavern's «триггеры» of a prompt); none = always.
+const TRIGGERS = [["normal", "обычный ответ"], ["continue", "«Дописать»"], ["impersonate", "«Написать за меня»"],
+  ["swipe", "другой вариант"]];
 
 function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onRemove }) {
   const [open, setOpen] = useState(false);
@@ -132,6 +139,14 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
                 onInput=${(e) => set({ group: e.target.value })} /></label>
           </div>
           <p class="hint">Блоки с одной группой — варианты на выбор: включите один, остальные выключатся.</p>
+          <fieldset class="check-grid" data-slot="block-triggers"><legend>Только для</legend>
+            ${TRIGGERS.map(([id, label]) => html`<label key=${id}><input type="checkbox" disabled=${readOnly}
+              checked=${(block.triggers || []).includes(id)}
+              onChange=${(e) => set({ triggers: [...(block.triggers || []).filter((k) => k !== id),
+                ...(e.target.checked ? [id] : [])] })} /> ${label}</label>`)}
+          </fieldset>
+          <p class="hint">Ничего не отмечено — блок идёт всегда. Отмечено — только для этих видов ответа, как
+            «триггеры» в SillyTavern.</p>
           ${block.position === "depth" && html`<p class="hint">Тексты одной глубины, одного порядка и одной роли (этот блок, заметка автора,
             записи лорбуков) уходят одним сообщением. С другим порядком — отдельным: больший стоит ближе к следующему сообщению. Обычно 100.</p>`}
           ${block.kind === "examples" && html`<label class="stack" data-slot="examples-mode">Когда отправлять примеры
@@ -481,6 +496,16 @@ export function Presets({ settings, onChanged, onError }) {
         <textarea rows=${rows} disabled=${readOnly} value=${current.data.prompts[key] || ""}
           onInput=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, [key]: e.target.value } })}></textarea>
         ${hint && html`<span class="hint">${hint}</span>`}</label>`)}
+      <label class="stack" data-slot="preset-continue-postfix">Чем «Дописать» соединяет старый текст и новый
+        <${Select} value=${current.data.prompts.continue_postfix ?? " "} disabled=${readOnly}
+          onChange=${(e) => edit({ ...current.data, prompts: { ...current.data.prompts, continue_postfix: e.target.value } })}>
+          ${POSTFIXES.map(([value, label]) => html`<option key=${label} value=${value}>${label}</option>`)}
+        </${Select}></label>
+      <label data-slot="preset-continue-prefill"><input type="checkbox" checked=${Boolean(current.data.continue_prefill)}
+        disabled=${readOnly} onChange=${(e) => edit({ ...current.data, continue_prefill: e.target.checked })} />
+        «Дописать»: сообщение как начало ответа</label>
+      <p class="hint">Включено: дописываемое сообщение уходит последним как начало ответа модели, без строки для
+        «Дописать». Выключено (как в SillyTavern по умолчанию): после него идёт эта строка.</p>
       ${!readOnly && html`<div class="row sticky-save">
         <button class="primary" disabled=${!dirty} onClick=${save}>Сохранить пресет</button>
         ${dirty && html`<button onClick=${() => open(current.id)}>Отменить правки</button>`}
