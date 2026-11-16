@@ -207,16 +207,16 @@ export function Skills({ onError }) {
             : "Только для чтения; дубликат станет вашей инструкцией."}</span>
         </div>
         <pre class="skills-text">${skill.body}</pre>` : html`
-        <label>Название<br /><input value=${draft.title} onInput=${(e) => setDraft({ ...draft, title: e.target.value })} /></label>
-        <label>Имя (латиницей)<br /><input value=${draft.name} onInput=${(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-        <label>Когда брать<br />
+        <label class="stack">Название<input value=${draft.title} onInput=${(e) => setDraft({ ...draft, title: e.target.value })} /></label>
+        <label class="stack">Имя (латиницей)<input value=${draft.name} onInput=${(e) => setDraft({ ...draft, name: e.target.value })} /></label>
+        <label class="stack">Когда брать
           <input value=${draft.description} onInput=${(e) => setDraft({ ...draft, description: e.target.value })} />
           <span class="hint">По этой строке помощник выбирает инструкцию; лучше по-английски.</span></label>
-        <label>Для кого<br /><${Select} value=${draft.audience} onChange=${(e) => setDraft({ ...draft, audience: e.target.value })}>
+        <label class="stack">Для кого<${Select} value=${draft.audience} onChange=${(e) => setDraft({ ...draft, audience: e.target.value })}>
           ${Object.entries(AUDIENCE).map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
         </${Select}></label>
         ${skill.based_on && html`<p class="muted">Дубликат встроенной «${skill.based_on}»: пока включена, помощник читает её вместо встроенной.</p>`}
-        <label>Текст<br />
+        <label class="stack">Текст
           <textarea class="skills-text" rows="18" value=${draft.body} onInput=${(e) => setDraft({ ...draft, body: e.target.value })}></textarea>
           <span class="hint">Разделы «## Plan» и «## Write» читают только планировщик и писатель; строки «- …» под «## Check» — проверки для критика.</span></label>
         <div class="row">

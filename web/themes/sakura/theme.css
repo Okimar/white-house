@@ -4,7 +4,7 @@
    - no backdrop-filter / big blur on elements that scroll: it is what makes phones lag;
    - few moving things on phones, none with "reduce motion". */
 :root {
-  --bg: #120d24; --panel: #1d1638; --fg: #f3e9ff; --muted: #9e8ec0; --line: #3a2f63;
+  --bg: #120d24; --panel: #1d1638; --fg: #f3e9ff; --muted: #ab9bc9; --line: #3a2f63;
   --accent: #ff8fb8; --accent-fg: #2a0f1f; --accent-hover: #ffa8c8; --accent-active: #f07aa5;
   --accent-subtle: color-mix(in srgb, var(--accent) 16%, transparent);
   --danger: #ff6b81;

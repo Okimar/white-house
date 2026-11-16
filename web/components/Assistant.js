@@ -408,6 +408,8 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   const [files, setFiles] = useState([]); // attachments of the request being written
   const [uploading, setUploading] = useState(false);
   const [library, setLibrary] = useState(false);
+  const [undoingId, setUndoingId] = useState(null);
+  const [stopping, setStopping] = useState(false);
   const fileInput = useRef(null);
   const importInput = useRef(null);
   const [, setScreen] = useState(0);
@@ -511,13 +513,18 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     try {
       await api.del(`/assistant/chats/${id}`);
       if (id === convId) setConvId("");
-      loadOverview();
+      await loadOverview();
+      notify("Беседа удалена", "info");
     } catch (e) { onError(e.message); }
   };
   const renameChat = async (chat) => {
     const title = await askText("Название беседы", { value: chat.title || "" });
     if (title === null || title.trim() === (chat.title || "")) return;
-    try { await api.put(`/assistant/chats/${chat.id}`, { title }); await loadOverview(); } catch (e) { onError(e.message); }
+    try {
+      await api.put(`/assistant/chats/${chat.id}`, { title });
+      await loadOverview();
+      notify("Беседа переименована", "info");
+    } catch (e) { onError(e.message); }
   };
   const pickChat = (id) => { setConvId(id); setListOpen(false); };
   const importChat = async (file) => {
@@ -586,7 +593,16 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     if (!await ask("Отменить задачу? План будет сброшен, но всё, что помощник уже успел сделать, останется на месте.", { ok: "Отменить задачу", cancel: "Продолжить работу", danger: true })) return;
     api.post(`/assistant/chats/${convId}/drop`).then(() => loadChat(convId)).catch((e) => onError(e.message));
   };
-  const stop = () => api.post(`/assistant/chats/${convId}/stop`).catch((e) => onError(e.message));
+  const stop = async () => {
+    setStopping(true);
+    try {
+      await api.post(`/assistant/chats/${convId}/stop`);
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setStopping(false);
+    }
+  };
   const answer = (allow) => api.post(`/assistant/chats/${convId}/confirm`, { ask_id: data.ask.id, allow })
     .then(() => setData((d) => ({ ...d, ask: null }))).catch((e) => onError(e.message));
   const forget = (factId) => api.del(`/assistant/memory/${factId}`).then(() => loadOverview()).catch((e) => onError(e.message));
@@ -594,11 +610,13 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     const later = data.actions.filter((a) => a.id > action.id && a.status === "done").length;
     if (later && !await ask(`Отменить «${action.what}»? Вместе с этим отменятся и последующие действия помощника (ещё ${later}).`,
       { ok: "Отменить всё", cancel: "Не отменять", danger: true })) return;
+    setUndoingId(action.id);
     try {
       await api.post(`/assistant/actions/${action.id}/undo`);
       await loadChat(convId);
       onChanged();
-    } catch (e) { onError(e.message); }
+      notify("Действие отменено", "info");
+    } catch (e) { onError(e.message); } finally { setUndoingId(null); }
   };
 
   // The window must always keep its header on the screen, whatever was saved before the screen got smaller.
@@ -751,7 +769,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
           </div>
         </div>`}
         ${items.map((item) => {
-          if (item.a) return html`<${ActionLine} key=${item.key} action=${item.a} onUndo=${undo} />`;
+          if (item.a) return html`<${ActionLine} key=${item.key} action=${item.a} onUndo=${undo} undoing=${undoingId === item.a.id} />`;
           const shown = renderMessage(item.m, item.key);
           return openMsg && shown && item.m.id === openMsg.id && convId === openMsg.conv
             ? html`<div key=${item.key} ref=${foundBox} class="assistant-found" data-slot="assistant-found">${shown}</div>` : shown;
@@ -801,7 +819,9 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
           onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) send(e); }}></textarea>
         ${working && (text.trim() || files.length > 0) && html`<${IconButton} class="primary" type="submit" icon="send-horizontal" label="Добавить в план" />`}
         ${runId
-          ? html`<button type="button" class="assistant-stop-btn" aria-label="Остановить работу помощника" onClick=${stop}><${Icon} name="square" /> Стоп</button>`
+          ? html`<button type="button" class="assistant-stop-btn" aria-label="Остановить работу помощника" disabled=${stopping} onClick=${stop}>
+              <${Icon} name=${stopping ? "loader-circle" : "square"} class=${stopping ? "state-spinner" : ""} /> ${stopping ? "Останавливаю…" : "Стоп"}
+            </button>`
           : html`<${IconButton} class="primary" type="submit" icon="send-horizontal" label="Отправить" disabled=${!text.trim() && files.length === 0} />`}
       </form>`}
   </section>`;

@@ -223,7 +223,7 @@ const BAR = "display:flex;flex-wrap:wrap;gap:10px;align-items:center;"
 const BTN_BASE = "padding:6px 14px;min-height:var(--tap,44px);border-radius:var(--radius-sm,8px);"
   + "font:500 var(--text-sm,14px)/1.3 var(--font,system-ui,sans-serif);cursor:pointer;"
   + "display:inline-flex;align-items:center;justify-content:center;touch-action:manipulation;"
-  + "transition:transform 120ms ease,background-color 120ms ease,border-color 120ms ease,box-shadow 120ms ease;";
+  + "transition:transform 80ms var(--ease-out,cubic-bezier(.23,1,.32,1)),background-color 120ms var(--ease-out,cubic-bezier(.23,1,.32,1)),border-color 120ms var(--ease-out,cubic-bezier(.23,1,.32,1)),box-shadow 120ms var(--ease-out,cubic-bezier(.23,1,.32,1));";
 const BTN = BTN_BASE
   + "border:1px solid color-mix(in srgb,var(--fg,#f2ece2) 20%,transparent);"
   + "background:color-mix(in srgb,var(--panel,#1b1917) 80%,transparent);color:var(--fg,#f2ece2);";
@@ -242,7 +242,11 @@ function button(label, onClick, primary = false) {
   const node = el("button", primary ? BTN_PRIMARY : BTN, label);
   node.type = "button";
   node.addEventListener("click", onClick);
-  node.addEventListener("pointerdown", () => { if (!node.disabled) node.style.transform = "scale(0.97)"; });
+  node.addEventListener("pointerdown", () => {
+    if (!node.disabled && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      node.style.transform = "scale(0.97)";
+    }
+  });
   node.addEventListener("pointerup", () => { node.style.transform = ""; });
   node.addEventListener("pointercancel", () => { node.style.transform = ""; });
   node.addEventListener("mouseenter", () => {

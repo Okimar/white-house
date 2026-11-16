@@ -81,6 +81,8 @@ function App() {
   const pluginUi = usePluginUi(); // side panels of plugins
   const assistantRef = useRef({ changed() {}, show() {} }); // the event stream outlives renders: it calls the newest
   const [toast, setToast] = useState(null); // { text, kind } from core/notify.js
+  const [toastClosing, setToastClosing] = useState(false);
+  const toastExitTimer = useRef(null);
   const [searchResults, setSearchResults] = useState(null);
   const [jumpTo, setJumpTo] = useState(null); // { id } of the found message being shown
   const foundTimer = useRef(null);
@@ -104,7 +106,19 @@ function App() {
   const [asks, setAsks] = useState([]); // plugins asking to call a model (access setting "ask")
 
   const onError = useCallback((message) => notify(message, "error"), []);
-  useEffect(() => subscribe(setToast), []);
+  useEffect(() => subscribe((next) => {
+    clearTimeout(toastExitTimer.current);
+    if (next) {
+      setToast(next);
+      setToastClosing(false);
+    } else {
+      setToastClosing(true);
+      toastExitTimer.current = setTimeout(() => {
+        setToast(null);
+        setToastClosing(false);
+      }, 140);
+    }
+  }), []);
 
   const chat = useChat(chatId, onError);
   const regexShown = useRegexDisplay(chatId, chat.messages, chat.streams); // regex rules for the screen (stage 11)
@@ -799,7 +813,7 @@ function App() {
         onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
       <${DialogHost} />
-      ${toast && html`<div class="toast" data-slot="toast" data-kind=${toast.kind}
+      ${toast && html`<div class=${"toast" + (toastClosing ? " closing" : "")} data-slot="toast" data-kind=${toast.kind}
         role=${toast.kind === "error" ? "alert" : "status"} tabindex="0"
         onKeyDown=${(e) => { if (e.key === "Enter" || e.key === " " || e.key === "Escape") { e.preventDefault(); dismiss(); } }}
         onClick=${(e) => { if (!e.target.closest(".toast-action")) dismiss(); }}>
