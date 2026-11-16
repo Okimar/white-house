@@ -114,10 +114,21 @@ function LibraryPicker({ taken, onPick, onClose, onError }) {
 
 function Memory({ memory, onChange, onError }) {
   const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
   const add = async (e) => {
     e.preventDefault();
-    if (!text.trim()) return;
-    try { await api.post("/assistant/memory", { text }); setText(""); onChange(); } catch (err) { onError(err.message); }
+    if (!text.trim() || saving) return;
+    setSaving(true);
+    try {
+      await api.post("/assistant/memory", { text: text.trim() });
+      setText("");
+      onChange();
+      notify("Запись добавлена в память", "info");
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
   const edit = async (fact, value) => {
     if (value.trim() === fact.text) return;
@@ -125,12 +136,24 @@ function Memory({ memory, onChange, onError }) {
       if (!value.trim()) {
         if (!await ask(`Забыть запись «${fact.text}»?`, { ok: "Забыть", danger: true })) return false;
         await api.del(`/assistant/memory/${fact.id}`);
-      } else await api.put(`/assistant/memory/${fact.id}`, { text: value });
+        notify("Запись удалена из памяти", "info");
+      } else {
+        await api.put(`/assistant/memory/${fact.id}`, { text: value });
+        notify("Запись обновлена", "info");
+      }
       onChange();
     } catch (err) { onError(err.message); }
     return true;
   };
-  const forget = (fact) => api.del(`/assistant/memory/${fact.id}`).then(onChange).catch((e) => onError(e.message));
+  const forget = async (fact) => {
+    try {
+      await api.del(`/assistant/memory/${fact.id}`);
+      onChange();
+      notify("Запись удалена из памяти", "info");
+    } catch (e) {
+      onError(e.message);
+    }
+  };
   return html`<div class="assistant-memory" data-slot="assistant-memory">
     <strong>Что я о вас знаю</strong>
     <p class="hint">Это видит помощник в любой работе. Он сам записывает сюда ваши вкусы и предпочтения; вы можете в любой момент изменить или удалить любую запись.</p>
@@ -141,7 +164,7 @@ function Memory({ memory, onChange, onError }) {
     </div>`)}
     <form class="row" onSubmit=${add}>
       <input value=${text} placeholder="Например: люблю мрачное фэнтези" aria-label="Новая запись памяти" onInput=${(e) => setText(e.target.value)} />
-      <${IconButton} type="submit" icon="plus" label="Добавить запись в память" disabled=${!text.trim()} />
+      <${IconButton} type="submit" icon=${saving ? "loader-circle" : "plus"} label="Добавить запись в память" disabled=${!text.trim() || saving} />
     </form>
   </div>`;
 }
@@ -227,10 +250,14 @@ function AssistantSettings({ overview, onSaved, onMemory, onOpenSkills, onError 
 const MARKS = { done: "check", undone: "undo-2", denied: "circle-x", failed: "x" };
 const AFTER = { undone: " — отменено", denied: " — не разрешено" };
 
-function ActionLine({ action, onUndo }) {
+function ActionLine({ action, onUndo, undoing }) {
   return html`<div class=${"assistant-action " + action.status} data-slot="assistant-action" role="status" aria-live="polite">
     <span>${MARKS[action.status] && html`<${Icon} name=${MARKS[action.status]} /> `}${action.what}${AFTER[action.status] || ""}</span>
-    ${action.status === "done" && html`<button type="button" class="link assistant-undo-btn" title=${"Отменить действие: " + action.what} aria-label=${"Отменить действие: " + action.what} onClick=${() => onUndo(action)}>Отменить</button>`}
+    ${action.status === "done" && html`<button type="button" class="link assistant-undo-btn" disabled=${undoing}
+      title=${"Отменить действие: " + action.what} aria-label=${"Отменить действие: " + action.what}
+      onClick=${() => onUndo(action)}>
+      ${undoing ? html`<span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" /></span> Отменяется…` : "Отменить"}
+    </button>`}
   </div>`;
 }
 
@@ -240,18 +267,28 @@ function QuestionsCard({ message, active, onAnswer }) {
   const questions = Array.isArray(message.data?.questions) ? message.data.questions : [];
   const [picks, setPicks] = useState({});
   const [own, setOwn] = useState({});
+  const [submitting, setSubmitting] = useState(false);
   const value = (q) => own[q.id]?.trim() || picks[q.id] || "";
   const answered = (q) => Boolean(value(q));
   const chosenOnes = () => Object.fromEntries(questions.filter(answered).map((q) => [q.id, value(q)]));
+  const submitAnswers = async (answers) => {
+    setSubmitting(true);
+    try {
+      await onAnswer(answers);
+    } finally {
+      setSubmitting(false);
+    }
+  };
   return html`<div class="assistant-card questions" data-slot="assistant-questions" role="region" aria-label="Вопросы перед работой">
     <p>${message.text}</p>
-    ${questions.map((q) => html`<fieldset key=${q.id} disabled=${!active}>
+    ${questions.map((q) => html`<fieldset key=${q.id} disabled=${!active || submitting}>
       <legend>${q.text}</legend>
       <div class="assistant-options" role="group" aria-label=${"Варианты: " + q.text}>
         ${(q.options || []).map((option, n) => {
           const isDefault = n === (q.default || 0);
           const chosen = picks[q.id] === option && !own[q.id]?.trim();
           return html`<button type="button" key=${option} class=${(chosen ? "chosen " : "") + (isDefault ? "suggested" : "")} aria-pressed=${chosen}
+            disabled=${!active || submitting}
             title=${isDefault ? "Предложено помощником" : ""} aria-label=${option + (isDefault ? " (предложено)" : "") + (chosen ? ", выбрано" : "")}
             onClick=${() => { setPicks({ ...picks, [q.id]: chosen ? "" : option }); setOwn({ ...own, [q.id]: "" }); }}>
             ${option}${isDefault && !chosen ? html`<span class="suggested-dot" title="Предложено"></span>` : ""}
@@ -259,11 +296,16 @@ function QuestionsCard({ message, active, onAnswer }) {
         })}
       </div>
       <input type="text" autocomplete="off" spellcheck="false" placeholder="Свой вариант" value=${own[q.id] || ""} aria-label=${"Свой ответ на вопрос: " + q.text}
+        disabled=${!active || submitting}
         onInput=${(e) => setOwn({ ...own, [q.id]: e.target.value })} />
     </fieldset>`)}
     ${active && html`<div class="row assistant-card-actions">
-      <button type="button" class="primary" disabled=${!questions.every(answered)} onClick=${() => onAnswer(chosenOnes())}>Ответить</button>
-      <button type="button" onClick=${() => onAnswer(chosenOnes())}>На ваш вкус</button>
+      <button type="button" class="primary" disabled=${!questions.every(answered) || submitting} onClick=${() => submitAnswers(chosenOnes())}>
+        ${submitting ? html`<span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" /></span> Отправка…` : "Ответить"}
+      </button>
+      <button type="button" disabled=${submitting} onClick=${() => submitAnswers(chosenOnes())}>
+        ${submitting ? "Подождите…" : "На ваш вкус"}
+      </button>
     </div>
     <p class="hint">«Ответить» — отправить выбранные варианты. «На ваш вкус» — на оставшиеся вопросы помощник ответит сам.</p>`}
   </div>`;
@@ -278,6 +320,24 @@ function PlanCard({ message, task, active, running, onGo, onDrop }) {
   const items = (live ? task.items : message.data.items) || [];
   const now = live && running && task.phase === "work" ? items.find((i) => i.status === "todo")?.id : null;
   const decisions = Array.isArray(message.data.decisions) ? message.data.decisions : [];
+  const [starting, setStarting] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const handleGo = async () => {
+    setStarting(true);
+    try {
+      await onGo();
+    } finally {
+      setStarting(false);
+    }
+  };
+  const handleDrop = async () => {
+    setDropping(true);
+    try {
+      await onDrop();
+    } finally {
+      setDropping(false);
+    }
+  };
   return html`<div class="assistant-card plan" data-slot="assistant-plan" role="region" aria-label="План работы">
     <p>${message.text}</p>
     ${message.data.goal && html`<p><strong>${message.data.goal}</strong></p>`}
@@ -301,8 +361,12 @@ function PlanCard({ message, task, active, running, onGo, onDrop }) {
       })}
     </ol>
     ${active && html`<div class="row assistant-plan-actions">
-      <button type="button" class="primary" onClick=${onGo}>Начать</button>
-      <button type="button" onClick=${onDrop}>Отменить задачу</button>
+      <button type="button" class="primary" disabled=${starting || dropping} onClick=${handleGo}>
+        ${starting ? html`<span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" /></span> Запуск…` : "Начать"}
+      </button>
+      <button type="button" disabled=${starting || dropping} onClick=${handleDrop}>
+        ${dropping ? "Отмена…" : "Отменить задачу"}
+      </button>
       <span class="muted">или напишите, что поменять</span>
     </div>
     <p class="hint">Помощник выполнит пункты плана по очереди. Каждое действие можно будет отменить.</p>`}

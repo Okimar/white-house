@@ -17,24 +17,26 @@ export function scriptAllowed(theme, settings) {
 function ThemeCard({ theme, active, onPick, onCopy, onDelete, onVersions }) {
   const preview = theme.preview && `/themes/${theme.id}/${theme.preview}`;
   return html`
-    <div class=${"theme-card" + (active ? " active" : "")} data-slot="theme-card">
+    <div class=${"theme-card" + (active ? " active" : "") + (theme.error ? " broken" : "")} data-slot="theme-card">
       ${preview
         ? html`<img class="preview" src=${preview} alt="" loading="lazy" />`
         : html`<div class="preview preview-sample" aria-hidden="true"><span>${theme.name}</span></div>`}
       <strong>${theme.name}</strong>
       <span class="muted">${[theme.author, theme.version && "v" + theme.version].filter(Boolean).join(" · ")}</span>
       <span class="row">
+        ${active && html`<span class="badge active-badge">активна</span>`}
         ${theme.builtin && html`<span class="badge">встроенная</span>`}
         ${theme.script && html`<span class="badge">эффекты</span>`}
-        ${theme.error && html`<span class="badge">сломана</span>`}
+        ${theme.error && html`<span class="badge danger-badge">сломана</span>`}
       </span>
       ${theme.script && html`<span class="hint">Эффекты: тема запускает свой скрипт, например анимации</span>`}
       ${theme.error && html`<span class="hint danger-text">Не работает: ${theme.error}</span>`}
       <div class="row">
-        <button class=${active ? "primary" : ""} disabled=${!!theme.error}
-          aria-label=${(active ? "Текущая тема: " : "Выбрать тему ") + theme.name}
+        <button class=${active ? "primary active-btn" : ""} disabled=${!!theme.error}
+          aria-pressed=${active}
+          aria-label=${(active ? "Текущая активная тема: " : "Выбрать тему ") + theme.name}
           onClick=${() => onPick(theme)}>
-          ${active ? "Выбрана" : "Выбрать"}</button>
+          ${active ? "✓ Выбрана" : "Выбрать"}</button>
         <button title="Сделать свою копию темы, чтобы менять"
           aria-label=${"Дублировать тему " + theme.name}
           disabled=${!!theme.error} onClick=${() => onCopy(theme)}>Дублировать</button>
@@ -76,6 +78,7 @@ const clearPreview = () => COLORS.forEach(([k]) => root().style.removeProperty("
 function ColorEditor({ theme, onSaved, onError }) {
   const [base, setBase] = useState(null); // colours of the look as it is saved
   const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
   const mine = theme && !theme.builtin;
   const edited = useRef(false);
   useEffect(() => {
@@ -103,12 +106,13 @@ function ColorEditor({ theme, onSaved, onError }) {
   const reset = () => { edited.current = false; clearPreview(); setDraft(base); };
   const bad = READABLE.filter(([a, b, , min]) => contrast(draft[a], draft[b]) < min);
   const save = async () => {
+    setSaving(true);
     try {
       let id = theme.id;
       if (!mine) {
         const name = await askText("Название своей темы", { value: `${theme.name} (мои цвета)`, ok: "Создать",
           hint: "Встроенная тема не меняется: цвета сохранятся в её копии." });
-        if (!name) return;
+        if (!name) { setSaving(false); return; }
         id = (await api.post("/themes", { name, from: theme.id })).id;
       }
       const colors = { ...(mine ? theme.colors : {}) };
@@ -117,15 +121,25 @@ function ColorEditor({ theme, onSaved, onError }) {
       clearPreview();
       await onSaved(id, mine);
       notify("Цвета сохранены", "ok");
-    } catch (e) { onError(e.message); }
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setSaving(false);
+    }
   };
   const forget = async () => {
     if (!await ask("Убрать свои цвета темы?", { ok: "Убрать", hint: "Тема вернётся к своим прежним цветам. Прошлую версию можно вернуть кнопкой «Версии»." })) return;
+    setSaving(true);
     try {
       await api.put(`/themes/${theme.id}/colors`, { colors: {} });
       clearPreview();
       await onSaved(theme.id, true);
-    } catch (e) { onError(e.message); }
+      notify("Цвета сброшены к исходным", "info");
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setSaving(false);
+    }
   };
   return html`
     <details class="colors-box" data-slot="theme-colors">
@@ -133,13 +147,17 @@ function ColorEditor({ theme, onSaved, onError }) {
       <p class="hint">Измените основные цвета выбранной темы и сразу смотрите, как это выглядит. Сохранение создаёт вашу тему
         (встроенные не меняются). Если у темы есть картинка фона, цвет фона виден не везде.</p>
       <ul class="color-list">
-        ${COLORS.map(([key, label, hint]) => html`<li key=${key} class=${"color-row" + (draft[key] !== base[key] ? " changed" : "")}>
-          <input type="color" class="color-pick" value=${isHex(draft[key]) ? draft[key] : "#000000"} aria-label=${label}
-            onInput=${(e) => set(key, e.target.value)} />
-          <span class="color-name"><strong>${label}</strong><span class="hint">${hint}</span></span>
-          <input class="color-hex mono" value=${draft[key]} maxlength="7" aria-label=${label + ", код цвета"} spellcheck="false" autocapitalize="off"
-            onInput=${(e) => set(key, e.target.value.startsWith("#") ? e.target.value : "#" + e.target.value)} />
-        </li>`)}
+        ${COLORS.map(([key, label, hint]) => {
+          const valid = isHex(draft[key]);
+          return html`<li key=${key} class=${"color-row" + (draft[key] !== base[key] ? " changed" : "")}>
+            <input type="color" class="color-pick" value=${valid ? draft[key] : "#000000"} aria-label=${label}
+              onInput=${(e) => set(key, e.target.value)} />
+            <span class="color-name"><strong>${label}</strong><span class="hint">${hint}</span></span>
+            <input class=${"color-hex mono" + (!valid ? " invalid" : "")} value=${draft[key]} maxlength="7"
+              aria-label=${label + ", код цвета"} aria-invalid=${!valid} spellcheck="false" autocapitalize="off"
+              onInput=${(e) => set(key, e.target.value.startsWith("#") ? e.target.value : "#" + e.target.value)} />
+          </li>`;
+        })}
       </ul>
       ${bad.length > 0 && html`<div class="notice" role="alert">
         <strong>Плохо читается</strong>
@@ -147,11 +165,12 @@ function ColorEditor({ theme, onSaved, onError }) {
           ${READABLE.find((r) => r[0] === a && r[1] === b)[3]}</li>`)}</ul>
         <span class="hint">Сохранить можно, но на телефоне текст будет трудно разобрать.</span></div>`}
       <div class="row">
-        <button class="primary" disabled=${changed.length === 0} onClick=${save}>${mine ? "Сохранить цвета" : "Сохранить как свою тему"}</button>
-        <button disabled=${changed.length === 0} onClick=${reset}>Сбросить</button>
-        ${mine && Object.keys(theme.colors || {}).length > 0 && html`<button class="danger-text" onClick=${forget}>Убрать сохранённые цвета</button>`}
+        <button class="primary" disabled=${changed.length === 0 || saving} onClick=${save}>
+          ${saving ? "Сохранение…" : (mine ? "Сохранить цвета" : "Сохранить как свою тему")}</button>
+        <button disabled=${changed.length === 0 || saving} onClick=${reset}>Сбросить</button>
+        ${mine && Object.keys(theme.colors || {}).length > 0 && html`<button class="danger-text" disabled=${saving} onClick=${forget}>Убрать сохранённые цвета</button>`}
       </div>
-      ${changed.length > 0 && html`<span class="hint">Изменено: ${changed.length}. Пока не сохранено, цвета видны только на этой странице.</span>`}
+      ${changed.length > 0 && html`<span class="hint">Изменено параметров: ${changed.length}. Пока не сохранено, цвета видны только на этой странице.</span>`}
     </details>`;
 }
 
@@ -296,6 +315,7 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
     <div class="theme-grid" data-slot="theme-grid">
       ${themes.map((t) => html`<${ThemeCard} key=${t.id} theme=${t} active=${t.id === current}
         onPick=${pick} onCopy=${copy} onDelete=${remove} onVersions=${showVersions} />`)}
+      ${themes.length === 0 && html`<div class="theme-empty"><p>Нет доступных тем. Установите тему из файла или создайте свою через раздел «Цвета».</p></div>`}
     </div>
     <input ref=${fileInput} type="file" hidden
       onChange=${(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importFile(f); }} />

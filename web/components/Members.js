@@ -285,8 +285,6 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
             ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
           </${Select}>
         </div>
-          ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-        </${Select}>
 
         ${(generators.length > 1 || chat.meta.generator) && html`<h2>Ответ пишет</h2>
         <p class="hint">Дополнение может писать ответы по-своему (например, сначала «подумать» за каждого персонажа).

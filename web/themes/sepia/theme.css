@@ -35,3 +35,22 @@
   --focus-ring-offset: 2px;
 }
 
+[data-slot="message-name"] { color: var(--accent); }
+[data-slot="message"][data-role="user"] [data-slot="message-name"] { color: var(--accent-hover); }
+[data-slot="message"][data-streaming="true"] { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+[data-slot="send-button"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  transition: transform 80ms var(--ease-out), background-color 100ms var(--ease-out), box-shadow 100ms var(--ease-out);
+}
+[data-slot="send-button"]:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  box-shadow: var(--shadow-sm);
+}
+[data-slot="send-button"]:active:not(:disabled) {
+  transform: scale(0.97);
+  background: var(--accent-active);
+}
+

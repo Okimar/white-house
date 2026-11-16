@@ -30,7 +30,21 @@
 [data-slot="message"][data-role="user"] .time,
 [data-slot="message"][data-role="user"] .msg-num { color: #d6c5eb; }
 [data-slot="message"][data-streaming="true"] { border-color: rgba(255, 143, 184, .55); }
-[data-slot="send-button"] { background: linear-gradient(135deg, #ff9cc4, #c77dff); border: 0; color: #2a0f1f; font-weight: 600; }
+[data-slot="send-button"] {
+  background: linear-gradient(135deg, #ff9cc4, #c77dff);
+  border: 0;
+  color: #2a0f1f;
+  font-weight: 600;
+  transition: transform 80ms var(--ease-out), filter 100ms var(--ease-out), box-shadow 100ms var(--ease-out);
+}
+[data-slot="send-button"]:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 2px 8px rgba(255, 143, 184, 0.4);
+}
+[data-slot="send-button"]:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: brightness(0.95);
+}
 [data-slot="topbar"] [data-slot="title"] { letter-spacing: .02em; }
 [data-slot="composer-input"] { background: rgba(255, 255, 255, .06); border-color: rgba(255, 170, 210, .25); }
 

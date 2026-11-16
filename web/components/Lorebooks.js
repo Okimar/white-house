@@ -51,6 +51,8 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
   const [book, setBook] = useState(null);
   const [revision, setRevision] = useState(0); // bumps after undo / restore: everything reloads
   const [showHistory, setShowHistory] = useState(false);
+  const [fieldSaving, setFieldSaving] = useState(false);
+  const [fieldSavedRecently, setFieldSavedRecently] = useState(false);
   const base = `/lorebooks/${bookId}`;
 
   useEffect(() => {
@@ -85,11 +87,14 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
   const saveField = async (key, value) => {
     if (!book || book[key] === value) return;
     if (key === "name" && !value.trim()) { onError("У лорбука должно быть название"); return; }
+    setFieldSaving(true);
     try {
       setBook(await api.put(base, { [key]: value }));
+      setFieldSavedRecently(true);
+      setTimeout(() => setFieldSavedRecently(false), 2200);
       notify("Сохранено", "ok");
       onChanged();
-    } catch (e) { onError(e.message); }
+    } catch (e) { onError(e.message); } finally { setFieldSaving(false); }
   };
 
   return html`

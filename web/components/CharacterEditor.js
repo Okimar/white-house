@@ -70,6 +70,7 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
   const [baseline, setBaseline] = useState(characterId ? "" : JSON.stringify({ name: "" })); // the card as last loaded or saved
   const [isDefaultMe, setDefaultMe] = useState(Boolean(characterId) && settings.default_me === characterId);
   const [saving, setSaving] = useState(false);
+  const [savedRecently, setSavedRecently] = useState(false);
   const [tab, setTab] = useState(initialTab || "card");
   const [hasAvatar, setHasAvatar] = useState(false);
   const [revision, setRevision] = useState(0); // bumps after undo / restore: everything reloads
@@ -119,7 +120,10 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
     return () => window.removeEventListener("keydown", key);
   }, [characterId, dirty]);
 
-  const set = (key) => (e) => setCard({ ...card, [key]: e.target.value });
+  const set = (key) => (e) => {
+    if (savedRecently) setSavedRecently(false);
+    setCard({ ...card, [key]: e.target.value });
+  };
 
   const save = async (e) => {
     e.preventDefault();
@@ -134,6 +138,8 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
         await api.put("/settings", { default_me: isDefaultMe ? saved.id : "" });
       }
       setBaseline(JSON.stringify(card));
+      setSavedRecently(true);
+      setTimeout(() => setSavedRecently(false), 2400);
       onSaved(saved);
     } catch (err) {
       onError(err.message);
@@ -195,12 +201,18 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
             title="Лорбуки персонажа"
             hint="Записи из выбранных лорбуков подключаются в любом чате с этим персонажем (и когда он говорит сам, и когда выбран как «это я»). Сохраняются сразу." />`}
           <div class="row sticky-save" data-slot="char-save-bar">
-            <button class="primary" type="submit" disabled=${saving}>${saving ? "Сохраняю…" : "Сохранить"}</button>
+            <button class="primary" type="submit" disabled=${saving}>
+              ${saving
+                ? html`<span class="spin-icon" aria-hidden="true"><${Icon} name="refresh-cw" size=${14} /></span> <span>Сохраняю…</span>`
+                : (savedRecently
+                  ? html`<${Icon} name="check" size=${14} /> <span>Сохранено!</span>`
+                  : "Сохранить")}
+            </button>
             <button type="button" onClick=${requestClose}>Отмена</button>
             <span class="spacer"></span>
-            <span class=${"save-state save-state-pill " + (dirty ? "waiting" : "saved")} role="status">
-              <${Icon} name=${dirty ? "circle-dot" : "check"} size=${14} />
-              <span>${dirty ? "Есть несохранённые правки" : "Сохранено"}</span>
+            <span class=${"save-state save-state-pill " + (saving ? "saving" : (dirty ? "waiting" : (savedRecently ? "saved just-saved" : "saved")))} role="status">
+              <${Icon} name=${saving ? "refresh-cw" : (dirty ? "circle-dot" : "check")} size=${14} class=${saving ? "spin-icon" : ""} />
+              <span>${saving ? "Сохранение…" : (dirty ? "Есть несохранённые правки" : (savedRecently ? "Только что сохранено" : "Сохранено"))}</span>
             </span>
           </div>
         </form>`}

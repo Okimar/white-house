@@ -24,7 +24,7 @@ function PluginWindow({ win }) {
     <div class="dialog plugin-window" data-slot="plugin-window" data-plugin=${win.owner} role="dialog" aria-modal="true"
       aria-label=${win.title}>
       <div class="side-head"><strong>${win.icon} <span class="dialog-name">${win.title}</span></strong><span class="spacer"></span>
-        <${IconButton} icon="x" label="Закрыть" onClick=${close} /></div>
+        <${IconButton} icon="x" label="Закрыть окно" onClick=${close} /></div>
       <${Body} win=${win} close=${close} />
     </div>
   </div>`;
@@ -45,6 +45,6 @@ export function WindowButtons({ windows }) {
 export function StatusChips({ chips }) {
   return chips.map((c, i) => html`<button key=${c.owner + (c.key || i)} type="button" class=${"plugin-chip " + (c.state || "")}
     data-slot="plugin-status" data-plugin=${c.owner} data-state=${c.state || ""} title=${c.title || c.text}
-    aria-label=${c.title || c.text} role="status"
+    aria-label=${c.title || c.text} role="status" disabled=${!c.onClick}
     onClick=${c.onClick || null}>${c.text}</button>`);
 }

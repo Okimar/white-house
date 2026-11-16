@@ -125,7 +125,7 @@ export async function applyTheme(theme, opts = {}) {
   const { runScript = false, onScriptError } = typeof opts === "object" && opts !== null ? opts : {};
   if (typeof theme === "string") {
     // If called with a string id directly (e.g. from debug/console or test scripts)
-    const hasCss = theme === "sakura" || theme === "sepia" || theme === "nord" || theme === "forest" || theme === "amethyst";
+    const hasCss = theme !== "default" && theme !== "light" && theme !== "dark";
     theme = { id: theme, base: theme === "dark" ? "dark" : theme === "light" ? "light" : "auto", has_css: hasCss, builtin: true };
   }
   if (SAFE_MODE || !theme || theme.error) {
@@ -153,7 +153,7 @@ export async function applyTheme(theme, opts = {}) {
     const rawMsg = error && (typeof error === "string" ? error : error.message) || "";
     const shortMsg = rawMsg ? String(rawMsg).split("\n")[0].slice(0, 150) : "Непредвиденный сбой";
     if (typeof onScriptError === "function") {
-      onScriptError(`Скрипт темы «${theme.name}» завершился с ошибкой и был отключён: ${shortMsg}`);
+      onScriptError(`Скрипт эффектов темы «${theme.name}» завершился с ошибкой и был отключён: ${shortMsg}. Сама тема продолжает работать.`);
     }
   };
   const scene = document.querySelector(".scene");
@@ -242,9 +242,21 @@ function button(label, onClick, primary = false) {
   const node = el("button", primary ? BTN_PRIMARY : BTN, label);
   node.type = "button";
   node.addEventListener("click", onClick);
-  node.addEventListener("pointerdown", () => { node.style.transform = "scale(0.97)"; });
+  node.addEventListener("pointerdown", () => { if (!node.disabled) node.style.transform = "scale(0.97)"; });
   node.addEventListener("pointerup", () => { node.style.transform = ""; });
   node.addEventListener("pointercancel", () => { node.style.transform = ""; });
+  node.addEventListener("mouseenter", () => {
+    if (!node.disabled) {
+      node.style.background = primary
+        ? "var(--accent-hover, #7e480a)"
+        : "color-mix(in srgb,var(--fg,#f2ece2) 12%,var(--panel,#1b1917))";
+    }
+  });
+  node.addEventListener("mouseleave", () => {
+    node.style.background = primary
+      ? "var(--accent,#96570f)"
+      : "color-mix(in srgb,var(--panel,#1b1917) 80%,transparent)";
+  });
   node.addEventListener("focus", () => {
     node.style.outline = "var(--focus-ring, 2px solid var(--accent))";
     node.style.outlineOffset = "2px";
@@ -278,8 +290,10 @@ function safeBar() {
   bar.appendChild(head);
   if (how.length) bar.appendChild(el("span", "opacity:.85;font-size:var(--text-xs,12px);", how.join(" ")));
   if (LOOK.safe_persistent || SAFE_IN_ADDRESS) {
-    bar.appendChild(button("Выйти из безопасного режима", async () => {
-      try { if (LOOK.safe_persistent) await post("/api/look/safe", { on: false }); } catch (e) { /* try anyway */ }
+    bar.appendChild(button("Выйти из безопасного режима", async (e) => {
+      const btn = e && e.currentTarget ? e.currentTarget : null;
+      if (btn) { btn.disabled = true; btn.textContent = "Выход…"; }
+      try { if (LOOK.safe_persistent) await post("/api/look/safe", { on: false }); } catch (err) { /* try anyway */ }
       location.href = "/";
     }, true));
   } else {
@@ -307,7 +321,15 @@ function parkedBar() {
     + "Если это произойдёт, откройте безопасный режим (адрес с ?safe или команда `python -m tavern safe-mode on`) "
     + "и смените тему в «Настройки → Оформление».");
   const confirm = button("Всё равно вернуть", async () => {
-    try { await post("/api/look/restore"); location.reload(); } catch (e) { confirm.textContent = "Не удалось восстановить. Попробуйте ещё раз"; }
+    confirm.disabled = true;
+    confirm.textContent = "Восстановление…";
+    try {
+      await post("/api/look/restore");
+      location.reload();
+    } catch (err) {
+      confirm.disabled = false;
+      confirm.textContent = "Не удалось восстановить. Попробуйте ещё раз";
+    }
   }, true);
   confirm.style.display = "none";
   const ask = button("Вернуть прежний вид", () => {
@@ -316,7 +338,11 @@ function parkedBar() {
     ask.style.display = "none";
   });
   const ok = button("Понятно", async () => {
+    ok.disabled = true;
+    ok.textContent = "Закрытие…";
     try { await post("/api/look/dismiss"); } catch (e) { /* the notice may come back once more */ }
+    dropParked();
+  });
     dropParked();
   });
   actions.append(ask, confirm, ok);

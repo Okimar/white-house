@@ -54,12 +54,12 @@ function Panel({ panel: p }) {
   const title = (tree && tree.title) || p.title;
   const hasItems = Array.isArray(tree?.items) && tree.items.length > 0;
   return html`<aside class=${"plugin-panel" + (folded ? " folded" : "")} data-slot="plugin-panel" data-plugin=${p.owner}
-    data-folded=${folded ? "true" : "false"}>
+    data-folded=${folded ? "true" : "false"} role="complementary" aria-label=${title}>
     <header><${IconButton} icon=${folded ? "chevron-left" : "chevron-right"} class="fold-panel" data-slot="fold-panel"
         label=${folded ? "Развернуть панель" : "Свернуть панель"} aria-expanded=${!folded}
         onClick=${() => setPanelFolded(p.key, !folded)} />
       <strong>${p.icon} <span class="plugin-panel-title">${title}</span></strong><span class="spacer"></span>
-      <${IconButton} icon="x" label="Закрыть" class="close-panel" onClick=${() => togglePanel(p.key, false)} /></header>
+      <${IconButton} icon="x" label="Закрыть панель" class="close-panel" onClick=${() => togglePanel(p.key, false)} /></header>
     ${!folded && (hasItems ? html`<${Tree} tree=${tree} />` : html`<div class="plugin-panel-empty muted" role="status"><${Icon} name="info" /><p>В этой панели пока нет данных.</p></div>`)}
   </aside>`;
 }

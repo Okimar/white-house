@@ -29,7 +29,7 @@ import { Search } from "./components/Search.js";
 import { BackupWarning } from "./components/Backups.js";
 import { Icon, IconButton } from "./components/Icon.js";
 import { MenuButton } from "./components/Menu.js";
-import { DialogHost, ask } from "./components/Dialogs.js";
+import { DialogHost, ask, askText } from "./components/Dialogs.js";
 import { EmptyNote, Pending } from "./components/State.js";
 import { dismiss, notify, subscribe } from "./core/notify.js";
 import { handleCapture } from "./core/capture.js";
@@ -537,6 +537,12 @@ function App() {
     { icon: "undo-2", label: "Вид: как в настройках", disabled: !ownView, onClick: () => setChatView("") },
     { icon: "download", label: "Скачать чат", href: `/api/chats/${chatId}/export.jsonl` },
   ].filter((item) => !item.phone || window.matchMedia("(max-width: 720px)").matches);
+  const onTitleClick = async () => {
+    if (!shown || !chat.chat) return;
+    const current = (chat.chat.title || "").trim();
+    const next = ((await askText("Название чата", { value: current, placeholder: "Без названия", ok: "Сохранить" })) || "").trim();
+    if (next && next !== current) renameChat(chatId, next);
+  };
   return html`
     <div class="app" data-slot="app" data-chat-open=${shown ? "true" : "false"} data-sheet=${sheet ? "open" : "closed"}
       data-menu=${menuMode} data-menu-folded=${menuFolded ? "true" : "false"}>
@@ -586,7 +592,14 @@ function App() {
           </span>`}
           ${shown && html`<${IconButton} icon="chevron-left" label="На главную (чат останется в списке)" class="home-back"
             data-slot="home-back" onClick=${goHome} />`}
-          <strong class="title" data-slot="title" title=${shown ? ((chat.chat.title || "").trim() || "Без названия") : ""}>${shown ? ((chat.chat.title || "").trim() || "Без названия") : "White House"}</strong>
+          <strong class=${"title" + (shown ? " title-interactive" : "")} data-slot="title"
+            role=${shown ? "button" : null} tabindex=${shown ? "0" : null}
+            aria-label=${shown ? `Чат: ${((chat.chat.title || "").trim() || "Без названия")}. Нажмите, чтобы переименовать` : "White House"}
+            title=${shown ? `${((chat.chat.title || "").trim() || "Без названия")} (нажмите, чтобы изменить)` : ""}
+            onClick=${shown ? onTitleClick : null}
+            onKeyDown=${shown ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTitleClick(); } } : null}>
+            ${shown ? ((chat.chat.title || "").trim() || "Без названия") : "White House"}
+          </strong>
           <span class="spacer"></span>
           <nav class="phone-nav only-mobile" data-slot="phone-nav" aria-label="Разделы">
             <${IconButton} icon="chevron-down" label="Свернуть верхнюю панель" class="fold-top" data-slot="phone-fold"

@@ -383,8 +383,9 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
               onInput=${(e) => setWord(e.target.value)}
               onKeyDown=${(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addWords(word); } }} />
             <${IconButton} icon="plus" label="Добавить слово" onClick=${() => addWords(word)} />
-            <button disabled=${busy} onClick=${suggest} title="Модель прочитает текст и предложит слова">
-              ${busy ? "Думаю…" : "Подобрать"}</button>
+            <button disabled=${busy} onClick=${suggest} title="Модель прочитает текст и предложит слова"
+              class=${busy ? "btn-busy" : ""}>
+              ${busy ? html`<span class="spin-icon" aria-hidden="true"><${Icon} name="refresh-cw" size=${13} /></span> <span>Думаю…</span>` : "Подобрать"}</button>
           </div>
         </div>`}
       <div class="block-fields-grid" data-slot="block-fields-grid">
@@ -440,10 +441,13 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
         ${hasKids && html`<button title="Открыть пространство этого пузыря (двойное нажатие на пузырь)"
           onClick=${() => onOpen(block.id)}><${Icon} name="maximize-2" /> Открыть внутри</button>`}
         <span class="spacer"></span>
-        <span class=${"save-state " + state} aria-live="polite" role="status">${state === "saved"
-          ? html`<${Icon} name="check" size=${14} /> Сохранено`
-          : state === "failed" ? "Не сохранено" : "Сохраняю…"}</span>
-        ${state === "failed" && html`<button type="button" onClick=${flush}>Повторить</button>`}
+        <span class=${"save-state " + state} aria-live="polite" role="status">
+          ${state === "saved" && html`<${Icon} name="check" size=${14} /> <span>Сохранено</span>`}
+          ${state === "waiting" && html`<${Icon} name="circle-dot" size=${14} /> <span>Изменено</span>`}
+          ${state === "saving" && html`<span class="spin-icon" aria-hidden="true"><${Icon} name="refresh-cw" size=${14} /></span> <span>Сохраняю…</span>`}
+          ${state === "failed" && html`<${Icon} name="triangle-alert" size=${14} /> <span>Не сохранено</span>`}
+        </span>
+        ${state === "failed" && html`<button type="button" class="panel-retry-btn" onClick=${flush}>Повторить</button>`}
       </div>
       <div class="row panel-subactions" data-slot="panel-subactions">
         ${order && html`<label title=${"Номер среди соседей (1–" + order.of + "): модель читает их по порядку. Занятый номер — остальные сдвинутся"}>Порядок
@@ -582,6 +586,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const viewport = useRef(null);
   const world = useRef(null);
   const cam = useRef(camera);
+  const zoomLabelRef = useRef(null);
   const gesture = useRef(null);
   const frame = useRef(0);
   const [wide, setWide] = useState(false);
@@ -745,6 +750,9 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
   const applyCamera = (next) => {
     markMoving();
     cam.current = next;
+    if (zoomLabelRef.current) {
+      zoomLabelRef.current.textContent = `${Math.round(next.s * 100)}%`;
+    }
     if (CANVAS) { paint(); return; }
     if (world.current) world.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.s})`;
   };
@@ -1398,6 +1406,10 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                 onPointerDown=${(e) => e.stopPropagation()}>
                 <button type="button" class="zoom-btn" title="Приблизить (+)" aria-label="Приблизить" onClick=${zoomIn}>
                   <${Icon} name="plus" size=${16} />
+                </button>
+                <button type="button" class="zoom-btn zoom-level" ref=${zoomLabelRef} title="Масштаб (нажмите для сброса на 100%)"
+                  aria-label="Текущий масштаб, нажать для сброса на 100%" onClick=${zoomReset}>
+                  ${Math.round((cam.current?.s || 1) * 100)}%
                 </button>
                 <button type="button" class="zoom-btn" title="Отдалить (-)" aria-label="Отдалить" onClick=${zoomOut}>
                   <${Icon} name="minus" size=${16} />
