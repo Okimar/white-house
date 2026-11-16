@@ -44,7 +44,7 @@ function CharacterPicker({ member, characters, taken, onPick, onClose }) {
     <div class="dialog stack group-picker" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Заменить персонажа">
       <strong class="dialog-name" title=${member.name}>Заменить: ${member.name}</strong>
       <input type="search" value=${query} placeholder="Поиск по имени" aria-label="Поиск персонажа"
-        onInput=${(e) => setQuery(e.target.value)} />
+        class="group-picker-search" onInput=${(e) => setQuery(e.target.value)} />
       <ul class="list">
         ${found.length === 0 && html`<li class="muted" style="padding: 12px 0; text-align: center">
           ${query ? `По запросу «${query}» никого не нашлось` : "Персонажей для выбора пока нет"}
@@ -218,7 +218,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         </ul>
         ${replacing && html`<${CharacterPicker} member=${replacing} characters=${characters} taken=${taken}
           onPick=${(id) => replace(replacing, id)} onClose=${() => setReplacing(null)} />`}
-        <div class="row">
+        <div class="row member-add-row" data-slot="member-add-row">
           <${Select} value=${adding} onChange=${(e) => setAdding(e.target.value)} aria-label="Персонаж">
             <option value="">Выберите персонажа</option>
             ${outside.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}

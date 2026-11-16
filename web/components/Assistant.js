@@ -291,7 +291,7 @@ function QuestionsCard({ message, active, onAnswer }) {
             disabled=${!active || submitting}
             title=${isDefault ? "Предложено помощником" : ""} aria-label=${option + (isDefault ? " (предложено)" : "") + (chosen ? ", выбрано" : "")}
             onClick=${() => { setPicks({ ...picks, [q.id]: chosen ? "" : option }); setOwn({ ...own, [q.id]: "" }); }}>
-            ${option}${isDefault && !chosen ? html`<span class="suggested-dot" title="Предложено"></span>` : ""}
+            ${chosen ? html`<${Icon} name="check" class="chosen-icon" /> ` : ""}${option}${isDefault && !chosen ? html`<span class="suggested-dot" title="Предложено"></span>` : ""}
           </button>`;
         })}
       </div>
@@ -354,6 +354,7 @@ function PlanCard({ message, task, active, running, onGo, onDrop }) {
             <span class="mark" aria-hidden="true"><${Icon} name=${isNow ? "play" : ITEM_MARKS[item.status] || "circle"} /></span>
             <span class="assistant-item-title"><strong>${item.id}.</strong> ${item.title}</span>
           </div>
+          ${item.detail && html`<div class="assistant-item-detail muted">${item.detail}</div>`}
           ${item.steps?.length > 0 && item.status !== "done" && html`<ol class="assistant-substeps" data-slot="assistant-substeps" role="list">
             ${item.steps.map((st, n) => html`<li key=${n} role="listitem" class=${st.done ? "done" : ""}>
               <${Icon} name=${st.done ? "check" : "circle"} aria-hidden="true" /> ${st.text}</li>`)}</ol>`}
@@ -625,9 +626,28 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     return { x: Math.max(0, Math.min(window.innerWidth - width, p.x)), y: Math.max(0, Math.min(window.innerHeight - 48, p.y)) };
   };
 
-  // Dragging by the header (not on a phone: there the window takes the full width).
+  // Dragging by the header on desktop; swipe down to fold on mobile.
   const drag = (e) => {
-    if (e.target.closest("button, select, input, a") || window.innerWidth < 700) return;
+    if (e.target.closest("button, select, input, a")) return;
+    if (window.innerWidth < 720) {
+      if (folded) return;
+      const startY = e.clientY;
+      let triggered = false;
+      const move = (ev) => {
+        if (!triggered && ev.clientY - startY > 44) {
+          triggered = true;
+          try { navigator.vibrate?.(10); } catch {}
+          setFolded(true);
+        }
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      return;
+    }
     const rect = box.current.getBoundingClientRect();
     const dx = e.clientX - rect.left;
     const dy = e.clientY - rect.top;
@@ -643,6 +663,12 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+  };
+
+  const handleSheetTap = (e) => {
+    if (window.innerWidth < 720 && e.target === box.current && !folded) {
+      setFolded(true);
+    }
   };
 
   const openSkill = (skillId) => {
@@ -713,7 +739,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   const isLoading = Boolean(convId && !data && !loadError);
   const isEmpty = !isLoading && items.length === 0 && !loadError;
   return html`<section class=${"assistant" + (folded ? " folded" : "")} ref=${box} style=${style}
-      data-slot="assistant" role="dialog" aria-label="Помощник">
+      data-slot="assistant" role="dialog" aria-label="Помощник" onClick=${handleSheetTap}>
     <div class="assistant-head" data-slot="assistant-head" onPointerDown=${drag}>
       <strong class="assistant-title"><${Icon} name="wand" /> <span class="assistant-title-text">Помощник</span></strong>
       ${!folded && html`<button class="assistant-conv-btn" aria-label="Беседы" aria-expanded=${listOpen} data-slot="assistant-conv-btn"

@@ -554,7 +554,12 @@ function App() {
   const onTitleClick = async () => {
     if (!shown || !chat.chat) return;
     const current = (chat.chat.title || "").trim();
-    const next = ((await askText("Название чата", { value: current, placeholder: "Без названия", ok: "Сохранить" })) || "").trim();
+    const next = ((await askText("Название чата", {
+      value: current,
+      placeholder: "Без названия",
+      ok: "Сохранить",
+      hint: current ? `Текущее название: «${current}»` : "Введите название чата",
+    })) || "").trim();
     if (next && next !== current) renameChat(chatId, next);
   };
   return html`

@@ -4,6 +4,7 @@
 //   <${MenuButton} label="Действия" items=${() => [...]} />
 import { html, render, useEffect, useLayoutEffect, useRef } from "../vendor/preact-htm.mjs";
 import { Icon, IconButton } from "./Icon.js";
+import { holdTouch, visibleArea } from "../core/popup.js";
 
 let host = null;
 let closeCurrent = null;
@@ -21,26 +22,29 @@ function Panel({ anchor, items, onClose }) {
     if (!el) return;
     const gap = 4;
     const margin = 8;
-    const winH = window.innerHeight;
+    const view = visibleArea();
+    const viewTop = view.top;
+    const viewBottom = view.top + view.height;
     const winW = window.innerWidth;
-    const spaceBelow = winH - box.bottom - gap - margin;
-    const spaceAbove = box.top - gap - margin;
+    const spaceBelow = viewBottom - box.bottom - gap - margin;
+    const spaceAbove = box.top - viewTop - gap - margin;
     const fitsBelow = el.offsetHeight <= spaceBelow;
     const below = fitsBelow || spaceBelow >= spaceAbove;
     const maxH = Math.max(88, Math.floor(below ? spaceBelow : spaceAbove));
     el.style.maxHeight = `${maxH}px`;
     const h = Math.min(el.offsetHeight, maxH);
-    const top = below ? box.bottom + gap : Math.max(margin, box.top - gap - h);
+    const top = below ? box.bottom + gap : Math.max(viewTop + margin, box.top - gap - h);
     const alignLeft = box.left + el.offsetWidth <= winW - margin && box.left < winW / 2;
     const idealLeft = alignLeft ? box.left : box.right - el.offsetWidth;
     const left = Math.min(Math.max(margin, idealLeft), Math.max(margin, winW - el.offsetWidth - margin));
     el.style.left = `${left}px`;
-    el.style.top = `${Math.max(margin, top)}px`;
+    el.style.top = `${Math.max(viewTop + margin, top)}px`;
     el.dataset.side = below ? "down" : "up";
     el.focus({ preventScroll: true }); // arrows then walk the items; no ring on an item after a tap
   }, []);
 
   useEffect(() => {
+    const unTouch = panel.current ? holdTouch(panel.current, panel.current) : () => {};
     const outside = (e) => { if (!panel.current.contains(e.target) && !anchor.contains(e.target)) onClose(); };
     const key = (e) => {
       if (e.key === "Escape") {
@@ -75,6 +79,7 @@ function Panel({ anchor, items, onClose }) {
     window.addEventListener("resize", onClose);
     document.addEventListener("scroll", leave, true);
     return () => {
+      unTouch();
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", key, true);
       window.removeEventListener("resize", onClose);

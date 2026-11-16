@@ -157,7 +157,7 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
           <div class="row char-head-title">
             ${hasAvatar && characterId && html`<img class="speaker-avatar char-head-avatar" src=${`/api/characters/${characterId}/avatar`} alt="" />`}
             <strong class="char-dialog-title" title=${title}>${title}</strong>
-            ${dirty && html`<span class="badge char-dirty-badge" data-slot="char-dirty" title="Есть несохранённые изменения"><span class="dirty-dot" aria-hidden="true"></span> Не сохранено</span>`}
+            ${dirty && html`<span class="badge char-dirty-badge" data-slot="char-dirty" title="Есть несохранённые изменения"><span class="dirty-dot" aria-hidden="true"></span> <span class="char-dirty-text">Не сохранено</span></span>`}
           </div>
           <span class="spacer"></span>
           ${characterId && html`<${IconButton} icon="undo-2" label="Отменить последнее изменение"

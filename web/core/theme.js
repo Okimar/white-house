@@ -182,6 +182,7 @@ export async function applyTheme(theme, opts = {}) {
     get reducedMotion() { return matchMedia("(prefers-reduced-motion: reduce)").matches; },
     get phone() { return matchMedia("(max-width: 720px)").matches; },
     get coarse() { return matchMedia("(pointer: coarse)").matches; },
+    get compact() { return matchMedia("(max-height: 520px)").matches; },
     get dark() { return theme.base === "dark" || (theme.base !== "light" && matchMedia("(prefers-color-scheme: dark)").matches); },
     signal: controller.signal,
   };

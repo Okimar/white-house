@@ -28,7 +28,13 @@
 [data-slot="message-name"] { color: var(--accent); }
 [data-slot="message"][data-role="user"] [data-slot="message-name"] { color: #ffd1e6; }
 [data-slot="message"][data-role="user"] .time,
-[data-slot="message"][data-role="user"] .msg-num { color: #d6c5eb; }
+[data-slot="message"][data-role="user"] .msg-num,
+[data-slot="message"][data-role="user"] .swipe-count,
+[data-slot="message"][data-role="user"] .edit-hint { color: #f2e8ff; }
+/* High-contrast secondary text for time, counters and hints against Sakura surfaces */
+[data-slot="message"] .time,
+[data-slot="message"] .msg-num { color: #cfc2e6; }
+[data-slot="message"] .swipe-count { color: #cfc2e6; }
 [data-slot="message"][data-streaming="true"] { border-color: rgba(255, 143, 184, .55); }
 [data-slot="send-button"] {
   background: linear-gradient(135deg, #ff9cc4, #c77dff);
@@ -47,6 +53,8 @@
 }
 [data-slot="topbar"] [data-slot="title"] { letter-spacing: .02em; }
 [data-slot="composer-input"] { background: rgba(255, 255, 255, .06); border-color: rgba(255, 170, 210, .25); }
+.badge { border-color: rgba(255, 170, 210, .22); color: #cfc2e6; }
+.hint { color: #b8a8d6; }
 
 /* Scene: moon and hills are static pictures, stars only fade in and out. */
 [data-slot="scene"]::before {
@@ -83,6 +91,9 @@
 .sakura-mascot {
   position: absolute; right: 2%; bottom: 110px; width: min(36vw, 200px); aspect-ratio: 200 / 260;
   opacity: .5; contain: layout style;
+}
+@media (max-height: 520px) {
+  .sakura-mascot { display: none; }
 }
 .sakura-mascot.is-wide { right: 24px; bottom: 96px; width: 230px; opacity: 1; pointer-events: auto; cursor: pointer; border-radius: var(--radius); }
 .sakura-mascot.is-wide:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }

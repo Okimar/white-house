@@ -4,6 +4,7 @@
 .memory-switch input[type="checkbox"] { width: 24px; height: 24px; flex: none; }
 .memory-hint { margin: 0; font-size: var(--text-sm); line-height: 1.45; color: var(--muted); text-wrap: pretty; }
 .memory-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+.memory-toolbar button { min-height: var(--tap); }
 .memory-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .memory-chapter { border: 1px solid var(--line); border-radius: var(--radius-sm);
   transition: border-color 140ms var(--ease-out), background-color 140ms var(--ease-out); }
@@ -11,8 +12,9 @@
 .memory-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: var(--tap);
   border: 0; background: transparent; text-align: left; font-size: var(--text-sm); cursor: pointer;
   padding: 4px 8px; border-radius: var(--radius-sm);
-  transition: background-color 120ms var(--ease-out); }
+  transition: background-color 120ms var(--ease-out), transform 120ms var(--ease-out); }
 .memory-row:hover { background: var(--raised); }
+.memory-row:active { background: color-mix(in srgb, var(--fg) 6%, var(--raised)); transform: scale(0.99); }
 .memory-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .memory-row-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-state { flex: none; font-size: var(--text-sm); color: var(--accent); font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -22,7 +24,7 @@
 .memory-field { display: flex; gap: 8px; align-items: center; }
 .memory-field input { flex: 1; min-width: 0; min-height: var(--tap); font-size: 16px; }
 .memory-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.memory-actions button { flex: 1 1 140px; }
+.memory-actions button { flex: 1 1 140px; min-height: var(--tap); }
 .memory-actions button, .memory-transfer button, .memory-bulk > button {
   transition: transform 120ms var(--ease-out), background-color 120ms var(--ease-out), border-color 120ms var(--ease-out); }
 .memory-actions button:hover:not(:disabled), .memory-transfer button:hover:not(:disabled), .memory-bulk > button:hover:not(:disabled) {
