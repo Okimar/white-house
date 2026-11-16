@@ -343,8 +343,6 @@ function parkedBar() {
     try { await post("/api/look/dismiss"); } catch (e) { /* the notice may come back once more */ }
     dropParked();
   });
-    dropParked();
-  });
   actions.append(ask, confirm, ok);
   bar.append(actions, warning);
   parkedNode = bar;
