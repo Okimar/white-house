@@ -139,6 +139,14 @@ def generation_kind(reply: dict[str, Any], new_swipe: bool) -> str:
     return "swipe" if new_swipe else "normal"
 
 
+def continued_text(original: str, postfix: str, new: str) -> str:
+    """«Дописать»: the old text, the preset's continue_postfix (a space by default; SillyTavern's own options are
+    none, a space, a line break or two) and what the model wrote, without doubling the joining space."""
+    if postfix and postfix.isspace():
+        return original.rstrip() + postfix + new.lstrip()
+    return original + postfix + new
+
+
 def response_reserve(window: int, max_tokens: Any) -> int:
     """Tokens kept free for the reply (SillyTavern subtracts the response length from the context): the
     connection's «max tokens», never more than three quarters of the window (a setting larger than the window is
@@ -417,6 +425,22 @@ def _name_for(ctx: AppContext, chat: dict[str, Any], role: str) -> str:
     return ""
 
 
+def start_continue_message(ctx: AppContext, chat_id: str) -> Run:
+    """«Дописать» (SillyTavern's continue): the model goes on with the chat's last message, in its shown version;
+    the text is added to it, no new message or version is made."""
+    chat = ctx.chats.get_chat(chat_id)
+    _ensure_idle(ctx, chat_id)
+    if chat["leaf_id"] is None:
+        raise Conflict("Nothing to continue", code="nothing_to_continue")
+    last = ctx.chats.get_message(chat["leaf_id"])
+    if not last["content"].strip():
+        raise Conflict("The last message is empty", code="nothing_to_continue")
+    connection = resolve_connection(ctx, chat)
+    warning = spending.guard(ctx)
+    return _launch(ctx, chat, connection, last, swipe_idx=last["active_swipe"], new_swipe=False,
+                   user_message=None, instruction="", allow_parallel=False, warning=warning, continuing=True)
+
+
 def start_regenerate(ctx: AppContext, chat_id: str) -> Run:
     """Write another version (swipe) of the last reply (an assistant or system message)."""
     chat = ctx.chats.get_chat(chat_id)
@@ -530,6 +554,7 @@ def _writer(
     final: bool = True,
     skip_ids: frozenset[str] = frozenset(),
     keep_empty: bool = False,
+    continuing: bool = False,
 ) -> tuple[Body, Callable[[], None]]:
     """(body, discard) that write `reply` inside a run. It is written by its character_id (the
     chat's main character when empty); with `ask_speaker` the model first chooses who that is.
@@ -538,8 +563,11 @@ def _writer(
     it is one of several in a turn (stage 7б): start, delta, then reply_done or reply_error; the
     turn ends the run. The body returns the saved message, or None. `skip_ids`: messages left out
     of the history (the other replies of an all-at-once round). `keep_empty`: an empty reply is
-    left for the caller to remove (the round re-links its replies first)."""
+    left for the caller to remove (the round re-links its replies first). `continuing` («Дописать», wave 5): `reply` is
+    the chat's last message itself; the model goes on with it and its text is old + the preset's continue_postfix +
+    new; nothing is removed when nothing was written."""
     chat_id = chat["id"]
+    old_text = reply["content"] if continuing else ""
     params = dict(connection["params"])
     preset = preset_service.resolve(ctx, chat)
     window = int(params.pop("max_context_tokens", 0) or 0)  # the model's window, in the service's tokens
@@ -582,6 +610,8 @@ def _writer(
 
     def discard() -> None:
         """Remove the empty placeholder so a failed or stopped generation leaves no blank reply."""
+        if continuing:
+            return  # the continued message keeps its text
         if new_swipe:
             ctx.chats.remove_last_swipe(reply["id"])
         else:
@@ -595,6 +625,13 @@ def _writer(
 
     def settle(text: str) -> bool:
         """Persist what was written. Returns False when the text was empty and got discarded."""
+        if continuing:  # only the new part goes through the saving rules: the old text already did
+            if not text.strip():
+                return False
+            text, _ = regex_service.stored(ctx, chat_id, text, reply["role"])
+            ctx.chats.set_content(reply["id"], continued_text(
+                old_text, preset["data"]["prompts"].get("continue_postfix", " "), text), swipe_idx=swipe_idx)
+            return True
         if text.strip():
             # Regex rules for the saved text (stage 11): once, here; the text before them is kept for «вернуть».
             text, original = regex_service.stored(ctx, chat_id, text, reply["role"])
@@ -649,8 +686,10 @@ def _writer(
                                                  tally=tally),
                             calibrate=lambda sent, real: learn_ratio(ctx, connection, provider, sent, real))
             history = [
-                m for m in ctx.chats.active_path(chat_id) if m["id"] != reply["id"] and m["id"] not in skip_ids
+                m for m in ctx.chats.active_path(chat_id)
+                if (continuing or m["id"] != reply["id"]) and m["id"] not in skip_ids
             ]
+            kind = "continue" if continuing else generation_kind(reply, new_swipe)
             current = ctx.chats.get_chat(chat_id)
             rows = ctx.members.list(chat_id)
             settings = speakers.get_settings(current)
@@ -688,7 +727,7 @@ def _writer(
             lore = await lorebooks.select_for_chat(
                 ctx, chat, members, history, max_context=max_context,
                 seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found),
-                meaning=meaning, kind=generation_kind(reply, new_swipe),
+                meaning=meaning, kind=kind,
                 notes_text="\n".join(n.text for n in fired_notes))
             # Rules "for the model" (stage 11): in a thread, because the worker is waited for.
             rewritten, lore_rewritten, thoughts_rewritten, skipped = await asyncio.to_thread(
@@ -700,7 +739,8 @@ def _writer(
                 thoughts_rewritten=thoughts_rewritten,
                 members=members,
                 history=note_service.with_attached(ctx, chat_id, history), user_name=me,
-                impersonate=reply["role"] == "user",
+                impersonate=reply["role"] == "user" and not continuing,
+                generation_kind=kind, continue_id=reply["id"] if continuing else "",
                 max_context_tokens=prompt_budget,
                 notes=fired_notes,
                 lore=lore.found, lore_dropped=lore.dropped,
@@ -718,6 +758,9 @@ def _writer(
             job.params["split_thinking"] = True  # <thinking> written in the reply goes to «Размышление»
             job.on_reasoning = lambda text: run.emit("reasoning", id=reply["id"], text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
+            if continuing:  # the page shows the stream instead of the text: it starts from the old text
+                run.emit("delta", id=reply["id"], text=continued_text(
+                    old_text, preset["data"]["prompts"].get("continue_postfix", " "), ""))
             if warning:
                 run.emit("spend_warning", text=warning)
             if meaning_error:  # the reply goes on by keywords; the page shows why meaning search did not work

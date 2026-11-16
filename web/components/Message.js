@@ -78,7 +78,7 @@ function NoteCard({ note, onHide }) {
 }
 
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
-  streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate,
+  streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate, onContinueMessage,
   onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
   actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, onRegexUndo }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
@@ -148,6 +148,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
       },
     },
     regenerate: { onClick: () => onRegenerate(message) },
+    continue_message: { onClick: () => onContinueMessage && onContinueMessage() },
     branches: { disabled: busy, onClick: () => onBranches(message.id) },
     prompt: { onClick: () => onPrompt(message) },
     exclude: {
@@ -162,7 +163,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
       },
     },
   };
-  const available = MESSAGE_ACTIONS.map((a) => a.id).filter((id) => id !== "regenerate" || canRegenerate);
+  const available = MESSAGE_ACTIONS.map((a) => a.id).filter((id) => (id !== "regenerate" || canRegenerate)
+    && (id !== "continue_message" || (canRegenerate && Boolean(message.content))));
   const status = [excluded && "exclude", notes.length > 0 && "notes"].filter(Boolean);
   const { bar, menu } = splitActions(available, { mode: actionsMode, pinned, status });
   const describe = (id) => ({ ...MESSAGE_ACTIONS.find((a) => a.id === id), ...actions[id] });

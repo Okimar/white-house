@@ -92,7 +92,13 @@ DEFAULT_PROMPTS = {
     "new_example_chat": "[Example Chat]",
     # A user turn with this text when the chat's last message is the model's (e.g. «пусть поговорят»). Empty = none.
     "send_if_empty": "",
+    # «Дописать» (continue the last message, wave 5): the system line after the message being continued (unless
+    # `continue_prefill` sends the message as the start of the reply), and what joins the old text and the new.
+    "continue_nudge": "[Continue your last message without repeating its original content.]",
+    "continue_postfix": " ",
 }
+# Kinds of generation a preset block may be limited to (SillyTavern's `injection_trigger`; none = always).
+GENERATION_KINDS = ("normal", "continue", "impersonate", "swipe", "regenerate", "quiet")
 # Our prompts key -> the SillyTavern preset key with the same text (an older import kept them only in `st`).
 PROMPT_ST_KEYS = {
     "prefill": "assistant_prefill",
@@ -103,6 +109,8 @@ PROMPT_ST_KEYS = {
     "new_group_chat": "new_group_chat_prompt",
     "new_example_chat": "new_example_chat_prompt",
     "send_if_empty": "send_if_empty",
+    "continue_nudge": "continue_nudge_prompt",
+    "continue_postfix": "continue_postfix",
 }
 # The examples block (wave 3, SillyTavern's «example messages behaviour»): room = sent only while there is room after
 # the chat history (ST's default: in a long chat the history wins), always = never cut, never = not sent.
@@ -289,6 +297,12 @@ def normalize_block(raw: Any, index: int) -> dict[str, Any]:
     if not isinstance(group, str):
         raise PresetError(f"Block {index + 1}: group must be text")
     block["group"] = " ".join(group.split())[:MAX_GROUP] if kind != "history" else ""
+    triggers = raw.get("triggers") or []
+    if (not isinstance(triggers, list) or any(t not in GENERATION_KINDS for t in triggers)
+            or (triggers and kind == "history")):
+        raise PresetError(f"Block {index + 1}: triggers must be a list of {', '.join(GENERATION_KINDS)}")
+    if triggers:
+        block["triggers"] = [k for k in GENERATION_KINDS if k in triggers]
     if kind == "examples":
         mode = raw.get("examples_mode", EXAMPLE_MODES[0])
         if mode not in EXAMPLE_MODES:
@@ -418,4 +432,8 @@ def normalize_preset(raw: Any) -> dict[str, Any]:
         squash = preset["st"].get("squash_system_messages")
         squash = squash if isinstance(squash, bool) else True
     preset["squash_system"] = squash
+    continue_prefill = raw.get("continue_prefill")
+    if not isinstance(continue_prefill, bool):  # an older import kept SillyTavern's switch in `st`
+        continue_prefill = preset["st"].get("continue_prefill") is True
+    preset["continue_prefill"] = continue_prefill
     return preset

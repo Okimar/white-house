@@ -20,6 +20,7 @@ from tavern.core.presets import (
     DEFAULT_BLOCK_NAMES,
     DEFAULT_DEPTH_ORDER,
     DEFAULT_PROMPTS,
+    GENERATION_KINDS,
     MAX_ORDER,
     ORIGIN_ST,
     PROMPT_ST_KEYS,
@@ -70,7 +71,7 @@ TEXTS = {
     "group_nudge_prompt": "speaker_reply",
     **{st_key: key for key, st_key in PROMPT_ST_KEYS.items()},
 }
-CONSUMED = {"prompts", "prompt_order", "openai_max_context", "reasoning_effort", "squash_system_messages",
+CONSUMED = {"prompts", "prompt_order", "openai_max_context", "reasoning_effort", "squash_system_messages", "continue_prefill",
             *PARAMS, *TEXTS}
 
 
@@ -135,6 +136,9 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
         }
         if isinstance(order, int) and not isinstance(order, bool) and abs(order) <= MAX_ORDER:
             block["order"] = order
+        trigger = prompt.get("injection_trigger")
+        if isinstance(trigger, list) and kind != "history":
+            block["triggers"] = [t for t in trigger if t in GENERATION_KINDS]
         if kind == "history":
             # SillyTavern sends the last reply's reasoning back (its «add to prompts», max 1), in the reply's tag.
             block["history"] = {"thoughts": 1}
@@ -159,7 +163,9 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
         if isinstance(value, str) and (value.strip() or key != "impersonate"):
             prompts_out[key] = value  # impersonate / speaker_reply become behaviour blocks in normalize_preset
     squash = obj.get("squash_system_messages")
+    continue_prefill = obj.get("continue_prefill")
     data = normalize_preset({
+        "continue_prefill": continue_prefill if isinstance(continue_prefill, bool) else False,
         "blocks": blocks,
         "params": params,
         "max_context_tokens": int(context) if isinstance(context, (int, float)) and 0 < context <= 10_000_000 else 0,
@@ -189,6 +195,7 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
             "injection_position": 1 if block["position"] == "depth" else 0,
             "injection_depth": block["depth"],
             "injection_order": block.get("order", DEFAULT_DEPTH_ORDER),
+            "injection_trigger": list(block.get("triggers") or []),
         })
         order.append({"identifier": identifier, "enabled": block["enabled"]})
 
@@ -225,6 +232,7 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
     if "reasoning_effort" in data["params"]:
         result["reasoning_effort"] = data["params"]["reasoning_effort"]
     result["squash_system_messages"] = bool(data.get("squash_system", True))
+    result["continue_prefill"] = bool(data.get("continue_prefill", False))
     result["prompts"] = prompts
     result["prompt_order"] = [{"character_id": GLOBAL_ORDER_ID, "order": order}]
     return result

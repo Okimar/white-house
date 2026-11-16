@@ -133,6 +133,11 @@ class PromptInput:
     # The connection's kind ("openai", "gemini", "anthropic"), or "text" for the text mode: the prefill goes only to
     # PREFILL_KINDS. Empty (unknown) = no prefill.
     provider_kind: str = ""
+    # Wave 5: the kind of generation (core/presets.GENERATION_KINDS) for blocks with `triggers`, and «Дописать»: the
+    # id of the history message being continued (it goes last, followed by the preset's continue_nudge, or as the
+    # start of the reply with `continue_prefill`).
+    generation_kind: str = "normal"
+    continue_id: str = ""
 
 
 @dataclass
@@ -441,6 +446,8 @@ def assemble(data: PromptInput) -> Prompt:
         return block["text"], preset_source(block)
 
     for block in preset["blocks"]:
+        if block.get("triggers") and data.generation_kind not in block["triggers"]:
+            continue  # SillyTavern's per-prompt trigger: this block is for other kinds of generation
         if not block["enabled"]:
             if block["kind"] == "history":
                 history_seen = True
@@ -649,12 +656,15 @@ def assemble(data: PromptInput) -> Prompt:
     # turn with this text closes the chat. It counts as a chat message for depths, as in SillyTavern.
     filler: list[Entry] = []
     if_empty = prompts.get("send_if_empty") or ""
-    if not data.impersonate and messages and messages[-1].role == "assistant" and if_empty.strip():
+    if (not data.impersonate and not data.continue_id and messages and messages[-1].role == "assistant"
+            and if_empty.strip()):
         filler.append(Entry("user", sub(if_empty), "prompt:send_if_empty", "Если чат кончается ответом модели",
                             "prompt"))
 
     def behaviour(key: str, label: str, to: list[Entry], *, alone: bool = False) -> None:
         for b in when_texts(preset, key):
+            if b.get("triggers") and data.generation_kind not in b["triggers"]:
+                continue
             to.append(Entry(b["role"], sub(b["text"]), f"prompt:{key}", label, "prompt", alone=alone))
 
     # The group nudge goes right after the last chat message, before the post-history blocks (never squashed).
@@ -669,7 +679,7 @@ def assemble(data: PromptInput) -> Prompt:
     if data.impersonate:
         behaviour("impersonate", "Написать за меня", tail)
     prefill = (prompts.get("impersonation_prefill" if data.impersonate else "prefill") or "").rstrip()
-    if prefill.strip() and data.provider_kind in PREFILL_KINDS:
+    if prefill.strip() and data.provider_kind in PREFILL_KINDS and not data.continue_id:
         tail.append(Entry("assistant", sub(prefill).rstrip(), "prompt:prefill",
                           "Начало ответа (prefill)", "prompt"))
 
@@ -780,7 +790,8 @@ def assemble(data: PromptInput) -> Prompt:
     slots: list[list[_Injection]] = [[] for _ in range(len(messages) + 1)]
     placed: list[dict[str, Any]] = []
     for injection in injections:
-        index = max(0, len(messages) - injection.depth)
+        # «Дописать»: the continued message stays the last one, so what stands at depth 0 goes right before it
+        index = max(0, len(messages) - (max(injection.depth, 1) if data.continue_id else injection.depth))
         note = injection.note
         if note is not None:
             after_message = messages[index - 1] if index > 0 else None
@@ -806,7 +817,20 @@ def assemble(data: PromptInput) -> Prompt:
             chat_part.extend(messages[index].follow)
     chat_part.extend(nudge)
 
-    entries = [*before, *chat_part, *after, *tail]
+    # «Дописать» (SillyTavern's continue): the message being continued moves to the very end, after the post-history
+    # blocks; then the preset's continue_nudge (its {{lastChatMessage}} = that text), or, with `continue_prefill`, no
+    # line at all: the message is the start of the reply the model goes on with.
+    ending: list[Entry] = []
+    continued = next((e for e in chat_part if data.continue_id and e.source == f"message:{data.continue_id}"), None)
+    if continued is not None:
+        chat_part = [e for e in chat_part if e is not continued]
+        ending.append(continued)
+        nudge_text = prompts.get("continue_nudge") or ""
+        if not preset.get("continue_prefill") and nudge_text.strip():
+            ending.append(Entry("system", sub(nudge_text.replace("{{lastChatMessage}}", continued.text)),
+                                "prompt:continue_nudge", "Дописать", "prompt", alone=True))
+
+    entries = [*before, *chat_part, *after, *tail, *ending]
     # No user turn at all: our own presets without the new-chat line add a user "[Start]" so every service accepts
     # the request. SillyTavern never adds one, so neither does a preset from it, nor a prompt with the new-chat line.
     if entries and not head and not st_way and not any(e.role == "user" for e in entries):

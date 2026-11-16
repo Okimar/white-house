@@ -187,6 +187,8 @@ export function useChat(chatId, onError) {
     talk: (count = null) => guard(api.post(`/chats/${chatId}/talk`, count ? { count } : {})
       .then((r) => follow(r.run_id))),
     regenerate: () => guard(api.post(`/chats/${chatId}/regenerate`).then((r) => follow(r.run_id))),
+    // «Дописать»: the model goes on with the last message (SillyTavern's continue)
+    continueMessage: () => guard(api.post(`/chats/${chatId}/continue-message`).then((r) => follow(r.run_id))),
     stop: () => guard(api.post(`/chats/${chatId}/stop`)),
     closePick: () => setState((s) => ({ ...s, pick: null })),
     search: (query) => api.get(`/chats/${chatId}/search?q=${encodeURIComponent(query)}`),

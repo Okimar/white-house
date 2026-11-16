@@ -210,6 +210,12 @@ async def continue_chat(request: Request) -> JSONResponse:
     return JSONResponse({"run_id": run.id}, status_code=202)
 
 
+async def continue_message(request: Request) -> JSONResponse:
+    """«Дописать»: the model goes on with the chat's last message (SillyTavern's continue)."""
+    run = chat_service.start_continue_message(ctx_of(request), request.path_params["id"])
+    return JSONResponse({"run_id": run.id}, status_code=202)
+
+
 async def talk(request: Request) -> JSONResponse:
     """«Пусть поговорят». Body (optional): {count?}: how many replies (default the chat's talk_limit)."""
     body = await _optional_body(request)
@@ -358,6 +364,7 @@ routes = [
     Route("/chats/{id}/messages", add_message, methods=["POST"]),
     Route("/chats/{id}/roles", set_roles, methods=["PUT"]),
     Route("/chats/{id}/continue", continue_chat, methods=["POST"]),
+    Route("/chats/{id}/continue-message", continue_message, methods=["POST"]),
     Route("/chats/{id}/talk", talk, methods=["POST"]),
     Route("/chats/{id}/impersonate", impersonate, methods=["POST"]),
     Route("/chats/{id}/regenerate", regenerate, methods=["POST"]),
