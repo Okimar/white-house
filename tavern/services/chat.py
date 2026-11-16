@@ -18,7 +18,7 @@ from tavern.core.budget import BudgetExceeded, RunBudget
 from tavern.core.assembly import PromptInput
 from tavern.core.generation import DefaultGenerator, GenerationJob
 from tavern.core.llm import LLMClient
-from tavern.core.presets import when_texts
+from tavern.core.presets import provider_extras, when_texts
 from tavern.core.prompt import DEFAULT_CHAR_NAME, substitute
 from tavern.core.runs import Run
 
@@ -126,6 +126,15 @@ def prompt_kind(connection: dict[str, Any]) -> str:
     if connection.get("kind") == "openai" and params.get("api_mode") == "text":
         return "text"
     return str(connection.get("kind") or "")
+
+
+def generation_kind(reply: dict[str, Any], new_swipe: bool) -> str:
+    """The kind of generation a lorebook entry's triggers look at (core.retrieval.TRIGGERS): the model writing for
+    the user is «impersonate», another version of a reply is «swipe», anything else «normal» (our «Продолжить»
+    writes a new message, which SillyTavern counts as a normal generation; its own «continue» is not here yet)."""
+    if reply.get("role") == "user":
+        return "impersonate"
+    return "swipe" if new_swipe else "normal"
 
 
 def make_budget(ctx: AppContext) -> RunBudget:
@@ -506,8 +515,9 @@ def _writer(
     params = dict(connection["params"])
     preset = preset_service.resolve(ctx, chat)
     max_context = int(params.pop("max_context_tokens", 0) or 0)
-    # Model settings live only in the connection; the preset's old `params` are not used.
-    model_defaults = request_params(connection["kind"], params)
+    # Model settings live only in the connection; the preset's old `params` are not used. A preset from SillyTavern
+    # adds its request options (system field, post-processing, custom body / headers): the providers read them.
+    model_defaults = {**request_params(connection["kind"], params), **provider_extras(preset["data"])}
     generator_id = chat["meta"].get("generator") or ctx.settings.get("generator")
     me = user_name(ctx, chat_id)
 
@@ -642,7 +652,7 @@ def _writer(
             lore = await lorebooks.select_for_chat(
                 ctx, chat, members, history, max_context=max_context,
                 seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found),
-                meaning=meaning)
+                meaning=meaning, kind=generation_kind(reply, new_swipe))
             # Rules "for the model" (stage 11): in a thread, because the worker is waited for.
             rewritten, lore_rewritten, thoughts_rewritten, skipped = await asyncio.to_thread(
                 regex_service.prompt_texts, ctx, chat, history, lore.found,

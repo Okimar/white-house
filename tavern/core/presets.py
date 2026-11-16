@@ -156,6 +156,32 @@ def when_texts(preset: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return [b for b in preset["blocks"] if b.get("when") == key and b["enabled"] and b["text"].strip()]
 
 
+# SillyTavern preset keys kept in preset["st"] that change the request itself -> the request option the providers
+# read (providers/params.PRESET_EXTRAS). Texts only: an empty text means «not set».
+ST_REQUEST_TEXTS = {
+    "custom_prompt_post_processing": "prompt_post_processing",
+    "custom_include_body": "include_body",
+    "custom_exclude_body": "exclude_body",
+    "custom_include_headers": "include_headers",
+}
+
+
+def provider_extras(preset: dict[str, Any]) -> dict[str, Any]:
+    """Request options a preset from SillyTavern carries (docs/ST_PARITY.md §9, §11): whether the leading system
+    texts go to the API's own system field of Claude / Gemini (`use_sysprompt`, off in SillyTavern when the file
+    does not say), the prompt post-processing and the custom body fields and headers. Our own presets give none,
+    so the providers keep their defaults."""
+    st = preset.get("st") if isinstance(preset.get("st"), dict) else {}
+    if preset.get("origin") != ORIGIN_ST:
+        return {}
+    extras: dict[str, Any] = {"use_sysprompt": st.get("use_sysprompt") is True}
+    for key, option in ST_REQUEST_TEXTS.items():
+        value = st.get(key)
+        if isinstance(value, str) and value.strip():
+            extras[option] = value.strip()
+    return extras
+
+
 DEFAULT_BLOCK_NAMES = {
     "main": "Главный промпт",
     "persona": "Мой персонаж",

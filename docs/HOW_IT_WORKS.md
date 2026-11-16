@@ -194,10 +194,15 @@ time the splitter sees an opening tag (`ThinkSplitter.tag`). The writers keep it
 
 | Kind | File / function | What becomes what |
 |---|---|---|
-| openai (chat) | `providers/openai_compat.py:OpenAICompatProvider.build_body` | `messages` as is, roles kept; images as `image_url` data parts (`_message`); `stop[:4]`; `stream_options.include_usage`; `seed=-1` dropped; `web_search` → OpenRouter `plugins:[{id:web}]` or `web_search_options`; other params go to the top level; `extra_body` merged last. Reasoning is read from `delta.reasoning_content`/`reasoning`. |
+| openai (chat) | `providers/openai_compat.py:OpenAICompatProvider.build_body` | `messages` after `post_process` (an ST preset's `prompt_post_processing`: merge / semi / strict / single; none = as is), roles kept, a named line keeps `name` (`_message`); images as `image_url` data parts; `stop[:4]`; `stream_options.include_usage`; `seed` below 0 dropped, `n` never sent; `web_search` → OpenRouter `plugins:[{id:web}]` or `web_search_options`; other params go to the top level; then the preset's `include_body`, the connection's `extra_body`, and last the preset's `exclude_body` removed. `request_headers` adds the preset's `include_headers` (never auth / key / cookie / host / length). Reasoning is read from `delta.reasoning_content`/`reasoning`. |
 | openai (text mode) | same, with `self.template` | param `api_mode="text"` → `registry.create` resolves a template (`params.template`, "auto" = `core/templates.py:detect` by model name). `templates.render` makes one prompt: leading system messages go through `story_string`, roles are wrapped in prefixes/suffixes, and the text ends with an open assistant prefix (or inside the last assistant message: continue/prefill). Template stops plus the user prefix are added to `stop`. POST `/completions`. |
-| gemini | `providers/gemini.py:GeminiProvider.build_body`, `_contents` | **Leading** system messages are joined with `\n\n` into `systemInstruction`. Later system messages become **user** turns. Neighbouring same-role turns are merged; assistant→`model`; an empty conversation gets `"."`. `generationConfig` (`maxOutputTokens, temperature, topP, topK, stopSequences[:5], seed, penalties`). `thinkingConfig` from `thinking_budget`/`reasoning_effort`/`include_thoughts`. JSON → `responseMimeType`/`responseJsonSchema`. `web_search` → `google_search` tool. `safety_off` → all categories OFF. Unknown params are dropped. |
-| anthropic | `providers/anthropic.py:AnthropicProvider.build_body`, `_messages` | Leading system → `system`; later system → user turn. Same-role turns merged, and a leading `"."` user turn is added when needed. `max_tokens` defaults to 4096. `thinking_budget` → `thinking` (no temperature, top_p or top_k then). `stop_sequences`. JSON is a forced tool `answer`. `web_search` tool. A trailing assistant message works as a native prefill. |
+| gemini | `providers/gemini.py:GeminiProvider.build_body`, `_contents` | With `use_sysprompt` (on unless an ST preset says off; never for Gemma / picture models) the **leading** system messages go to `systemInstruction`, **one part each**, while one message is left. Every other system message becomes a **user** turn; neighbouring same-role turns are joined into one text with `\n\n`; a named line gets "Name: " (`spoken`); assistant→`model`; an empty conversation gets `"."`. `generationConfig`: `candidateCount 1, maxOutputTokens, temperature, topP, topK (> 0 only), stopSequences (1–16 chars, at most 5), seed (≥ 0)`, no penalties. `thinkingConfig` by family (2.5: budget, 3: level, `max` = high), `includeThoughts` on by default. JSON → `responseMimeType`/`responseJsonSchema`. `web_search` → `google_search` tool. Safety: all categories OFF by default. Unknown params are dropped. |
+| anthropic | `providers/anthropic.py:AnthropicProvider.build_body`, `_messages` | With `use_sysprompt` (as for Gemini) leading system → `system` text blocks, else user text. Later system → user turn; same-role turns merged as content blocks; names into text; empty text → zero-width space; a missing user start → "Let's get started."; the model's pictures move to the next user turn. `max_tokens` defaults to 4096. Effort: before 4.6 a `thinking` budget share, from 4.6 `thinking: adaptive` + `output_config.effort`; sampling dropped with thinking, one of temperature / top_p on limited models. `stop_sequences`. JSON is a forced tool `answer` (not on 5.x). `web_search` tool. A trailing assistant message is the prefill, trimmed; with thinking or from 4.6 it becomes user text. |
+
+Options from the preset: `core/presets.py:provider_extras` turns an ST preset's kept keys (`use_sysprompt`, absent = off
+as in ST; `custom_prompt_post_processing`, `custom_include_body`, `custom_exclude_body`, `custom_include_headers`)
+into `request.extra` names (`providers/params.py:PRESET_EXTRAS`); `services/chat.py:_writer` adds them to the
+connection's settings. Our own presets give none. These names are never sent as fields.
 
 Plugins may register other kinds (`registry.register`). `params.request_params(kind, params)` filters the
 connection's settings to the ones that kind takes. `send=False` settings (`max_context_tokens, api_mode,
@@ -350,13 +355,26 @@ Sources of injections: depth blocks, member depth, bubbles/lore with depth, note
 - `chat_part` is the injections, each message, and the message's notes;
 - `tail` is the behaviour blocks (`core/presets.py:WHEN`, `when_texts`, enabled with text), in this order:
   - `no_write_for_me`: «me» has `model_may_write=False`, and this is not impersonation;
-  - `speaker_reply`: `several`, and not impersonation;
-  - `impersonate`: role user by default;
-  - otherwise `prompts.prefill`, as an **assistant** Entry. Prefill is never sent with impersonate.
+  - `speaker_reply` (the group nudge): `several`, and not impersonation; it stands **right after the last chat
+    message**, before the post-history block (ST order), never squashed;
+  - `impersonate`: a **system** message at the very end (ST's role and text; `_upgrade_texts` moved old defaults
+    once, own texts stay);
+  - then the prefill as an **assistant** Entry, only when `PromptInput.provider_kind` is in `PREFILL_KINDS`
+    (anthropic, text mode; `services/chat.py:prompt_kind`), trailing spaces cut: `prompts.prefill`, or with
+    impersonation `prompts.impersonation_prefill` (none = no prefill).
 - `narrator` is used only by `_narrate` (7.3).
 
 Other rules for the final list:
-- When there is no user entry at all, `START_TURN="[Start]"` (user) is inserted before the chat.
+- The **head**: `prompts.new_chat` («[Start a new Chat]»; groups `new_group_chat` with `{{group}}`) is a system
+  entry right before the first chat message (before deep injections), `alone` (never squashed), kept by the
+  budget first. None when the history block is off or the text is empty.
+- `send_if_empty`: when the chat ends with the model's message (not impersonation), a user entry with this text
+  closes the chat; it counts for depths, notes land on the real message.
+- When there is no user entry at all and the preset is our own without the head line, `START_TURN="[Start]"`
+  (user) is inserted before the chat. A preset from ST never gets it.
+- A preset from ST (`origin == "sillytavern"`): card parts bare, each its own message; persona = the bare
+  description; examples = `new_example_chat` separator + named lines (`example_user` / `example_assistant`,
+  `ChatMessage.name` / `speaker`), never squashed. Our presets keep their headers.
 - Messages (the loop over `entries` that builds `sent`):
   - an entry with `join` (a depth group, 3.4) is appended to the previous message of the same role with `\n`;
   - adjacent `system` entries that are not chat messages (`kind != "message"`) are merged with `\n` only when the
@@ -449,7 +467,16 @@ The engine is `core/retrieval.py:select_blocks`, pure logic. The callers are
    remembered as a miss.
 6. **Chains**: `recursion` steps. The text of the blocks taken (except `no_wake`) plus `seed_text` is scanned for
    more green blocks (except `not_woken`), with keywords only. Lorebooks use the setting `lorebooks.recursion`
-   (default 2) and seed it with the chosen character bubbles. Character trees use 0.
+   (default 0 = off, as in ST) and seed it with the chosen character bubbles. Character trees use 0. A block with
+   `rules.after_chain = N` (ST «delay until recursion») is found only in chain step N or later.
+
+Wave 2 rules (2026-11-16, ST parity): `@@activate` / `@@dont_activate` lines at the start of a text make a block
+always / never go and are cut from the text (`split_decorators`); `rules.triggers` = kinds of generation it goes for
+(`kind`: normal / swipe / impersonate from `services/chat.py:generation_kind`); `rules.match` = more texts to look
+in (`sources`: persona, description, personality, depth_prompt, scenario, creator_notes); group scoring
+(`group_scoring` / `rules.scoring`: of a group the block with most different keywords found stays); timers of blocks
+from ST files count chat messages (`clock`), ours count replies; `min_found` scans deeper messages until enough blocks
+go (up to `min_depth_max`).
 7. **Links** (`ctx.blocks.links`): one step to the linked bubble and its blue subtree.
 8. Hits: `fresh_hits` and `misses` are written with `ctx.blocks.record_hits(chat, ids, generation)` into
    `chat_block_hits`.
@@ -476,10 +503,14 @@ remain. `keyword_pattern` matches `stem\w*` per word. `/regex/flags` keywords ar
 
 ### 4.4 Lorebook pool, budget, positions (`services/lorebooks.py:select_for_chat`)
 
-- `active_books` = the chat's books, then each member's books (as a character or as «me»), then the global books,
-  deduplicated (`lorebook_uses`). This order is the drop order: later books are cut first.
+- `book_tiers` (and `active_books`, its keys): the chat's books (tier 0), the persona's («me», 1), then the other
+  members' and the global books by `lorebooks.strategy` (character_first: 2 / 3, global_first: 3 / 2, evenly: 2 / 2),
+  each book once in its first place. Tiers are the drop order: a higher tier is cut first.
+- Scan text: the last `lorebooks.scan_messages` (2) visible messages, «Name: text» with `include_names` (on)
+  (`scan_lines`); macros in keywords are filled first (`_with_key_macros`). Character bubbles keep
+  `retrieval.scan_messages` (3) without names.
 - Budget = `lorebooks.budget_tokens` (2000). When `budget_percent > 0` and the window is known, it is that percent
-  of `max_context`. The default percent is 25 (ST's), so the window decides when it is known and `budget_tokens`
+  of `max_context`; `budget_cap` (0 = none) caps it. The default percent is 25 (ST's), so the window decides when it is known and `budget_tokens`
   is the fallback.
 - Ranking (`core/retrieval.py:select_blocks`, `by_order`): by book (pool order), then `block_order` highest first
   (`rules.order`, else the imported `st_entry.order` / `insertion_order`, else 100), then the place in the tree.
@@ -576,7 +607,10 @@ The four places:
   - unique ids, exactly one history block, at most one thinking block, one enabled block per group, one block per
     behaviour;
   - old `prompts.{no_write_for_me,speaker_reply,impersonate,narrator}` texts become behaviour blocks;
-  - `prompts` keeps only `prefill, personality_format, scenario_format`;
+  - `prompts` keeps only `prefill, impersonation_prefill, personality_format, scenario_format, new_chat,
+    new_group_chat, new_example_chat, send_if_empty` (ST defaults; an older import's texts kept in `st` move in);
+  - `texts_version` 2: behaviour blocks still holding our old default wording get ST's text and role once;
+  - `origin` ("sillytavern" for an import) decides the bare wording (3.5) and `provider_extras` (the providers table);
   - `params`/`max_context_tokens` are validated but **unused**: model settings live on the connection.
     `move_model_settings` moves old ones once at startup, and an import returns `model_params` so the page can ask.
 - A block's optional `order` (ST `injection_order`, default 100, only for `position: depth`) and the preset's
@@ -594,8 +628,10 @@ The four places:
 - Params: `temperature, top_p, top_k, frequency/presence_penalty, openai_max_tokens→max_tokens`. "Off" values are
   dropped, and so is `reasoning_effort` "auto". `openai_max_context` → `max_context_tokens`. All of these are only
   handed back as `model_params`.
-- Texts: `impersonation_prompt→impersonate`, `group_nudge_prompt→speaker_reply` (both become behaviour blocks),
-  `assistant_prefill→prefill`, `personality_format`, `scenario_format`.
+- Texts: `impersonation_prompt→impersonate` (role system), `group_nudge_prompt→speaker_reply` (both become
+  behaviour blocks), `assistant_prefill→prefill`, `assistant_impersonation→impersonation_prefill`,
+  `new_chat_prompt`, `new_group_chat_prompt`, `new_example_chat_prompt`, `send_if_empty`, `personality_format`,
+  `scenario_format` (`PROMPT_ST_KEYS`); the preset gets `origin: "sillytavern"`.
 - Unused keys are kept in `st` for export (`to_st`).
 - `injection_order` → the block's `order`; `squash_system_messages` → `squash_system` (false when absent; it is
   not copied into `st`). The history block of an import gets `history.thoughts = 1`. `to_st` writes all three back.

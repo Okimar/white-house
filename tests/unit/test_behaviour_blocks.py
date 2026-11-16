@@ -53,11 +53,11 @@ def test_speaker_reply_block_needs_two_characters_and_follows_its_switch():
     assert "only as Ann" not in text_of(build(preset, [ANN, BOB], several=True))
 
 
-def test_impersonate_block_goes_as_a_user_message_and_only_for_the_button():
+def test_impersonate_block_goes_as_the_last_system_message_and_only_for_the_button():
     preset = default_preset()
-    assert "Write the next message of" not in text_of(build(preset, [ANN, ME]))
+    assert "from the point of view of Kira" not in text_of(build(preset, [ANN, ME]))
     prompt = build(preset, [ANN, ME], impersonate=True)
-    assert prompt.messages[-1].role == "user" and "Kira" in prompt.messages[-1].content
+    assert prompt.messages[-1].role == "system" and "Kira" in prompt.messages[-1].content
 
 
 def test_narrator_text_comes_from_its_block():
@@ -74,7 +74,7 @@ def test_old_prompts_texts_become_blocks_and_nothing_is_lost():
     preset = normalize_preset(old)
     assert block(preset, "no_write_for_me")["text"] == "Hands off {{user}}!"
     assert block(preset, "impersonate")["text"] == "As {{user}}:"
-    assert block(preset, "impersonate")["role"] == "user"
+    assert block(preset, "impersonate")["role"] == "system"  # SillyTavern's role for this instruction
     assert block(preset, "narrator")["text"] == "Tell the story."
     silent = block(preset, "speaker_reply")  # an emptied field meant «don't say it»: a switched-off block
     assert silent["enabled"] is False and silent["text"]

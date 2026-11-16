@@ -62,7 +62,7 @@ async def test_members_can_be_added_changed_and_removed(client, ctx, fake_llm):
     await finish(ctx, await client.post(f"/api/chats/{chat_id}/send", json={"text": "hi", "speaker": ann["id"]}))
     contents = [m["content"] for m in fake_llm.requests[-1]["messages"]]
     assert "Bob the smith." in contents[-3] and contents[-2] == "hi"
-    assert contents[-1] == "[Write the next reply only as Ann. Do not write for the other characters or User.]"
+    assert contents[-1] == "[Write the next reply only as Ann.]"  # SillyTavern's group nudge
 
     # making the main character "me" moves the main role to Bob
     changed = await client.put(f"/api/chats/{chat_id}/members/{ann['id']}", json={"is_me": True})

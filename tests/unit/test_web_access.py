@@ -17,7 +17,8 @@ def _clean(monkeypatch):
     seen: list[httpx.Request] = []
     state = {"handler": lambda request: httpx.Response(200, text="ok", headers={"content-type": "text/plain"}),
              "hosts": {"good.example": [PUBLIC], "other.example": ["8.8.8.8"], "evil.example": ["10.0.0.5"],
-                       "rebind.example": [PUBLIC, "127.0.0.1"], "meta.example": ["169.254.169.254"]}}
+                       "rebind.example": [PUBLIC, "127.0.0.1"], "meta.example": ["169.254.169.254"],
+                       "html.duckduckgo.com": [PUBLIC]}}  # never the real DNS: a VPN may answer anything
 
     async def resolve(host):
         if host in state["hosts"]:
@@ -222,6 +223,15 @@ def test_no_results_is_not_a_failure_but_unknown_markup_is():
         web.parse_duckduckgo("<html><body><div class='serp'><div class='hit'>changed markup</div></div></body></html>")
     with pytest.raises(web.WebError, match="проверку"):
         web.parse_duckduckgo("<html><body>Unfortunately, bots use DuckDuckGo too. anomaly-modal</body></html>")
+
+
+async def test_a_vpn_fake_ip_from_a_name_opens_but_the_bare_address_does_not(_clean):
+    # Clash / sing-box in «fake IP» mode answer every name with 198.18.0.0/15 and carry the traffic themselves
+    _clean.state["hosts"]["vpn.example"] = ["198.19.0.37"]
+    assert (await web.fetch("http://vpn.example/")).text == "ok"
+    with pytest.raises(web.WebError, match="закрыт"):
+        await web.fetch("http://198.19.0.37/")
+    assert web.fake_ip("vpn.example", "198.18.0.1") and not web.fake_ip("vpn.example", "10.0.0.1")
 
 
 async def test_search_sends_only_the_words(_clean):

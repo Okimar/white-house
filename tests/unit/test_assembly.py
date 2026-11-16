@@ -25,7 +25,9 @@ def build(members, msgs, **kw):
 
 def test_default_preset_puts_cards_in_one_system_message_before_the_chat():
     prompt = build([ANN, ME], history("hello", "hi there"))
-    assert [m.role for m in prompt.messages] == ["system", "user", "assistant"]
+    # cards in one system message, then SillyTavern's «[Start a new Chat]» line on its own, then the chat
+    assert [m.role for m in prompt.messages] == ["system", "system", "user", "assistant"]
+    assert prompt.messages[1].content == "[Start a new Chat]"
     system = prompt.messages[0].content
     assert system.index("Write Ann's next reply") < system.index("Kira (played by the user)")
     assert system.index("A traveller.") < system.index("Ann is kind.") < system.index("Example dialogue of Ann")
@@ -61,7 +63,8 @@ def test_no_write_for_me_is_sent_unless_the_model_writes_for_the_user():
     assert any("Never write Kira's words" in m.content for m in normal.messages)
     impersonating = build([ANN, mute], history("hi"), impersonate=True)
     assert not any("Never write" in m.content for m in impersonating.messages)
-    assert impersonating.messages[-1].role == "user" and "Kira" in impersonating.messages[-1].content
+    # the impersonation instruction is the last system message, as in SillyTavern
+    assert impersonating.messages[-1].role == "system" and "Kira" in impersonating.messages[-1].content
 
 
 def test_blocks_follow_the_preset_order_and_switches():
@@ -86,18 +89,26 @@ def test_history_last_n_and_start_turn():
     next(b for b in preset["blocks"] if b["kind"] == "history")["history"] = {"mode": "last", "count": 2,
                                                                             "max_tokens": 0}
     prompt = build([ANN], history("1", "2", "3", "4"), preset=normalize_preset(preset))
-    assert [m.content for m in prompt.messages[1:]] == ["3", "4"]
-    only_reply = build([ANN], [{"id": "g", "role": "assistant", "content": "Greeting", "depth": 0}])
-    assert [m.content for m in only_reply.messages[1:]] == [START_TURN, "Greeting"]
+    assert [m.content for m in prompt.messages[1:]] == ["[Start a new Chat]", "3", "4"]
+    greeting = [{"id": "g", "role": "assistant", "content": "Greeting", "depth": 0}]
+    only_reply = build([ANN], greeting)
+    assert [m.content for m in only_reply.messages[1:]] == ["[Start a new Chat]", "Greeting"]
+    preset = default_preset()
+    preset["prompts"]["new_chat"] = ""  # our own preset without the line: a user «[Start]» turn opens the chat
+    without_line = build([ANN], greeting, preset=normalize_preset(preset))
+    assert [m.content for m in without_line.messages[1:]] == [START_TURN, "Greeting"]
 
 
 def test_prefill_ends_the_prompt_but_not_when_writing_for_the_user():
     preset = default_preset()
     preset["prompts"]["prefill"] = "{{char}} smiles and"
-    prompt = build([ANN], history("hi"), preset=normalize_preset(preset))
+    # the prefill goes only to Claude (and the text mode), as in SillyTavern
+    prompt = build([ANN], history("hi"), preset=normalize_preset(preset), provider_kind="anthropic")
     assert (prompt.messages[-1].role, prompt.messages[-1].content) == ("assistant", "Ann smiles and")
-    impersonating = build([ANN], history("hi"), preset=normalize_preset(preset), impersonate=True)
-    assert impersonating.messages[-1].role == "user"
+    impersonating = build([ANN], history("hi"), preset=normalize_preset(preset), impersonate=True,
+                          provider_kind="anthropic")
+    assert impersonating.messages[-1].role != "assistant"
+    assert build([ANN], history("hi"), preset=normalize_preset(preset)).messages[-1].role == "user"
 
 
 def test_st_style_card_formats():

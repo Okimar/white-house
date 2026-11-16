@@ -60,6 +60,7 @@ class WebError(AppError):
 # --- addresses --------------------------------------------------------------------------------
 
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_FAKE_IP = ipaddress.ip_network("198.18.0.0/15")  # benchmark range, used by proxies' «fake IP» DNS
 
 
 def blocked_reason(address: str) -> str:
@@ -125,12 +126,27 @@ def _split(url: str) -> tuple[str, str, int, str]:
     return parts.scheme, parts.hostname.lower(), port, urlunsplit(("", "", parts.path or "/", parts.query, ""))
 
 
+def fake_ip(host: str, address: str) -> bool:
+    """A VPN / proxy in «fake IP» mode (Clash, sing-box, v2rayN TUN) answers every name with an address of
+    198.18.0.0/15 and carries the connection to the real site itself. Such an address coming from a NAME is the
+    internet, not a device of the network; typed as a bare address it stays closed."""
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+        return False  # the link itself was an address
+    except ValueError:
+        pass
+    try:
+        return ipaddress.ip_address(address.split("%")[0]) in _FAKE_IP
+    except ValueError:
+        return False
+
+
 async def _public_addresses(host: str, *, allow_private: bool) -> list[str]:
     addresses = await resolve(host)
     if allow_private:
         return addresses
     for address in addresses:
-        reason = blocked_reason(address)
+        reason = "" if fake_ip(host, address) else blocked_reason(address)
         if reason:
             raise WebError(f"Этот адрес закрыт: «{host}» указывает на {reason}. Помощник открывает только "
                            "сайты из интернета, ничего из вашей сети и с вашего устройства.")

@@ -91,7 +91,10 @@ async def test_books_are_made_listed_renamed_and_checked(client, ctx):
     world = await book(client, "Мир", {"title": "Город", "content": "Большой.", "mode": "always"})
     listed = (await client.get("/api/lorebooks")).json()
     assert [(b["name"], b["blocks"], b["global"]) for b in listed["lorebooks"]] == [("Мир", 1, False)]
-    assert listed["settings"] == {"budget_tokens": 2000, "budget_percent": 25, "recursion": 2}  # 25 %: SillyTavern's
+    assert listed["settings"] == {  # SillyTavern's defaults: 25 %, 2 messages with names, recursion off
+        "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
+        "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
+        "group_scoring": False}
     renamed = await client.put(f"/api/lorebooks/{world}", json={"name": "Мир Эйры", "description": "Север."})
     assert renamed.json()["name"] == "Мир Эйры"
     assert (await client.post(f"/api/lorebooks/{world}/undo")).json()["undone"]["what"] == "Книга изменена"
@@ -129,7 +132,8 @@ async def test_all_four_levels_work_together_and_a_book_counts_once(client, ctx,
     assert text.count("Светит всегда.") == 1  # on globally and in the chat: once
     saw = await seen(client, chat_id)
     lore = [e["label"] for e in saw["entries"] if e["kind"] == "lore"]
-    assert lore == ["Чат › Таверна", "Общий › Солнце", "Анин › Сад", "Мой › Меч"]  # chat, members, global
+    # SillyTavern's pool order: the chat's books (the shared one is on there too), the persona's, the characters'
+    assert lore == ["Чат › Таверна", "Общий › Солнце", "Мой › Меч", "Анин › Сад"]
     assert (await client.get(f"/api/lorebook-uses?scope=chat&target={chat_id}")).json() == \
         {"lorebook_ids": [chatty, shared]}
     listed = {b["name"]: b for b in (await client.get("/api/lorebooks")).json()["lorebooks"]}
@@ -179,6 +183,7 @@ async def test_chains_start_from_the_chat_and_from_character_bubbles(client, ctx
                        {"title": "Гильдия", "content": "Ею правит Крыса.", "sticky": 0},
                        {"title": "Крыса", "content": "Хромой главарь.", "sticky": 0})
     await use(client, "global", [world])
+    await client.put("/api/settings", json={"lorebooks": {"recursion": 2}})  # chains are off by default, as in ST
     await send(client, ctx, chat_id, "погода")
     text = sent(fake_llm)
     assert "Ею правит Крыса." in text and "Хромой главарь." in text  # bubble -> guild -> rat

@@ -22,7 +22,9 @@ async def test_default_preset_lists_the_behaviour_blocks(client):
     when = {b["when"]: b for b in data["blocks"] if b.get("when")}
     assert set(when) == {"no_write_for_me", "speaker_reply", "impersonate", "narrator"}
     assert all(b["enabled"] and b["text"].strip() for b in when.values())
-    assert set(data["prompts"]) == {"prefill", "personality_format", "scenario_format"}
+    assert set(data["prompts"]) == {"prefill", "personality_format", "scenario_format", "impersonation_prefill",
+                                    "new_chat", "new_group_chat", "new_example_chat", "send_if_empty"}
+    assert data["prompts"]["new_chat"] == "[Start a new Chat]"
 
 
 async def test_a_copy_of_the_default_keeps_a_switched_off_behaviour_block(client):

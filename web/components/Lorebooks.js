@@ -12,6 +12,7 @@ import { CharacterTree } from "./CharacterTree.js";
 import { HistoryPanel } from "./CharacterEditor.js";
 import { Icon, IconButton } from "./Icon.js";
 import { MenuButton, openMenu } from "./Menu.js";
+import { Select } from "./Select.js";
 import { GroupedItems } from "./Groups.js";
 import { EmptyNote, Pending, useLoad } from "./State.js";
 import { ask, askText } from "./Dialogs.js";
@@ -216,15 +217,29 @@ export function LorebookSettings({ settings = {}, onChanged, onError }) {
   // Depth and sensitivity of the search are shared with the character bubbles (settings "retrieval").
   const retrieval = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, ...(settings.retrieval || {}) };
   const [search, setSearch] = useState(retrieval);
-  useEffect(() => { api.get("/lorebooks").then((d) => setValues(d.settings)).catch((e) => onError(e.message)); }, []);
+  // Every save sends the whole set, so it starts from the newest values, not from this render's: two quick changes
+  // (a switch, then a field) must not undo each other.
+  const latest = useRef(null);
+  useEffect(() => {
+    api.get("/lorebooks").then((d) => { latest.current = d.settings; setValues(d.settings); })
+      .catch((e) => onError(e.message));
+  }, []);
   const save = async (key, raw) => {
-    const value = raw === "" ? 0 : Number(raw);
+    // numbers come from the text fields; switches and the book order are saved as they are
+    const value = typeof raw === "string" && key !== "strategy" ? (raw === "" ? 0 : Number(raw)) : raw;
+    const before = latest.current[key];
+    latest.current = { ...latest.current, [key]: value };
+    setValues(latest.current);
     try {
-      const saved = await api.put("/settings", { lorebooks: { ...values, [key]: value } });
-      setValues({ ...values, ...saved.lorebooks });
+      await api.put("/settings", { lorebooks: latest.current });
       notify("Сохранено", "ok");
       onChanged();
-    } catch (e) { setFieldRev((r) => r + 1); onError(e.message); }
+    } catch (e) {
+      latest.current = { ...latest.current, [key]: before };
+      setValues(latest.current);
+      setFieldRev((r) => r + 1);
+      onError(e.message);
+    }
   };
   const saveSearch = async (key, value) => {
     try {
@@ -255,22 +270,47 @@ export function LorebookSettings({ settings = {}, onChanged, onError }) {
     <p class="hint">Если записи не помещаются в лимит токенов, первыми отпадают записи с меньшим «Порядком» (Order из SillyTavern, либо стоящие ниже в книге). Записи с правилом «не считать в лимите» отправляются всегда. Что именно вошло в запрос, можно увидеть в просмотре промпта (значок 👁 у ответа).</p>
     <h2>Как ищутся записи</h2>
     <div class="param-grid">
-      <label class="stack">Искать в последних сообщениях
-        <input key=${"scan" + fieldRev} class="num" inputmode="numeric" pattern="[0-9]*" value=${String(search.scan_messages)}
-          onChange=${(e) => saveSearch("scan_messages", Math.min(50, Math.max(1, Number(clamp(e.target.value, 50)) || 1)))} />
-        <span class="hint">Сколько последних сообщений чата проверять на наличие ключевых слов. Общий параметр с пузырями персонажей.</span></label>
-      <label class="stack">Порог похожести, от 0 до 1
+      ${field("scan_messages", "Сообщений в поиске", "Сколько последних сообщений чата проверять на ключевые слова. В SillyTavern — 2. 0 — по сообщениям не искать, идут только постоянные записи", 1000)}
+      <label class="stack">Порог похожести
         <input key=${"thr" + fieldRev} class="num" type="number" min="0" max="1" step="0.05" value=${search.threshold}
           onChange=${(e) => saveSearch("threshold", Math.min(1, Math.max(0, Number(e.target.value) || 0)))} />
-        <span class="hint">Для векторного поиска по смыслу: чем выше порог, тем ближе по теме должна быть запись. Общий с пузырями персонажей.</span></label>
-      ${field("recursion", "Шагов цепочки", "Сколько раз текст найденных записей может активировать следующие связанные записи (0 — без цепочек)", 10)}
+        <span class="hint">От 0 до 1, для векторного поиска по смыслу: чем выше порог, тем ближе по теме должна быть запись. Общий с пузырями персонажей.</span></label>
+      ${field("recursion", "Шагов цепочки", "Сколько раз текст найденных записей может включить следующие записи. 0 — цепочки выключены, как в SillyTavern", 10)}
     </div>
+    <label class="check" data-slot="lorebook-names">
+      <input type="checkbox" checked=${values.include_names} onChange=${(e) => save("include_names", e.target.checked)} />
+      Читать сообщения с именами</label>
+    <p class="hint">Ключ «Аня» найдётся и тогда, когда Аня сама пишет, но не называет себя: поиск видит «Аня: текст». Так делает SillyTavern.</p>
     <h2>В каком порядке берутся записи</h2>
     <ol class="hint lore-order">
       <li>Лорбуки текущего чата.</li>
-      <li>Лорбуки участников чата (в порядке списка участников).</li>
-      <li>Общие лорбуки (включённые везде).</li>
+      <li>Лорбуки вашего персонажа (персоны).</li>
+      <li>${STRATEGY_LINES[values.strategy] || STRATEGY_LINES.character_first}</li>
     </ol>
-    <p class="hint">Внутри каждой книги записи располагаются по их номерам. Если задан лимит токенов, лишнее отсекается с конца этого списка.</p>`}
+    <label class="stack" data-slot="lorebook-strategy">Персонажи или общие — кто раньше
+      <${Select} value=${values.strategy} onChange=${(e) => save("strategy", e.target.value)}>
+        <option value="character_first">Сначала лорбуки персонажей</option>
+        <option value="global_first">Сначала общие лорбуки</option>
+        <option value="evenly">Поровну, решает только «Порядок»</option>
+      </${Select}>
+      <span class="hint">Когда записи не помещаются в лимит, первыми отпадают книги из конца этого списка, а внутри книги — записи с меньшим «Порядком».</span></label>
+    <details class="conn-more lore-fold" data-slot="lorebook-more">
+      <summary>Тонкая настройка, как в SillyTavern</summary>
+      <div class="param-grid">
+        ${field("budget_cap", "Потолок лимита, токенов", "Лимит из процента окна не будет больше этого числа. 0 — без потолка", 1000000)}
+        ${field("min_activations", "Найти не меньше записей", "Если по последним сообщениям нашлось меньше, поиск идёт глубже в чат, пока не найдёт столько. 0 — выключено", 100)}
+        ${field("min_depth_max", "Предел глубины, сообщений", "Для «Найти не меньше записей»: глубже этого числа сообщений не искать. 0 — до начала чата", 1000)}
+      </div>
+      <label class="check" data-slot="lorebook-scoring">
+        <input type="checkbox" checked=${values.group_scoring} onChange=${(e) => save("group_scoring", e.target.checked)} />
+        Групповой счёт</label>
+      <p class="hint">Из записей одной группы остаётся та, у которой нашлось больше разных ключевых слов, а не случайная. Запись может задать это сама.</p>
+    </details>`}
   </div>`;
 }
+
+const STRATEGY_LINES = {
+  character_first: "Лорбуки персонажей чата, затем общие (включённые везде).",
+  global_first: "Общие лорбуки (включённые везде), затем лорбуки персонажей чата.",
+  evenly: "Лорбуки персонажей и общие вместе: между ними решает «Порядок» записи.",
+};

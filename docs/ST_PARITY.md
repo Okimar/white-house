@@ -1,6 +1,6 @@
 # Совпадение с SillyTavern (ST_PARITY)
 
-Статус на 2026-11-14. Ниже сначала короткий русский текст для владельца, потом английские таблицы для агентов.
+Статус на 2026-11-16. Ниже сначала короткий русский текст для владельца, потом английские таблицы для агентов.
 
 ## Для владельца
 
@@ -22,11 +22,11 @@
 
 | Волна | Что | Статус |
 |---|---|---|
-| 0 | Основа: эталоны, тест по ним, запись запроса (`capture.py`), сравнение (`compare_requests.py`), экзамен | идёт (эталоны и тест есть, экзамена нет) |
-| 1 | Путь владельца: макросы, начало истории («[Start a new Chat]»), слова вокруг карточки, персоны и примеров, параметры запроса из пресета | не начато |
-| 2 | Точность лорбука и заметок автора | не начато |
+| 0 | Основа: эталоны, тест по ним, запись запроса (`capture.py`), сравнение (`compare_requests.py`), экзамен | идёт (эталоны и тест есть, все 12 совпадают; экзамена на ваших настройках нет) |
+| 1 | Путь владельца: макросы, начало истории («[Start a new Chat]»), слова вокруг карточки, персоны и примеров, параметры запроса из пресета | сделано 2026-11-16 (часть значений для макросов ещё не подаётся, см. раздел 7) |
+| 2 | Точность лорбука и заметок автора | лорбук сделан 2026-11-16; заметки автора не начаты |
 | 3 | Длинные чаты: что выпадает из окна и точный подсчёт текста как в ST (на чистом Python, с запоминанием по сообщению) | не начато |
-| 4 | Прямые подключения Gemini и Claude | не начато |
+| 4 | Прямые подключения Gemini и Claude | сделано 2026-11-16 |
 | 5 | Чего нет: «продолжить это сообщение», когда срабатывает блок пресета, режимы карточек в группе | не начато |
 | 6 | Текстовый режим | не начато |
 
@@ -52,6 +52,12 @@
 | 3ж | Текстовый режим | не начато |
 
 **Журнал** (что сделано, словами пользователя; всё ниже «не проверено на экране»).
+
+- 2026-11-16, волна 1 (начало истории и слова): перед первым сообщением чата стоит системная строка «[Start a new Chat]» (в группе «[Start a new group chat. Group members: …]»). Подсказка группе «[Write the next reply only as …]» идёт сразу после последнего сообщения, до пост-истории. «Написать за меня» уходит последним системным сообщением, как в ST. Префилл («начало ответа») уходит только в Claude и в текстовый режим, Gemini и OpenAI его больше не получают. Пресет из ST шлёт карточку, персону и примеры голыми, без наших заголовков («Description:», «(played by the user)»), а примеры — отдельными сообщениями «[Example Chat]» с именами. Наш собственный пресет оставил свои заголовки. Есть «Если чат кончается ответом модели» (send_if_empty), по умолчанию пусто.
+- 2026-11-16, волна 1 (макросы): `{{// комментарии}}`, `{{trim}}`, `{{newline}}`, `{{random}}`, `{{pick}}`, `{{roll}}`, время и дата, `{{if}}…{{else}}…{{/if}}`, переменные, `{{group}}` и длинные имена полей карточки раскрываются как в ST.
+- 2026-11-16, волна 2 (лорбук): скан по последним 2 сообщениям с именами («Аня: текст»), рекурсия по умолчанию выключена (как в ST; включается в настройках), порядок книг: чат, персона, персонажи, общие. Новое у записей из ST: «искать ещё и в описании / сценарии / персоне», «только после шага цепочки», групповой счёт по числу ключей, срабатывание только для выбранного вида генерации (обычный ответ, другой вариант, за меня), `@@activate` / `@@dont_activate`, таймеры в сообщениях чата. Макросы в ключах (`{{char}}`) раскрываются.
+- 2026-11-16, волна 4 (Gemini и Claude напрямую): тело запроса как в ST. Если пресет из ST, его флаг «системный промпт в отдельное поле» (`use_sysprompt`) теперь соблюдается; без флага в файле системные тексты идут как сообщения пользователя, как в ST. Фильтры Gemini выключены по умолчанию, штрафов за повторы в Gemini нет, остановок не больше 5. У Claude от 4.6 размышление «adaptive», префилл там становится текстом пользователя. Для OpenAI-совместимых из пресета ST работают постобработка (merge / semi / strict / single), свои поля тела, убираемые поля и свои заголовки (кроме ключа, хоста и куки).
+- 2026-11-16, помощник: сайты открываются и через VPN в режиме «fake IP» (Clash, sing-box): раньше все они считались «адресом внутри локальной сети».
 
 - 2026-11-14, волна 0: тест по 12 эталонам ST (`tests/integration/test_st_goldens.py`). Файлы входят в приложение так же, как их принёс бы человек, и запрос сравнивается с эталоном. Итог: во всех 12 случаях у нас нет одной строки «[Start a new Chat]» в начале истории (это волна 1). Есть одна нарочная разница: мы просим у сервиса счёт токенов, чтобы расход был точным. Одна разница ждёт решения владельца: ST всегда шлёт штрафы за повторы, равные 0, а мы при нуле их не шлём. Всё остальное совпало: лорбук на глубине, роли, склейка, место до и после карточки, склейка системных, параметры.
 
@@ -87,26 +93,17 @@ pending; remove the `WAVES` entry when it turns red). Differences are kept as bo
 
 | Golden case | Status |
 |---|---|
-| C0 baseline | xfail wave 1 (no «[Start a new Chat]») |
-| C1 @D depth 0 system | xfail wave 1 (no «[Start a new Chat]»); lore matches |
-| C2 @D depth 1 system | xfail wave 1 (no «[Start a new Chat]»); lore matches |
-| C3 @D depth 1 user | xfail wave 1 (no «[Start a new Chat]»); lore matches, not merged with the user message |
-| C4 @D depth 1 assistant | xfail wave 1 (no «[Start a new Chat]»); lore matches, not merged with the reply |
-| C5 @D depth 2 system | xfail wave 1 (no «[Start a new Chat]»); lore matches |
-| C6 two @D depth 1, orders 50 / 100 | xfail wave 1 (no «[Start a new Chat]»); one joined message, order 50 first: matches |
-| C7 before char | xfail wave 1 (no «[Start a new Chat]»); lore matches |
-| C8 after char | xfail wave 1 (no «[Start a new Chat]»); lore matches |
-| C9 squash on | xfail wave 1 (no «[Start a new Chat]», which ST keeps unsquashed); squash matches |
-| C10 preset in-chat d1 + lore d1 | xfail wave 1 (no «[Start a new Chat]»); «PRESET-INJECT\nJB-TEXT» matches |
-| C11 keyword `river` | xfail wave 1 (no «[Start a new Chat]»); keyword fires, lore matches |
+All twelve cases (C0 baseline, C1–C5 @D at depths 0–2 in each role, C6 two @D orders 50 / 100, C7 before char,
+C8 after char, C9 squash on, C10 preset in-chat d1 + lore d1, C11 keyword `river`) **match** since wave 1a
+(2026-11-16): `WAVES` and `UNDECIDED` are empty.
 
 Differences in every case:
 
 | Difference | Verdict |
 |---|---|
-| ST's system «[Start a new Chat]» before the first history message is missing | wave 1 (ST way) |
+| ST's system «[Start a new Chat]» before the first history message | done (wave 1a) |
 | We add `stream_options.include_usage: true` | allowed difference: real token counts for spending |
-| ST sends `presence_penalty: 0`, `frequency_penalty: 0`; our ST import drops zeros as «off» | undecided, asked the owner |
+| ST sends `presence_penalty: 0`, `frequency_penalty: 0`; our ST import drops zeros as «off» | allowed difference (lead, 2026-11-14): same effect, some Gemini routes reject the fields |
 
 Parameters `model, temperature 1, max_tokens 300, stream, top_p 1` match once the import's model settings are put
 into the connection (the page asks; the test answers yes).
@@ -130,11 +127,11 @@ into the connection (the page asks; the test answers yes).
 
 | ST behaviour (default) | Ours | Status | Files | Test idea |
 |---|---|---|---|---|
-| Description sent raw (macros expanded). Personality through `personality_format`, scenario through `scenario_format` (default just the field); format used only when the field is non-empty. | With a format: raw parts. With empty formats: "Description:\n…", "Personality:\n…", "Scenario:\n…" headers added. | partly (ST with empty format sends the bare field) | A `card_text` | `personality_format: ""`: bare text, no header. |
-| Persona: one bare system text at the persona marker. Other positions (per persona): top / bottom of AN, in chat at depth with role, none. | Persona = the "me" member through `card_text`, prefixed "{user} (played by the user):". Marker position only. | partly | A | Persona "Tall man." → exactly "Tall man.". Persona at depth 2 role user. |
+| Description sent raw (macros expanded). Personality through `personality_format`, scenario through `scenario_format` (default just the field); format used only when the field is non-empty. | Preset from ST: each part bare, its own system message (wave 1a). Our own presets keep "Description:\n…" headers with empty formats. | done 2026-11-16 for ST presets; ours **отличается нарочно** (headers help weak models) | A `card_text` | `personality_format: ""`: bare text, no header. |
+| Persona: one bare system text at the persona marker. Other positions (per persona): top / bottom of AN, in chat at depth with role, none. | Preset from ST: the bare persona description (wave 1a); ours keeps "{user} (played by the user):". Marker position only. | done for the text 2026-11-16; positions partly | A | Persona "Tall man." → exactly "Tall man.". Persona at depth 2 role user. |
 | Character's Note (card `extensions.depth_prompt`: prompt, depth default 4, role default system) injected in chat every reply. | Not read. | missing | cards.py, A, C | Card with depth_prompt, depth 1: before the last message. |
-| Example dialogues: `mes_example` split by `<START>`; each block preceded by a system separator `new_example_chat_prompt` (default "[Example Chat]"); each line group is its own system message named example_user / example_assistant, leading "Name:" removed. | One system text "Example dialogue of X:\n…". | missing (structure differs) | A `examples`, new formatter | `<START>\n{{user}}: hi\n{{char}}: yo` → [sys "[Example Chat]", sys(name example_user) "hi", sys(name example_assistant) "yo"]. |
-| Named example messages reach each API differently: Claude / Gemini / merge modes put "Name: " back in front and drop the name; plain OpenAI-compatible sends the `name` field. Named system messages never squashed. | No names anywhere. | missing | providers, A | Same input to each provider body. |
+| Example dialogues: `mes_example` split by `<START>`; each block preceded by a system separator `new_example_chat_prompt` (default "[Example Chat]"); each line group is its own system message named example_user / example_assistant, leading "Name:" removed. | Preset from ST: the same structure (`example_dialogues`, `new_example_chat` text, `example_user` / `example_assistant` names, never squashed). Ours keeps one "Example dialogue of X:" text. | done 2026-11-16 for ST presets | A `examples`, `example_dialogues` | `<START>\n{{user}}: hi\n{{char}}: yo` → [sys "[Example Chat]", sys(name example_user) "hi", sys(name example_assistant) "yo"]. |
+| Named example messages reach each API differently: Claude / Gemini / merge modes put "Name: " back in front and drop the name; plain OpenAI-compatible sends the `name` field. Named system messages never squashed. | `ChatMessage.name` / `speaker`: OpenAI-compatible sends `name`; Gemini, Claude and text templates put "Name: " in front (`spoken()`). | done 2026-11-16 | providers, A | `test_named_lines_reach_each_service` |
 | Example behaviour (settings.json): normal = only if room after history; always keep; never = stripped. Whole blocks dropped together. | Always sent, never cut. | partly | A | Tight window: ST drops examples first. |
 | WI entries "before / after examples" are parsed like example text and put at the start / end of the example blocks. | Plain text around the examples block. | partly | A `place_lore("examples_*")` | Position 5 with `<START>` content. |
 | Groups, join mode: fields of all members wrapped with join prefix / suffix; muted left out unless "join, include muted". Default is **swap**: only the speaker's card. | All cards always, each "### Name". | partly | A `cast`, S | A and B, A speaks, swap: only A's description. |
@@ -143,14 +140,14 @@ into the connection (the page asks; the test answers yes).
 
 | ST behaviour (default) | Ours | Status | Files | Test idea |
 |---|---|---|---|---|
-| History starts with a system message `new_chat_prompt` ("[Start a new Chat]"; groups: `new_group_chat_prompt`), never squashed. | Nothing; only with no user turn at all we add a user "[Start]". | missing | A, P/SP | System "[Start a new Chat]" right before the first history message. |
+| History starts with a system message `new_chat_prompt` ("[Start a new Chat]"; groups: `new_group_chat_prompt`), never squashed. | Same: `new_chat` / `new_group_chat` texts (ST defaults, also for our presets), alone, kept by the budget. Our own preset with the text emptied still gets a user "[Start]" when the chat has no user turn; ST presets never. | done 2026-11-16 | A, P/SP | `tests/unit/test_st_framing.py` |
 | Hidden messages skipped; narrator / system-type messages go as system; carriage returns removed; macros expanded in every history message. | Hidden skipped, macros expanded. | same (check `\r`) | A | "a\r\nb" → "a\nb". |
 | Names (`names_behavior`): default = in group chats every non-user message gets "Name: " (including the current speaker); "content" = every message incl. user; "completion" = `name` field (sanitised); "none". | Groups: only other characters' messages get "Name: ". No setting. | partly | A `message_entry`, SP | Group A, B; history [user, A, B], A speaks: ST "A: …", "B: …". |
-| `send_if_empty`: when the last history message is from the assistant, a user message with this text is appended. | Missing. | missing | A, SP | "[continue]" + last message assistant. |
-| Group nudge: system message right after the last history message, before post-history prompts; not when writing for the user; never squashed. | `speaker_reply` block at the very end (after post-history), default text differs. | partly (position) | A `tail`, P | ST order …last msg, nudge, jailbreak. |
-| Impersonation prompt: a **system** message at the very end. Claude uses `assistant_impersonation` as prefill. | Behaviour block `impersonate` with role user; no impersonation prefill. | partly | P, SP, anthropic | Last message role system. |
+| `send_if_empty`: when the last history message is from the assistant, a user message with this text is appended. | Same (`send_if_empty`, empty by default; counts for depths, notes land on the real message). | done 2026-11-16 | A, SP | "[continue]" + last message assistant. |
+| Group nudge: system message right after the last history message, before post-history prompts; not when writing for the user; never squashed. | Same; ST's default text (old default texts upgraded once, own texts kept). | done 2026-11-16 | A `tail`, P | ST order …last msg, nudge, jailbreak. |
+| Impersonation prompt: a **system** message at the very end. Claude uses `assistant_impersonation` as prefill. | Same; `impersonation_prefill` for Claude / text mode. | done 2026-11-16 | P, SP, anthropic | Last message role system. |
 | Continue (append to the last message): last message moved to the end; then a system nudge `continue_nudge_prompt` or, with `continue_prefill`, the message as the final assistant turn. Later gets `continue_postfix`. | No "continue this message" generation. | missing | C, A, T | Continue on "He opened the". |
-| Assistant prefill: **Claude only**; not on background requests; not with continue-prefill; trailing spaces cut. | Prefill sent as final assistant message to every provider. | partly | A `tail`, C | Gemini connection + prefill: no trailing model turn. |
+| Assistant prefill: **Claude only**; not on background requests; not with continue-prefill; trailing spaces cut. | Same: only for the connection kinds anthropic and text mode (`PromptInput.provider_kind`, `chat.prompt_kind`), trailing spaces cut. | done 2026-11-16 | A `tail`, C | Gemini connection + prefill: no trailing model turn. |
 | Quiet prompts last as system. | Own prompts for background tasks. | n/a | — | — |
 
 ## 4. In-chat injections and squash
@@ -167,18 +164,18 @@ into the connection (the page asks; the test answers yes).
 
 | ST behaviour (default) | Ours | Status | Files | Test idea |
 |---|---|---|---|---|
-| Scan text: last **2** messages, each "Name: text", newest first, plus AN / character note / persona-at-depth when their scan flag is on. Entry may have own scan depth. | Last 3 messages, no names. | partly | L, character_tree | Key "Alice", last message by Alice without the name. |
-| Extra scan sources per entry: persona, character description, personality, character note, scenario, creator notes. | Missing. | missing | SL, R, L | Entry with "match character description". |
-| Key match: case-insensitive substring by default; whole-words option (global, per entry override); `/regex/flags` keys; macros in keys expanded. | Word-stem matching (Russian / English endings), regex keys; macros in keys not expanded. | partly | R `keyword_pattern` | Key "cat", text "category". Key "{{char}}". |
+| Scan text: last **2** messages, each "Name: text", newest first, plus AN / character note / persona-at-depth when their scan flag is on. Entry may have own scan depth. | Lorebooks: own `scan_messages` (2) and `include_names` (on), "Name: text" (`lorebooks.scan_lines`). Character bubbles keep 3 messages without names (ours). | done 2026-11-16 | L, character_tree | `test_lore_parity.py` |
+| Extra scan sources per entry: persona, character description, personality, character note, scenario, creator notes. | Rule `match` (imported from both world files and card books). | done 2026-11-16 | SL, R, L | Entry with "match scenario". |
+| Key match: case-insensitive substring by default; whole-words option (global, per entry override); `/regex/flags` keys; macros in keys expanded. | Word-stem matching (Russian / English endings), regex keys; macros in keys expanded (bubble stays as written). | stems **отличается нарочно** (owner, 2026-11-14: Russian endings); macros done 2026-11-16 | R `keyword_pattern`, L | Key "{{char}}". |
 | Secondary keys: AND ANY, NOT ALL, NOT ANY, AND ALL. | Same four. | same | SL, R | — |
-| Book order: chat book, persona book, then (strategy, default character first) character books then global; inside each by `order` highest first (budget priority). Final text order: lowest order first. | Chat, members, global; ranking now by ST «Order» (higher kept first) for ST files. | partly / done for order (persona book and strategies not separate) | L, R | Global order 200 + char order 10, strategy evenly. |
-| Budget: `world_info_budget` % (default 25) of the context, optional cap; rest dropped except "ignore budget" entries. | 25 % of the window; cut by ST «Order»; `ignoreBudget` kept. Cap not read. | done 2026-11-13 (cap partly) | L, R, SL | Big book + constant jailbreak: constant with highest Order survives. |
-| Recursion (default **off**): per entry exclude / prevent / delay-until-recursion; max steps. | Chains on by default, 2 steps; exclude / prevent mapped; delay missing. | partly | L, SL, R | A mentions B's key, recursion off: only A. |
-| Min activations + max depth. | Missing. | missing | R, L | Min 1, key only in message 5. |
+| Book order: chat book, persona book, then (strategy, default character first) character books then global; inside each by `order` highest first (budget priority). Final text order: lowest order first. | Same: tiers chat 0, persona 1, characters / global by `strategy` (character_first, global_first, evenly), inside a tier by «Order»; found list lowest order first. | done 2026-11-16 | L `book_tiers`, R | `test_lore_parity.py`, `test_lorebooks.py` |
+| Budget: `world_info_budget` % (default 25) of the context, optional cap; rest dropped except "ignore budget" entries. | Same, `budget_cap` setting. | done 2026-11-16 | L, R, SL | Big book + constant jailbreak: constant with highest Order survives. |
+| Recursion (default **off**): per entry exclude / prevent / delay-until-recursion; max steps. | Same default (off; the setting turns chains on); exclude / prevent / `after_chain` (delay until level N). | done 2026-11-16 | L, SL, R | A mentions B's key, recursion off: only A. |
+| Min activations + max depth. | `min_activations`, `min_depth_max`. | done 2026-11-16 | R, L | Min 1, key only in an older message. |
 | Probability; sticky entries do not re-roll. | `chance`; failed roll held for `sticky` replies. | same for ST files | R | — |
-| Inclusion groups: sticky wins; else prioritize; else weighted random (default 100). Group scoring (default off). | Groups, main, weight; scoring missing. | partly | R | Same group, scoring on, one with 2 hits. |
-| Sticky / cooldown / delay counted in chat messages. | Counted in our replies. | partly | R | Delay 3 on a chat with 2 messages. |
-| Per-entry generation-type triggers; decorators `@@activate` / `@@dont_activate`; character filter by tags. | Missing (name filter only). | missing | SL, R | `@@activate\nX` with no keys. |
+| Inclusion groups: sticky wins; else prioritize; else weighted random (default 100). Group scoring (default off). | Groups, main, weight; group scoring (setting `group_scoring`, rule `scoring` per entry). | done 2026-11-16 | R | Same group, scoring on, one with 2 hits. |
+| Sticky / cooldown / delay counted in chat messages. | Entries from ST files: chat messages; our own bubbles: replies. | done 2026-11-16 (ours **отличается нарочно**) | R, L | Sticky 2 by message count. |
+| Per-entry generation-type triggers; decorators `@@activate` / `@@dont_activate`; character filter by tags. | Triggers (rule `triggers`; the chat passes normal / swipe / impersonate) and decorators done; tag filter: ST tag ids cannot be mapped (name filter only). | done 2026-11-16 except tags | SL, R, C | `@@activate\nX` with no keys. |
 | Positions: 0 before / 1 after card; 2/3 top / bottom of AN (only when AN fires); 4 at depth with role; 5/6 before / after examples; 7 outlet (only through the outlet macro). | All mapped; outlet kept but not sent; AN top / bottom do not depend on AN firing. | partly / outlet done 2026-11-13 | A, SL, M | AN interval 2, entry at AN top on a skipped turn. |
 | Before / after texts: all joined with one "\n" into one text, wrapped by `wi_format` (default "{0}"), one system message at the marker. Entry text bare. Depth entries bare too (no wrapper). | Entries bare (no «[Книга › Запись]»), for depth and ST-file entries. `wi_format` not applied; before / after entries still one message each. | done for bare text 2026-11-13; `wi_format` and one-text join missing | A, SP | Two before-entries: ST "e1\ne2" in one message. |
 | Role matters only for depth entries; non-depth lore is always system. | Role imported for every entry. | partly | SL | — |
@@ -245,28 +242,28 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 | ST | Ours | Status | Files |
 |---|---|---|---|
 | Body: messages, model, temperature, max_tokens, stream, presence / frequency penalty, top_p always sent (even 0 / 1); top_k not sent; stop only when non-empty (max 4); logit_bias; seed ≥ 0; n > 1. | Only set connection params sent; preset sampling moved to the connection on import (asked); `stream_options.include_usage` added. With an empty connection nothing about length or temperature is sent. | partly | openai_compat.py, SP, params.py |
-| `custom_include_body`, `custom_exclude_body`, `custom_include_headers`. | `extra_body` merge only. | partly | openai_compat.py, params.py, SP |
-| Prompt post-processing: merge, semi-strict, strict, single user message (+ tool variants). | Missing. | missing | openai_compat.py or A |
-| Messages carry `name` for named example lines. | Never. | missing | openai_compat.py, A |
+| `custom_include_body`, `custom_exclude_body`, `custom_include_headers`. | Same, from an ST preset (`core.presets.provider_extras` → `request.extra`); headers never auth / key / cookie / host / length. `seed` ≥ 0 only, `n` never. | done 2026-11-16 | openai_compat.py, params.py, presets.py, chat.py |
+| Prompt post-processing: merge, semi-strict, strict, single user message (+ tool variants). | Same (`post_process`). | done 2026-11-16 | openai_compat.py |
+| Messages carry `name` for named example lines. | Same. | done 2026-11-16 | openai_compat.py, A |
 
 ### 11b. Google AI Studio (Gemini)
 
 | ST | Ours | Status | Files |
 |---|---|---|---|
-| `use_sysprompt` (default **off**): off → no systemInstruction, every system message becomes a user turn; on → leading system messages to systemInstruction, one part each. | Leading system always one joined systemInstruction. | partly | gemini.py, SP |
-| Other system messages → user; same-role turns merged into one text with a blank line; named messages get "Name: ". | Merged as separate parts; no names. | partly | gemini.py |
-| `safetySettings` always sent, all categories OFF. | Only with the connection flag. | partly | gemini.py, params.py |
-| generationConfig details (topK only if > 0, stop max 5 of 1–16 chars, seed, thinkingConfig by model and effort). | Roughly; own thinking map. | partly | gemini.py |
-| No prefill outside Claude. | Prefill becomes a final model turn. | partly | A |
+| `use_sysprompt` (default **off**): off → no systemInstruction, every system message becomes a user turn; on → leading system messages to systemInstruction, one part each. | Same for a preset from ST (flag read from the file, off when absent); our own presets keep it on (system field), **отличается нарочно**. Gemma / picture models never. | done 2026-11-16 | gemini.py, presets.py |
+| Same. | done 2026-11-16 | gemini.py |
+| Same (all OFF by default; the connection may still set its own). | done 2026-11-16 | gemini.py, params.py |
+| Same; no penalties for Gemini; candidateCount 1; includeThoughts on; 2.5 budget, 3 level (max = high). | done 2026-11-16 | gemini.py |
+| No prefill outside Claude. | Same (assembly `provider_kind`). | done 2026-11-16 | A |
 
 ### 11c. Claude
 
 | ST | Ours | Status | Files |
 |---|---|---|---|
-| `use_sysprompt` (default off): off → all system messages become user turns, no `system`; on → `system` as text blocks. Empty conversation → user "Let's get started.". | Leading system always → `system` string; user "." if the conversation does not start with user. | partly | anthropic.py, SP |
-| Later system messages → user; names into text; same-role turns merged as content blocks. | Same merge; no names; empty → ".". | partly | anthropic.py |
-| Prefill (or impersonation prefill) as the final assistant turn, trailing spaces trimmed; with thinking or on the newest models turned into a user turn. | Always as assistant turn; no trim, no flip. | partly | anthropic.py, A |
-| Sampling: temperature, top_p, top_k always; limited-sampling models only one of temperature / top_p; none with thinking. | Only set ones; all removed with thinking. | partly | anthropic.py |
+| `use_sysprompt` (default off): off → all system messages become user turns, no `system`; on → `system` as text blocks. Empty conversation → user "Let's get started.". | Same for a preset from ST (off when absent); our presets: on. "Let's get started." placeholder, zero-width space for empty text. | done 2026-11-16 | anthropic.py, presets.py |
+| Same; names into text; pictures of the model go to the next user turn. | done 2026-11-16 | anthropic.py |
+| Same (trimmed; a user turn with thinking or from 4.6 on). | done 2026-11-16 | anthropic.py, A |
+| Same rules for limited / newest / thinking models; effort → budget share before 4.6, adaptive + `output_config.effort` from 4.6. | done 2026-11-16 | anthropic.py |
 | Prompt caching (server config). | Missing (cost only). | missing | anthropic.py |
 
 ## 12. Groups
@@ -281,7 +278,7 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 ## 13. Where each setting lives in ST
 
 - **Preset file** (chat completion): source, models, temperature, penalties, top_p / top_k / top_a / min_p, repetition_penalty, max context and response, `names_behavior`, `send_if_empty`, the prompt texts (`impersonation_prompt`, `new_chat_prompt`, `new_group_chat_prompt`, `new_example_chat_prompt`, `continue_nudge_prompt`, `group_nudge_prompt`), `wi_format`, `scenario_format`, `personality_format`, bias, `prompts`, `prompt_order`, `assistant_prefill`, `assistant_impersonation`, `use_sysprompt`, `squash_system_messages`, `continue_prefill`, `continue_postfix`, `show_thoughts`, `reasoning_effort`, `seed`, `n`, `custom_*` body / headers / post-processing, preset-scoped regex in `extensions`.
-  **We consume**: prompts, prompt_order, `injection_order`, squash, sampling (moved to the connection), max context, reasoning effort (partly), impersonation / group nudge / prefill / formats. **Kept but unused**: names_behavior, send_if_empty, new_*_prompt, continue_*, wi_format, use_sysprompt, assistant_impersonation, custom_* body / headers, post-processing, show_thoughts, seed, n, bias.
+  **We consume**: prompts, prompt_order, `injection_order`, squash, sampling (moved to the connection), max context, reasoning effort (partly), impersonation / group nudge / prefill / formats, send_if_empty, new_*_prompt, assistant_impersonation (2026-11-16), use_sysprompt, custom_* body / headers, post-processing (2026-11-16, `core.presets.provider_extras`). **Kept but unused**: names_behavior, continue_*, wi_format, show_thoughts, seed, n, bias.
 - **settings.json**: world info settings (depth 2, budget 25 %, cap, recursion off, max steps, min activations, case, whole words, group scoring, include names, strategy), **global regex** (now read), AN defaults and character notes, persona description + position / depth / role, reasoning prefix / suffix / separator / add-to-prompts / max additions / auto-parse, custom stopping strings, example behaviour, prefer card prompt / jailbreak, bias presets.
 - **Card**: description, personality, scenario, first message, examples, system prompt, post-history instructions, character note (`depth_prompt`), creator notes, embedded book, linked world, card regex, talkativeness.
 - **Chat metadata**: AN text / position / depth / interval / role, chat-bound world, chat variables, scenario / system / examples overrides.
@@ -294,14 +291,14 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 The first findings (Gemini behind an OpenAI-compatible proxy) put the regex trick first. A common "jailbreak" is not a preset at all but a pair of **global regex scripts** (one replaces ordinary spaces with a blank Braille character in user messages in the prompt only; one turns them back for display only). The history then reads as Braille-spaced text. Global regexes live in the ST settings file and never travel with a preset; rules that arrive with a preset or card start unapproved here.
 
 1. **Global regex jailbreak missing or waiting for approval.** Now fixed in two parts (done 2026-11-13): settings.json global regex import and the chip «Регекс ждёт: N». Still to check on the owner's device: «Что видела модель» must show the blank characters in user messages and earlier replies.
-2. **System role delivery to Claude and Gemini.** ST default (`use_sysprompt` off) sends the preset as user turns; ours lifts leading system texts into the API system field. Fix in anthropic.py / gemini.py, keyed on the imported flag.
-3. **Prefill rules.** Ours sends the preset prefill to every provider, never flips it to a user turn with thinking, and has no impersonation prefill.
-4. **Macros left raw.** `{{// …}}` comments, `{{trim}}`, `{{newline}}`, `{{charIfNotGroup}}`, `{{time}}`, `{{lastUserMessage}}`, `{{if}}`, `{{outlet}}` reach the model as literal braces; comments often hold the author's notes about the jailbreak.
-5. **Lorebook entry text and selection.** The title header on entries (done: bare), budget and cut order (done: 25 %, ST «Order», ignore budget), same-depth merging (done). Left: names in scan text, depth 2 vs 3, recursion default, substring vs stem matching, `wi_format`.
-6. **Gemini safety settings** sent only with the connection flag; ST (direct Gemini) always sends all categories off.
-7. **Missing separators and example structure.** No "[Start a new Chat]"; examples are one titled system text; our "[Start]" user turn where ST has none.
-8. **Our own wording in the prompt.** "Description:" headers with empty formats, "{user} (played by the user):", "### Name", "Also in the scene:", "Example dialogue of X:".
-9. **Tail order.** Group nudge after the post-history prompt; impersonation sent as user.
+2. **System role delivery to Claude and Gemini.** Done 2026-11-16: a preset from ST follows its `use_sysprompt` (off when the file does not say).
+3. **Prefill rules.** Done 2026-11-16: Claude / text mode only, trimmed, flipped to a user turn with thinking or on 4.6+, impersonation prefill.
+4. **Macros left raw.** Done 2026-11-16 (engine); some values (`lastUserMessage`, `model`, outlets) still wait for the assembly to pass them.
+5. **Lorebook entry text and selection.** Done 2026-11-16 except `wi_format` and stem matching (ours on purpose).
+6. **Gemini safety settings.** Done 2026-11-16: all off by default.
+7. **Missing separators and example structure.** Done 2026-11-16.
+8. **Our own wording in the prompt.** Done 2026-11-16 for presets from ST; left: "### Name" and "Also in the scene:" in group chats (section 12).
+9. **Tail order.** Done 2026-11-16.
 10. **Names behaviour.** ST prefixes every character line in groups (including the speaker).
 11. **Past reasoning sent** after import (done: last one, in the model's own tag).
 12. **Different history kept.** No response reserve, 4-chars estimate, our drop order.

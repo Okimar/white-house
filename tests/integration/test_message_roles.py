@@ -9,6 +9,8 @@ import pytest
 
 from tavern.core.prompt import START_TURN, build_prompt
 from tavern.errors import AppError
+from tavern.providers.base import ChatMessage
+from tavern.providers.gemini import _contents as _gemini_contents
 from tavern.services.chat import parse_numbers
 
 
@@ -98,14 +100,18 @@ async def test_roles_cannot_change_during_generation(client, ctx, live_llm):
     await finish(ctx, run_id)
 
 
-async def test_impersonate_in_new_chat_ends_with_a_user_turn(client, ctx, fake_llm):
-    # Gemini rejects [system, assistant] with "contents is not specified": a user turn must exist.
+async def test_impersonate_in_new_chat_ends_with_the_instruction_and_gemini_still_gets_a_user_turn(
+        client, ctx, fake_llm):
+    # As in SillyTavern the instruction is the last system message. Gemini rejects [system, assistant] with
+    # "contents is not specified": there a system message after the chat becomes a user turn.
     chat_id = await setup_chat(client)
     fake_llm.queue("I knock.")
     run_id = (await client.post(f"/api/chats/{chat_id}/impersonate")).json()["run_id"]
     await finish(ctx, run_id)
     sent = fake_llm.requests[-1]["messages"]
-    assert sent[-1]["role"] == "user" and "next message of User" in sent[-1]["content"]
+    assert sent[-1]["role"] == "system" and "point of view of User" in sent[-1]["content"]
+    _, contents = _gemini_contents([ChatMessage(m["role"], m["content"]) for m in sent])
+    assert contents[-1]["role"] == "user" and "point of view of User" in contents[-1]["parts"][0]["text"]
     last = (await path(client, chat_id))[-1]
     assert (last["role"], last["content"]) == ("user", "I knock.")
 
@@ -132,7 +138,7 @@ async def test_continue_writes_as_chosen_role(client, ctx, fake_llm):
     assert [(m["role"], m["content"]) for m in (await path(client, chat_id))[1:]] == [
         ("system", "Thunder."), ("user", "I step in."),
     ]
-    assert "next message of User" in fake_llm.requests[-1]["messages"][-1]["content"]
+    assert "point of view of User" in fake_llm.requests[-1]["messages"][-1]["content"]
 
 
 async def test_bad_reply_role_writes_nothing(client, ctx, fake_llm):
