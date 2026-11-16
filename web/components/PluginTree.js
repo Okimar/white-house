@@ -7,7 +7,7 @@ import { Icon, IconButton } from "./Icon.js";
 import { panelFolded, setPanelFolded, useLayout } from "../core/layout.js";
 
 const MARK = { wait: "loader-circle", done: "check", error: "triangle-alert" };
-const STATE_LABEL = { wait: "Выполняется", done: "Готово", error: "Ошибка" };
+const STATE_LABEL = { wait: "Выполняется…", done: "Готово", error: "Ошибка" };
 
 function Item({ item }) {
   const children = item.children || [];
@@ -49,7 +49,7 @@ function Panel({ panel: p }) {
         onClick=${() => setPanelFolded(p.key, !folded)} />
       <strong>${p.icon} ${title}</strong><span class="spacer"></span>
       <${IconButton} icon="x" label="Закрыть" class="close-panel" onClick=${() => togglePanel(p.key, false)} /></header>
-    ${!folded && (tree ? html`<${Tree} tree=${tree} />` : html`<p class="muted" role="status">Пока пусто.</p>`)}
+    ${!folded && (tree ? html`<${Tree} tree=${tree} />` : html`<div class="plugin-panel-empty muted" role="status"><p>В этой панели пока нет данных.</p></div>`)}
   </aside>`;
 }
 

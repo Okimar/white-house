@@ -205,7 +205,8 @@ function GoogleDrive({ drive, onError, reload }) {
         <button disabled=${Boolean(busy)} onClick=${logout}>Выйти</button>
       </div>
       ${busy === "restore" && html`<p class="muted">Скачиваю и восстанавливаю…</p>`}
-      ${files && !files.length && html`<${EmptyNote} title="На Диске копий пока нет" />`}
+      ${files && !files.length && html`<${EmptyNote} icon="cloud" title="На Google Диске копий пока нет"
+        hint="Включите автоматическую отправку выше или нажмите «На Диск» у любой локальной копии ниже, чтобы сохранить её в облаке." />`}
       ${files && files.length > 0 && html`<ul class="list backup-list drive-list">
         ${files.map((f) => html`<li key=${f.id} class="row" data-kind=${f.kind}>
           <span class="grow"><${Icon} name="cloud" /> ${when(f.created_at)} · ${KINDS[f.kind] || f.kind}
@@ -304,7 +305,7 @@ export function BackupsTab({ onError }) {
     act("restore", () => api.post(`/backups/${encodeURIComponent(b.name)}/restore`));
   };
   const remove = async (b) => {
-    if (!(await ask(`Удалить копию от ${when(b.created_at)}?`, { ok: "Удалить", danger: true }))) return;
+    if (!(await ask(`Удалить копию от ${when(b.created_at)}? Этот архив будет стёрт безвозвратно.`, { ok: "Удалить", danger: true }))) return;
     act("delete", () => api.del(`/backups/${encodeURIComponent(b.name)}`));
   };
   const upload = (file) => act("upload", () => api.postBinary("/backups/upload", file, "application/zip"));
@@ -347,8 +348,14 @@ export function BackupsTab({ onError }) {
     ${busy === "restore" && html`<p class="muted">Восстанавливаю…</p>`}
 
     <h2>Копии</h2>
-    ${!data.backups.length && html`<${EmptyNote} title="Копий пока нет"
-      hint="Нажмите «Сделать копию сейчас» или дождитесь автоматической копии." />`}
+    ${!data.backups.length && html`<${EmptyNote} icon="history" title="Резервных копий пока нет"
+      hint="Резервная копия сохраняет все ваши чаты, персонажей, лорбуки, картинки и настройки без ключей API.">
+      <div class="empty-actions">
+        <button class="primary empty-btn" disabled=${Boolean(busy)} onClick=${createNow}>
+          ${busy === "create" ? "Создаю…" : "Сделать первую копию"}
+        </button>
+      </div>
+    </${EmptyNote}>`}
     ${days.map((d) => html`<div key=${d.label} class="backup-day">
       <h3>${d.label}</h3>
       <ul class="list backup-list">

@@ -139,7 +139,7 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
     if (active.controller !== controller) return;
     console.error("Theme script failed", error);
     stopScript();
-    onScriptError(`Скрипт темы «${theme.name}» упал и выключен: ${error && error.message || error}`);
+    onScriptError(`Скрипт темы «${theme.name}» завершился с ошибкой и был отключён: ${error && error.message || error}`);
   };
   const scene = document.querySelector(".scene");
   const overlay = document.querySelector(".overlay-layer");
@@ -242,10 +242,10 @@ function safeBar() {
   bar.setAttribute("aria-live", "polite");
   bar.dataset.slot = "safe-mode-bar";
   const how = [];
-  if (LOOK.safe_persistent) how.push("Включён навсегда: команда `python -m tavern safe-mode on`.");
-  if (LOOK.safe_run) how.push("Включён только на этот запуск (`--safe`): перезапустите без него.");
-  if (SAFE_IN_ADDRESS) how.push("Включён адресом /?safe.");
-  bar.appendChild(el("strong", "", "Безопасный режим: темы, свои стили и скрипты не загружаются."));
+  if (LOOK.safe_persistent) how.push("Включён постоянный режим (`python -m tavern safe-mode on`).");
+  if (LOOK.safe_run) how.push("Включён на текущий запуск (`--safe`): перезапустите программу без этого флага.");
+  if (SAFE_IN_ADDRESS) how.push("Включён адресом с параметром `?safe`.");
+  bar.appendChild(el("strong", "", "Безопасный режим: сторонние темы, стили и скрипты отключены."));
   bar.appendChild(el("span", "opacity:.85", how.join(" ")));
   if (LOOK.safe_persistent || SAFE_IN_ADDRESS) {
     bar.appendChild(button("Выйти из безопасного режима", async () => {
@@ -253,7 +253,7 @@ function safeBar() {
       location.href = "/";
     }));
   } else {
-    bar.appendChild(el("span", "opacity:.85", "Выход: закройте программу и запустите без `--safe`."));
+    bar.appendChild(el("span", "opacity:.85", "Для выхода закройте программу и запустите её снова без флага `--safe`."));
   }
   return bar;
 }
@@ -271,10 +271,11 @@ function parkedBar() {
   bar.appendChild(text);
   const actions = el("span", "display:flex;flex-wrap:wrap;gap:8px");
   const warning = el("div", "flex-basis:100%;display:none;opacity:.9",
-    "Внимание: прежнее оформление может сломать меню. Если так случится, откройте безопасный режим "
-    + "(адрес /?safe или команда `python -m tavern safe-mode on`) и отключите оформление в «Настройки → Оформление».");
+    "Прежнее оформление создавалось под старый интерфейс и может нарушить отображение меню. "
+    + "Если это произойдёт, откройте безопасный режим (адрес с ?safe или команда `python -m tavern safe-mode on`) "
+    + "и смените тему в «Настройки → Оформление».");
   const confirm = button("Всё равно вернуть", async () => {
-    try { await post("/api/look/restore"); location.reload(); } catch (e) { confirm.textContent = "Не вышло, попробуйте ещё раз"; }
+    try { await post("/api/look/restore"); location.reload(); } catch (e) { confirm.textContent = "Не удалось восстановить. Попробуйте ещё раз"; }
   });
   confirm.style.display = "none";
   const ask = button("Вернуть прежний вид", () => {

@@ -51,6 +51,9 @@ const SERVICE_TEXTS = [
 function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onRemove }) {
   const [open, setOpen] = useState(false);
   const set = (patch) => onChange({ ...block, ...patch });
+  const dropBlock = async () => {
+    if (await ask(`Удалить блок «${block.name}» из пресета?`, { ok: "Удалить", danger: true })) onRemove(index);
+  };
   return html`
     <li class=${"preset-block" + (block.enabled ? "" : " off")} data-slot="preset-block">
       <div class="row">
@@ -68,7 +71,7 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
             disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
           ${REMOVABLE.includes(block.kind) && !block.when && html`<${IconButton} icon="trash-2"
             label=${"Удалить блок «" + block.name + "»"} class="danger-text"
-            onClick=${() => onRemove(index)} />`}`}
+            onClick=${dropBlock} />`}`}
       </div>
       ${open && html`<div class="stack block-edit">
         <label class="stack">Название
@@ -323,7 +326,7 @@ export function Presets({ settings, onChanged, onError }) {
     } catch (e) { onError(e.message); }
   };
   const remove = async (p) => {
-    if (!(await ask(`Удалить пресет «${p.name}»?`, { ok: "Удалить", danger: true }))) return;
+    if (!(await ask(`Удалить пресет «${p.name}»? Чаты, использовавшие этот пресет, переключатся на общий.`, { ok: "Удалить", danger: true }))) return;
     await api.del(`/presets/${p.id}`).catch((e) => onError(e.message));
     await reload();
     if (current && current.id === p.id) open("default");
@@ -423,7 +426,10 @@ export function Presets({ settings, onChanged, onError }) {
 
     ${current && html`
       <h2>${readOnly ? "Просмотр" : "Правка"}: ${current.name}</h2>
-      ${readOnly && html`<p class="notice">Встроенный пресет менять нельзя. Нажмите «Дублировать» в списке, чтобы сделать дубликат для правки.</p>`}
+      ${readOnly && html`<div class="notice row" style="align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <span>Встроенный пресет защищён от изменений. Создайте дубликат, чтобы настроить блоки под себя.</span>
+        <button class="primary" onClick=${() => copyOf(current)}><${Icon} name="copy" /> Создать дубликат</button>
+      </div>`}
       ${!readOnly && html`<label class="stack">Название
         <input value=${current.name} onInput=${(e) => { setCurrent({ ...current, name: e.target.value }); setDirty(true); }} /></label>`}
       <h3>Блоки (сверху вниз — как пойдут к модели)</h3>

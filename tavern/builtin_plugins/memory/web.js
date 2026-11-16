@@ -155,7 +155,7 @@ export default function setup(t) {
       <p class="muted memory-hint">${data.now_on
         ? "Дописываются к пузырю лорбука только в этом чате и на этой ветке, и только когда пузырь идёт в ответ. Сам лорбук не меняется."
         : "«Строки «Сейчас:» для лорбуков» выключены в настройках дополнения: новые не появляются и в промпт не идут."}</p>
-      ${data.now_lines.length === 0 && html`<p class="muted">Строк пока нет.</p>`}
+      ${data.now_lines.length === 0 && html`<p class="muted">Строк «Сейчас:» пока нет. Они появятся, когда модель зафиксирует изменения в лорбуке в ходе сюжета.</p>`}
       <ul class="memory-list">
         ${data.now_lines.map((l) => html`<${NowLine} key=${l.block_id} ui=${ui} l=${l} busy=${busy} call=${call} />`)}
       </ul>
@@ -218,7 +218,7 @@ export default function setup(t) {
         ${m.text && html`<label class="memory-switch"><input type="checkbox" checked=${m.locked} disabled=${busy}
           onChange=${(e) => call("layer_lock", { target: m.target, locked: e.target.checked })} /> 🔒 Под замком</label>`}
         ${chats && html`<div class="memory-transfer">
-          ${chats.length === 0 ? html`<p class="muted">Других чатов с этим персонажем нет.</p>` : html`
+          ${chats.length === 0 ? html`<p class="muted">Других чатов с этим персонажем пока нет.</p>` : html`
             <${Select} value=${to} onChange=${(e) => setTo(e.target.value)} aria-label="Чат, куда перенести">
               ${chats.map((c) => html`<option value=${c.chat_id} disabled=${!c.has_messages}>${c.title}${c.memory ? "" : " (память выключена)"}${c.has_messages ? "" : " (пусто)"}</option>`)}
             <//>
@@ -226,7 +226,7 @@ export default function setup(t) {
             <p class="muted memory-hint">Там это станет текущим развитием на открытой ветке; вернуть прежнее можно через «Версии».</p>`}
         </div>`}
         ${versions && html`<ul class="memory-versions">
-          ${versions.length === 0 && html`<li class="muted">Версий нет.</li>`}
+          ${versions.length === 0 && html`<li class="muted">Предыдущих версий пока нет.</li>`}
           ${versions.map((v, i) => html`<li key=${v.id}>
             <p class="muted">${new Date(v.created_at).toLocaleString()} · ${BY[v.by] || v.by}${i === 0 ? " · сейчас" : ""}</p>
             <p class="memory-preview">${v.text}</p>
@@ -328,7 +328,7 @@ export default function setup(t) {
           ${data.kinds.map(([k, label]) => html`<option value=${k}>${label}</option>`)}
         <//>
       </div>
-      ${groups.length === 0 && html`<p class="muted">${data.groups.length ? "Под этот выбор записей нет." : "Записей пока нет."}</p>`}
+      ${groups.length === 0 && html`<p class="muted">${data.groups.length ? "Под выбранный фильтр записей не нашлось." : "Записей пока нет. Обязательства и обещания добавляются автоматически в ходе сюжета или кнопкой «+ Добавить»."}</p>`}
       ${groups.map((g) => html`<section key=${g.who}>
         <h3 class="memory-label">${g.is_me ? "Я · " + g.name : g.name}</h3>
         <ul class="memory-list">
@@ -501,8 +501,8 @@ export default function setup(t) {
           <option value="all">Все лица (${data.total})</option>
         <//>
       </div>
-      ${data.faces.length === 0 && html`<p class="muted">${query ? "Ничего не нашлось." : all ? "Лиц пока нет."
-        : "В этом чате лиц пока нет. Они появляются после закрытых глав, когда второстепенный персонаж встречается снова."}</p>`}
+      ${data.faces.length === 0 && html`<p class="muted">${query ? "По этому запросу ничего не нашлось." : all ? "Лиц пока нет."
+        : "В этом чате второстепенных лиц пока нет. Они появляются после закрытых глав, когда персонаж встречается снова."}</p>`}
       <ul class="memory-list">
         ${data.faces.map((f) => html`<${FaceItem} key=${f.id} ui=${ui} f=${f} faces=${data.faces} busy=${busy} call=${call} />`)}
       </ul>
@@ -595,7 +595,7 @@ export default function setup(t) {
           <button disabled=${busy || !into} onClick=${merge}>Объединить</button>
         </div>`}
         ${versions && html`<ul class="memory-versions">
-          ${versions.length === 0 && html`<li class="muted">Версий нет.</li>`}
+          ${versions.length === 0 && html`<li class="muted">Предыдущих версий пока нет.</li>`}
           ${versions.map((v, i) => html`<li key=${v.id}>
             <p class="muted">${new Date(v.created_at).toLocaleString()} · ${v.by === "hand" ? "вручную" : "модель"}${i === 0 ? " · сейчас" : ""}</p>
             <p class="memory-preview"><strong>${v.name}</strong>${v.aliases.length ? " (" + v.aliases.join(", ") + ")" : ""}: ${v.card}</p>
@@ -721,7 +721,7 @@ export default function setup(t) {
       <p class="muted memory-hint">Книга или длинный текст, из которого чат может вспоминать. Файл .txt, .md или .docx режется на главы, главы пересказываются; чат видит только те документы, которые прикреплены к нему.</p>
       <label class="memory-file"><span>Добавить документ…</span><input type="file" accept=".txt,.md,.docx" disabled=${busy} onChange=${add} /></label>
       <${Help} ui=${ui} text="Документ можно прикрепить к нескольким чатам: он лежит один раз, а ищется из каждого. Пока документ не разобран, он ищется только по словам; после разбора ещё и по смыслу. Пример: вы отдали памяти роман, прикрепили к чату про его героев, и когда в разговоре всплывёт название города, в запрос к модели попадёт пересказ нужной главы. Разбор стоит денег, сначала вы увидите цену." />
-      ${data.docs.length === 0 && html`<p class="muted">Документов пока нет.</p>`}
+      ${data.docs.length === 0 && html`<p class="muted">Документов пока нет. Нажмите «Добавить документ…» выше, чтобы прикрепить текст или книгу для поиска.</p>`}
       <ul class="memory-list">
         ${data.docs.map((d) => html`<li key=${d.id} class="memory-chapter">
           <div class="memory-sheet">
@@ -872,7 +872,7 @@ export default function setup(t) {
         onChange=${(e) => call("summary_lock", { chapter_id: c.id, locked: e.target.checked })} />
         🔒 Под замком (сами не переписываем)</label>`}
       ${versions && html`<ul class="memory-versions">
-        ${versions.length === 0 && html`<li class="muted">Версий нет.</li>`}
+        ${versions.length === 0 && html`<li class="muted">Предыдущих версий пока нет.</li>`}
         ${versions.map((v) => html`<li key=${v.id}>
           <p class="muted">${new Date(v.created_at).toLocaleString()} · ${v.by === "hand" ? "вручную" : "модель"}${v.current ? " · сейчас" : ""}</p>
           <p class="memory-preview">${v.text}</p>

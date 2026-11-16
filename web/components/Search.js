@@ -211,10 +211,17 @@ export function Search({ characters, onOpen, onClose, onError }) {
           </form>
           <div class="search-results-list" data-slot="search-results-list" aria-live="polite">
             ${plain.error && html`<p class="state-error" role="alert">${plain.error}</p>`}
-            ${query.trim().length < 2 && html`<${EmptyNote} title="Введите слова"
-              hint="Падежи и окончания не важны: «эльфа» найдёт и «эльфы». Для поиска по смыслу есть «Спросить нейронку»."/>`}
+            ${query.trim().length < 2 && html`<${EmptyNote} icon="search" title="Введите слова для поиска"
+              hint="Окончания и регистр не имеют значения: «эльфа» найдёт и «эльфы». Для поиска по смыслу переключитесь на «Спросить нейронку»."/>`}
             ${plain.done && !plain.hits.length && !plain.loading && !plain.error && html`<${EmptyNote}
-              title="Ничего не найдено" hint="Попробуйте другие слова или уберите ограничения выше."/>`}
+              icon="search-x" title="Ничего не найдено"
+              hint=${(filters.character || filters.group || filters.since || filters.until)
+                ? "По вашему запросу с учётом установленных фильтров совпадений нет."
+                : "Попробуйте другие слова или проверьте, нет ли опечатки."}>
+              ${(filters.character || filters.group || filters.since || filters.until) && html`<div class="empty-actions">
+                <button type="button" class="empty-btn" onClick=${() => setFilters({ character: "", since: "", until: "", group: "" })}>Сбросить фильтры</button>
+              </div>`}
+            <//>`}
             ${plain.hits.map((h) => html`<${Hit} key=${h.scope + h.id} hit=${h} onPick=${onOpen} />`)}
             ${plain.loading && html`<div class="muted state-note state-pending" role="status"><span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" size="16" /></span> <span>Ищу…</span></div>`}
             ${plain.more && !plain.loading && html`<button class="search-more" onClick=${() => run(true)}>Показать ещё</button>`}
@@ -243,10 +250,14 @@ export function Search({ characters, onOpen, onClose, onError }) {
               ${asked?.error && html`<p class="state-error" role="alert">${asked.error}</p>`}
               ${result && result.stopped && html`<p class="muted">Остановлено. Запросов к модели: ${result.requests}.
                 ${result.hits.length ? "Уже проверенное показано ниже." : "Ничего проверенного пока нет."}</p>`}
-              ${result && !result.stopped && !result.hits.length && html`<${EmptyNote} title="Нейронка ничего не нашла"
+              ${result && !result.stopped && !result.hits.length && html`<${EmptyNote} icon="bot" title="Нейронка ничего не нашла"
                 hint=${result.candidates
-                  ? `Она просмотрела ${result.candidates} подходящих сообщений, и ни одно не подошло. Опишите иначе или уберите ограничения.`
-                  : "Сообщений с такими словами нет. Опишите иначе, назвав имена или предметы, которые там были, или уберите ограничения."}/>`}
+                  ? `Она просмотрела ${result.candidates} подходящих сообщений, но ни одно не подошло под описание.`
+                  : "Сообщений с похожими ключевыми словами не нашлось. Попробуйте назвать конкретные имена или предметы."}>
+                ${(filters.character || filters.group || filters.since || filters.until) && html`<div class="empty-actions">
+                  <button type="button" class="empty-btn" onClick=${() => setFilters({ character: "", since: "", until: "", group: "" })}>Сбросить фильтры</button>
+                </div>`}
+              <//>`}
               ${result && result.hits.length > 0 && html`<p class="muted">Нашлось: ${result.hits.length}.
                 Запросов к модели: ${result.requests}. Показаны только настоящие сообщения: придуманное моделью отброшено.</p>`}
               ${result && result.hits.map((h) => html`<${Hit} key=${h.scope + h.id} hit=${h} onPick=${onOpen} />`)}

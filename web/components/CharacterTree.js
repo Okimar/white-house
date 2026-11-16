@@ -238,33 +238,33 @@ function MoreRules({ rules, onRules }) {
   return html`<details class="tree-more" data-slot="tree-more" open=${open} onToggle=${(e) => setOpen(e.target.open)}>
     <summary>Ещё</summary>
     <div class="stack">
-      ${flag("title_key", "название — тоже ключевое слово", "Снимите, если название — просто подпись", true)}
-      <div class="row">${words("keys2", "Вторые слова", "Проверяются, когда нашлось хоть одно ключевое слово")}
+      ${flag("title_key", "название — тоже ключевое слово", "Снимите отметку, если название — просто служебная подпись, а не тема из разговора", true)}
+      <div class="row">${words("keys2", "Вторые слова", "Проверяются только тогда, когда нашлось хотя бы одно основное ключевое слово")}
         <${Select} value=${rules.logic || "and_any"} aria-label="Как проверять вторые слова"
           onChange=${(e) => onRules({ logic: e.target.value === "and_any" ? null : e.target.value })}>
           ${LOGICS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
         </${Select}></div>
-      <span class="hint">Вторые слова проверяются, когда нашлось хоть одно ключевое слово</span>
+      <span class="hint">Вторые слова проверяются только после того, как найдено хотя бы одно ключевое слово.</span>
       <div class="row">
         ${flag("whole", "только целые слова", "Без других окончаний: «кот» не найдёт «котята»")}
-        ${flag("case", "учитывать регистр", "«Rat» не найдёт «rat»")}</div>
+        ${flag("case", "учитывать регистр", "С учётом регистра: «Кот» и «кот» считаются разными словами")}</div>
       <div class="row">
-        ${number("scan", "Смотреть сообщений", "Сколько последних сообщений чата просматривать для этого пузыря", 1000, "как везде")}
-        ${number("cooldown", "Пауза", "После того как пузырь отдержался, столько ответов он не приходит", 1000, "0")}
-        ${number("delay", "Не раньше ответа №", "Пузырь не приходит, пока в чате меньше ответов", 9999, "0")}</div>
-      <span class="hint">Смотреть сообщений: сколько последних сообщений читать. Пауза: сколько ответов пузырь не приходит после срабатывания. Не раньше ответа №: пока в чате меньше ответов, пузырь не приходит</span>
-      <div class="row">${words("groups", "Группа", "Из найденных пузырей одной группы приходит только один", "название группы")}
-        ${number("weight", "Вес", "Шанс победить в группе относительно других (обычно 100)", 1000, "100")}
-        ${flag("main", "главный в группе", "Главный побеждает в своей группе (если никто не держится)")}</div>
-      <span class="hint">Из найденных пузырей одной группы приходит только один. Вес: шанс победить в группе, обычно 100. Главный побеждает, если никто не держится</span>
+        ${number("scan", "Смотреть сообщений", "Сколько последних сообщений чата проверять для этого пузыря", 1000, "как везде")}
+        ${number("cooldown", "Пауза", "Сколько ответов подряд пузырь не будет отправляться после срабатывания", 1000, "0")}
+        ${number("delay", "Не раньше ответа №", "Пузырь не будет отправляться, пока в чате меньше ответов", 9999, "0")}</div>
+      <span class="hint">Смотреть сообщений: глубина проверки текста чата. Пауза: сколько ответов пузырь отдыхает после отправки. Не раньше ответа: порог первого срабатывания.</span>
+      <div class="row">${words("groups", "Группа", "Из найденных пузырей одной группы к модели уходит только один", "название группы")}
+        ${number("weight", "Вес", "Приоритет в группе относительно других пузырей (по умолчанию 100)", 1000, "100")}
+        ${flag("main", "главный в группе", "Главный побеждает в своей группе при равных условиях")}</div>
+      <span class="hint">Из нескольких пузырей одной группы отправляется только один. Вес задаёт приоритет, а главный пузырь выигрывает при равенстве.</span>
       <label>Куда в промпте
         <${Select} value=${rules.place || ""} onChange=${(e) => onRules({ place: e.target.value || null })}>
           ${PLACES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
         </${Select}></label>
       <div class="row">
-        ${flag("no_wake", "не будит других", "Текст этого пузыря не подтягивает другие записи лорбуков по цепочке")}
-        ${flag("not_woken", "не будится другими", "Приходит только по словам из чата, не по цепочке")}</div>
-      <span class="hint">Не будит других: текст пузыря не подтягивает другие пузыри по цепочке. Не будится другими: пузырь приходит только по словам из чата</span>
+        ${flag("no_wake", "не будит другие записи", "Текст этого пузыря не активирует другие записи лорбуков по цепочке")}
+        ${flag("not_woken", "не активируется по цепочке", "Срабатывает только при прямом упоминании в чате")}</div>
+      <span class="hint">Не будит: текст не активирует цепочки. Не активируется: срабатывает только от слов чата, не от других записей.</span>
       <div class="stack">
         <label>Персонажи
           <${Select} value=${filter.mode} onChange=${(e) => filter.ids.length && onRules({ filter: { ...filter, mode: e.target.value } })}>
@@ -272,9 +272,9 @@ function MoreRules({ rules, onRules }) {
           </${Select}></label>
         <div class="chips">${(people || []).map((c) => html`<label key=${c.id} class="chip">
           <input type="checkbox" checked=${filter.ids.includes(c.id)} onChange=${(e) => toggleWho(c.id, e.target.checked)} /> ${c.name}</label>`)}
-          ${people && !people.length && !peopleError ? html`<span class="muted">Персонажей нет</span>` : ""}</div>
+          ${people && !people.length && !peopleError ? html`<span class="muted">Персонажей пока нет</span>` : ""}</div>
         ${peopleError && html`<${Pending} error=${peopleError} onRetry=${loadPeople} />`}
-        ${!filter.ids.length && html`<span class="hint">Никто не отмечен: пузырь работает с любыми персонажами</span>`}
+        ${!filter.ids.length && html`<span class="hint">Никто не отмечен: пузырь работает с любыми персонажами в любых чатах</span>`}
       </div>
     </div>
   </details>`;
@@ -282,7 +282,7 @@ function MoreRules({ rules, onRules }) {
 
 // Every change saves itself: typing after a short pause (and when the panel closes or another
 // bubble is picked), buttons and switches at once. There is no "Сохранить" button.
-function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order, onSave, onDelete, onAddChild, onMove,
+function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCount = 0, order, onSave, onDelete, onAddChild, onMove,
   onOrder, onDetach, onStartLink, onUnlink, onChanceBelow, onOpen, onClose, onError, onNotice }) {
   const { folded, button: foldButton } = useFoldPanel();
   const [below, setBelow] = useState(null); // chance for every sub-bubble, before "Применить"
@@ -339,7 +339,11 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
     } catch (e) { onError(e.message); } finally { setBusy(false); }
   };
   const remove = async () => {
-    if (askDelete && !await ask(`Удалить «${block.title}» вместе с подпузырями?`, { ok: "Удалить", danger: true })) return;
+    const msg = kidsCount > 0
+      ? `Удалить пузырь «${block.title}» и его подпузыри (${kidsCount})?`
+      : `Удалить пузырь «${block.title}»?`;
+    if (askDelete && !await ask(msg, { ok: "Удалить", danger: true,
+      hint: "Подпузыри также будут удалены. Вы сможете отменить это действие кнопкой «Отменить» вверху окна (Ctrl+Z)." })) return;
     pending.current = null;
     clearTimeout(timer.current);
     onDelete(block);
@@ -354,8 +358,11 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
       <input class="tree-title" value=${draft.title} aria-label="Название"
         onInput=${(e) => set({ title: e.target.value })} />
       <div class="mode-pick" role="radiogroup" aria-label="Когда отправлять">
-        ${MODES.map(([id, label]) => html`<button key=${id} role="radio" aria-checked=${draft.mode === id}
-          class=${"mode-btn mode-" + id} onClick=${() => set({ mode: id }, true)}><${Ring} mode=${id} /> ${label}</button>`)}
+        ${MODES.map(([id, label]) => {
+          const modeTip = id === "always" ? "Отправляется модели в каждом запросе" : id === "search" ? "Отправляется только тогда, когда тема всплывает в чате (по ключевым словам или смыслу)" : "Временно выключен и не отправляется модели";
+          return html`<button key=${id} role="radio" aria-checked=${draft.mode === id} title=${modeTip}
+            class=${"mode-btn mode-" + id} onClick=${() => set({ mode: id }, true)}><${Ring} mode=${id} /> ${label}</button>`;
+        })}
       </div>
       <textarea rows="7" value=${draft.content} placeholder="Текст, который получит модель"
         onInput=${(e) => set({ content: e.target.value })}></textarea>
@@ -430,7 +437,7 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
         ${hasKids && html`<button title="Открыть пространство этого пузыря (двойное нажатие на пузырь)"
           onClick=${() => onOpen(block.id)}><${Icon} name="maximize-2" /> Открыть внутри</button>`}
         <span class="spacer"></span>
-        <span class=${"save-state " + state} aria-live="polite">${state === "saved"
+        <span class=${"save-state " + state} aria-live="polite" role="status">${state === "saved"
           ? html`<${Icon} name="check" size=${14} /> Сохранено`
           : state === "failed" ? "Не сохранено" : "Сохраняю…"}</span>
         ${state === "failed" && html`<button type="button" onClick=${flush}>Повторить</button>`}
@@ -443,9 +450,9 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, order,
             onKeyDown=${(e) => e.key === "Enter" && e.target.blur()}
             onBlur=${() => { const n = Number(place); if (place && n !== order.n) onOrder(block, n); else setPlace(null); }} /></label>`}
         ${block.parent_id && html`<${IconButton} icon="corner-left-up" label="Вынести на уровень выше" onClick=${() => onMove(block)} />`}
-        ${!block.detached && html`<button title="Отцепить: пузырь повиснет свободно и перестанет уходить модели"
+        ${!block.detached && html`<button title="Отцепить: пузырь станет свободным и перестанет отправляться модели. Прицепить обратно можно перетаскиванием на другой пузырь"
           onClick=${() => onDetach(block)}><${Icon} name="unlink" /> Отцепить</button>`}
-        <button title="Связать ссылкой с пузырём из другой группы: придут вместе" onClick=${() => onStartLink(block)}><${Icon} name="link" /> Ссылка</button>
+        <button title="Связать ссылкой: связанный пузырь всегда будет отправляться вместе с этим" onClick=${() => onStartLink(block)}><${Icon} name="link" /> Ссылка</button>
         <span class="spacer"></span>
         <button class="danger" onClick=${remove}>Удалить</button>
       </div>
@@ -456,7 +463,7 @@ const ROW_H = COARSE ? 44 : 38; // list view: 44px touch targets on coarse point
 
 // List view: the tree as rows; a branch opens and closes with its arrow (only the top level is open at
 // first). Thousands of rows stay smooth: only the rows in view (plus a margin) are in the page.
-function TreeList({ kids, selected, vectorized, open, loaded, error, onRetry, onToggle, onSelect }) {
+function TreeList({ kids, selected, vectorized, open, loaded, error, onRetry, onToggle, onSelect, onCreate }) {
   const box = useRef(null);
   const [view, setView] = useState({ top: 0, height: 800 });
   const rows = useMemo(() => {
@@ -488,7 +495,12 @@ function TreeList({ kids, selected, vectorized, open, loaded, error, onRetry, on
     if (y < el.scrollTop || y + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, y - el.clientHeight / 3);
   }, [selected]);
   if (!loaded) return html`<div class="tree-list"><${Pending} error=${error} onRetry=${onRetry} /></div>`;
-  if (!rows.length) return html`<div class="tree-list"><${EmptyNote} title="Пузырей пока нет" hint="Добавьте первый кнопкой «Пузырь» вверху" /></div>`;
+  if (!rows.length) return html`<div class="tree-list"><${EmptyNote} icon="network" title="Пузырей пока нет"
+    hint="Добавьте первый пузырь, чтобы структурировать память: внешность, факты, манеры речи или секреты.">
+    ${onCreate && html`<div style="margin-top: 12px">
+      <button class="primary" onClick=${onCreate}><${Icon} name="plus" /> Добавить пузырь</button>
+    </div>`}
+  </${EmptyNote}></div>`;
   const first = Math.max(0, Math.floor(view.top / ROW_H) - 10);
   const last = Math.min(rows.length, Math.ceil((view.top + view.height) / ROW_H) + 10);
   return html`<div class="tree-list" data-slot="tree-list" ref=${box}
@@ -1297,7 +1309,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
         </div>
       </div>
       <div key="vecline" class="tree-vec" role="status">
-        ${!settings.embedding_connection ? html`<span class="muted">Нет подключения для векторов (Настройки → Промпт)</span>`
+        ${!settings.embedding_connection ? html`<span class="muted">Для векторного поиска выберите модель: Настройки → Промпт → Подключение для векторов</span>`
           : vecStatus ? html`<span class="muted">Векторы: ${vecStatus.current} из ${vecStatus.total}</span>
             ${vecPending > 0 && html`<span class="tree-vec-warn"><${Icon} name="triangle-alert" size=${14} />
               ${vecPending} без векторов или устарели${vecStatus.auto ? " (обновляются сами)" : ""}</span>`}
@@ -1370,8 +1382,15 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
                   vec=${vectorized.has(b.id)} kidsN=${(kids.get(b.id) || []).length} collapsed=${!!b.layout?.collapsed} far=${farNow.current || wide} />`)}
               </div>`}
               ${!loaded && html`<${Pending} error=${loadError} onRetry=${reload} />`}
-              ${loaded && blocks.length === 0 && html`<p class="tree-empty muted">Нажмите «Пузырь» вверху, чтобы добавить первый пузырь:
-                например «Внешность», а в него «Волосы»</p>`}
+              ${loaded && blocks.length === 0 && html`<div class="tree-empty-card" data-slot="tree-empty" role="region" aria-label="Пузыри">
+                <div class="empty-icon"><${Icon} name="network" size=${28} /></div>
+                <p class="empty-title">У ${character.book ? "лорбука" : "персонажа"} пока нет пузырей</p>
+                <p class="muted empty-hint">Пузыри — это структурированная память: внешность, привычки, ключевые факты и секреты.
+                  Синие («Всегда») отправляются в каждом запросе, зелёные («По теме») — когда в чате звучат их ключевые слова.</p>
+                <div class="row empty-actions" style="margin-top: 12px; gap: 8px">
+                  <button class="primary" onClick=${() => create(null)}><${Icon} name="plus" /> Добавить первый пузырь</button>
+                </div>
+              </div>`}
               <div class="tree-zoom-controls" data-slot="tree-zoom-controls" role="toolbar" aria-label="Управление масштабом"
                 onPointerDown=${(e) => e.stopPropagation()}>
                 <button type="button" class="zoom-btn" title="Приблизить (+)" aria-label="Приблизить" onClick=${zoomIn}>
@@ -1387,10 +1406,10 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
             </div>`
           : html`<${TreeList} kids=${kids} selected=${selected} vectorized=${vectorized} open=${openIds}
               loaded=${loaded} error=${loadError} onRetry=${reload}
-              onToggle=${toggleRow} onSelect=${setSelected} />`}
+              onToggle=${toggleRow} onSelect=${setSelected} onCreate=${() => create(null)} />`}
         ${selectedBlock && html`<${BlockPanel} block=${selectedBlock} path=${pathOf(selectedBlock)}
           vectorized=${vectorized.has(selectedBlock.id)} askDelete=${!settings.skip_delete_confirm}
-          hasKids=${(kids.get(selectedBlock.id) || []).length > 0}
+          hasKids=${(kids.get(selectedBlock.id) || []).length > 0} kidsCount=${(kids.get(selectedBlock.id) || []).length}
           links=${links.filter((l) => l.includes(selectedBlock.id)).map((l) => l[0] === selectedBlock.id ? l[1] : l[0])
             .filter((id) => byId.has(id)).map((id) => ({ id, path: pathOf(byId.get(id)) }))}
           onDetach=${(b) => rehang(b.id, null, true)} onStartLink=${(b) => { setLinking(b.id); setSelected(null); }}

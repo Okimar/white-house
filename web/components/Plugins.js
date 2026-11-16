@@ -289,9 +289,9 @@ function PluginCard({ plugin, spending, onChanged, onError }) {
   const checkUpdate = () => run(async () => setUpdate(await api.get(`/plugins/${plugin.id}/update`)));
   const doUpdate = () => run(async () => { await api.post(`/plugins/${plugin.id}/update`); setUpdate(null); });
   const remove = async () => {
-    if (!(await ask(`Удалить дополнение «${plugin.name}»?`, { ok: "Удалить", danger: true }))) return;
+    if (!(await ask(`Удалить дополнение «${plugin.name}»? Все его пользовательские кнопки, команды и обработчики станут недоступны.`, { ok: "Удалить", danger: true }))) return;
     const data = plugin.data_count > 0
-      && await ask(`Удалить и его данные в чатах (записей: ${plugin.data_count})?`,
+      && await ask(`Удалить и его сохранённые данные в чатах (записей: ${plugin.data_count})?`,
         { ok: "Удалить данные", cancel: "Оставить данные", danger: true });
     run(() => api.del(`/plugins/${plugin.id}${data ? "?data=1" : ""}`));
   };
@@ -407,14 +407,27 @@ export function Plugins({ onError }) {
         <input type="search" placeholder="Быстрый поиск дополнения..." value=${filterQuery}
           onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Поиск по дополнениям" />
       </div>`}
-    ${data.plugins.length === 0 && html`<${EmptyNote} title="Дополнений пока нет"
-      hint="Установите первое из файла или по ссылке на GitHub." />`}
-    <ul class="list plugin-list">
-      ${data.plugins
-        .filter((p) => !filterQuery.trim() || p.name.toLowerCase().includes(filterQuery.trim().toLowerCase()) || (p.description && p.description.toLowerCase().includes(filterQuery.trim().toLowerCase())))
-        .map((p) => html`<${PluginCard} key=${p.id} plugin=${p} spending=${spending}
-        onChanged=${load} onError=${onError} />`)}
-    </ul>
+    ${data.plugins.length === 0 && html`<${EmptyNote} icon="bot" title="Дополнений пока нет"
+      hint="Дополнения добавляют в White House новое: команды, кнопки, свои способы писать ответы.">
+      <div class="empty-actions">
+        <button class="empty-btn" disabled=${installing} onClick=${() => picker.current && picker.current.click()}><${Icon} name="upload" /> Установить из файла</button>
+      </div>
+    </${EmptyNote}>`}
+    ${(() => {
+      const shownPlugins = data.plugins
+        .filter((p) => !filterQuery.trim() || p.name.toLowerCase().includes(filterQuery.trim().toLowerCase()) || (p.description && p.description.toLowerCase().includes(filterQuery.trim().toLowerCase())));
+      return html`
+        ${data.plugins.length > 0 && shownPlugins.length === 0 && html`<${EmptyNote} icon="search" title="Ничего не найдено"
+          hint="Попробуйте изменить поисковый запрос по названию или описанию.">
+          <div class="empty-actions">
+            <button class="empty-btn" onClick=${() => setFilterQuery("")}>Сбросить поиск</button>
+          </div>
+        </${EmptyNote}>`}
+        <ul class="list plugin-list">
+          ${shownPlugins.map((p) => html`<${PluginCard} key=${p.id} plugin=${p} spending=${spending}
+            onChanged=${load} onError=${onError} />`)}
+        </ul>`;
+    })()}
   </section>`;
 }
 

@@ -263,7 +263,7 @@ function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed
   const toggle = act((rule) => api.put(`/regex/rules/${rule.id}`, { enabled: !rule.enabled }));
   const copy = act((rule) => api.post(`/regex/rules/${rule.id}/copy`));
   const remove = act(async (rule) => {
-    if (await ask(`Удалить правило «${rule.name || rule.find}»?`, { ok: "Удалить", danger: true, skip: "rule" })) await api.del(`/regex/rules/${rule.id}`);
+    if (await ask(`Удалить правило «${rule.name || rule.find}»? Текст больше не будет автоматически преобразовываться по этому шаблону.`, { ok: "Удалить", danger: true, skip: "rule" })) await api.del(`/regex/rules/${rule.id}`);
   });
   const allow = act(async () => { await api.post("/regex/approve", { scope, owner }); notify("Правила разрешены", "ok"); });
   const importFile = act(async (e) => {
@@ -286,13 +286,23 @@ function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed
       <p>Эти правила пришли вместе с ${scope === "preset" ? "пресетом" : "карточкой"} и пока <strong>не работают</strong>: правило может менять то,
         что получает модель, поэтому оно включится только с вашего согласия. Прочитайте их и разрешите, если всё в порядке.</p>
       <button class="primary" onClick=${allow}>Разрешить все (${pending})</button></div>`}
-    ${rules.length === 0 && html`<${EmptyNote} title="Правил пока нет" hint="Правило находит кусок текста и заменяет его: на экране, для модели или в самом сообщении." />`}
+    ${rules.length === 0 && html`<${EmptyNote} icon="scan-search" title="Правил пока нет"
+      hint="Регекс-правило находит кусок текста и автоматически заменяет его: на экране, для модели или в самом сообщении чата.">
+      <div class="empty-actions">
+        <button class="empty-btn" onClick=${() => setEditing({})}><${Icon} name="plus" /> Создать первое правило</button>
+      </div>
+    </${EmptyNote}>`}
     ${rules.length >= SEARCH_FROM && html`<input type="search" class="regex-search" value=${query} placeholder=${`Найти среди ${rules.length} правил`}
       aria-label="Найти правило по имени или шаблону" onInput=${(e) => { setQuery(e.target.value); setLimit(PAGE_RULES); }} />`}
     ${found.slice(0, limit).map(({ rule, i }) => html`<${RuleRow} key=${rule.id} rule=${rule} index=${i} count=${rules.length} onMove=${move}
       onEdit=${setEditing} onToggle=${toggle} onCopy=${copy} onDelete=${remove} />`)}
     ${found.length > limit && html`<button class="regex-more" onClick=${() => setLimit(limit + PAGE_RULES)}>Показать ещё (${found.length - limit})</button>`}
-    ${needle && found.length === 0 && html`<p class="muted">Ничего не найдено.</p>`}
+    ${needle && found.length === 0 && html`<${EmptyNote} icon="search" title="Ничего не найдено"
+      hint="Попробуйте изменить поисковый запрос по названию или шаблону.">
+      <div class="empty-actions">
+        <button class="empty-btn" onClick=${() => { setQuery(""); setLimit(PAGE_RULES); }}>Сбросить поиск</button>
+      </div>
+    </${EmptyNote}>`}
     <div class="row regex-actions">
       <button onClick=${() => setEditing({})}><${Icon} name="plus" /> Новое правило</button>
       <button onClick=${() => fileInput.current.click()}><${Icon} name="upload" /> Импорт</button>
@@ -368,7 +378,6 @@ export function RegexTab({ onError, settings, onSave }) {
         <p class="hint regex-warning">Работают во всех чатах вместе с правилами пресета и персонажей.</p>
         <p class="hint" data-slot="regex-st-settings">Общие скрипты SillyTavern не ездят с пресетом или карточкой: они лежат в его файле
           настроек <code>data/default-user/settings.json</code>. Выберите этот файл в «Импорт» ниже — возьмутся все его общие скрипты.</p>
-        ${global.length === 0 && html`<p class="muted">Пусто</p>`}
         <${RuleList} scope="global" owner="" rules=${global} pending=${0} onError=${onError} changed=${reload} />
         ${global.length > 0 && html`<div class="row regex-actions"><button type="button" class="danger" onClick=${clearGlobal}>
           <${Icon} name="trash-2" /> Удалить все общие правила</button></div>`}

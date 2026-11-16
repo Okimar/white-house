@@ -107,7 +107,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   // Leaving with unsaved changes asks once.
   const cancel = async () => {
     if (saving) return;
-    if (editing !== message.content && !(await ask("Выйти без сохранения? Изменения пропадут", { ok: "Выйти", danger: true }))) return;
+    if (editing !== message.content && !(await ask("Отменить редактирование? Несохранённые изменения будут потеряны.", { ok: "Сбросить изменения", danger: true }))) return;
     setEditing(null);
   };
   // The field is as tall as its text, so the chat scrolls instead of the field.
@@ -158,7 +158,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     delete: {
       disabled: busy, danger: true,
       onClick: async () => {
-        if (await ask("Удалить это сообщение? Остальные останутся", { ok: "Удалить", danger: true, skip: "message" })) onRemove(message.id);
+        if (await ask("Удалить это сообщение безвозвратно? Последующие реплики останутся в диалоге.", { ok: "Удалить", danger: true, skip: "message" })) onRemove(message.id);
       },
     },
   };
@@ -227,12 +227,13 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
         ${avatar && !avatarFailed && html`<img class="msg-avatar" data-slot="message-avatar" src=${avatar}
           alt="" loading="lazy" onError=${() => setAvatarFailed(true)} />`}
         <${IconButton} icon=${role.icon} class="role-icon" disabled=${busy || pending} aria-haspopup="menu"
-          label=${"Модель видит это как сообщение от: " + role.label + ". Нажмите, чтобы сменить"}
+          label=${"Роль для модели: " + role.label + ". Нажмите, чтобы сменить"}
           onClick=${(e) => pickRole(e.currentTarget)} />
         <strong class="msg-name" data-slot="message-name">${message.name || fallbackName}</strong>
         ${message.swipe_count > 1 && html`
           <span class="swipes" data-slot="message-swipes" role="group"
             tabindex="0" aria-label=${`Варианты ответа: вариант ${message.active_swipe + 1} из ${message.swipe_count}`}
+            title="Листайте варианты стрелками ← и → на клавиатуре"
             onKeyDown=${(e) => {
               if (busy) return;
               if (e.key === "ArrowLeft" && message.active_swipe > 0) {
@@ -277,10 +278,11 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           <div class="edit-bar" data-slot="message-edit-bar">
             <button type="button" class="primary" disabled=${saving} onClick=${save}>Сохранить</button>
             <button type="button" disabled=${saving} onClick=${cancel}>Отмена</button>
+            <span class="muted edit-hint">Ctrl+Enter — сохранить, Esc — отменить</span>
           </div>`
         : html`${thinking && thinkingDisplay !== "hidden" && html`<details class="thinking" data-slot="message-thinking"
             open=${thinkingDisplay === "open" || (streaming && !text)}>
-            <summary><${Icon} name="brain" /> Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${thinking}</div>
+            <summary title="Ход мыслей модели перед ответом"><${Icon} name="brain" /> Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${thinking}</div>
           </details>`}
           ${(pending ? [] : messageTrees(message)).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
@@ -288,8 +290,9 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
               rel="noopener"><img src=${"/assets/" + encodeURIComponent(name)} alt="картинка" loading="lazy" /></a>`)}
           </div>`}
           ${meta.via && !streaming && html`<div class="msg-via muted" data-slot="message-via"
-            title="Основное подключение не ответило, ответил запасной путь"><${Icon} name="corner-down-right" /> через ${String(meta.via).replaceAll("↪", "→")}</div>`}
-          ${excluded && html`<div class="msg-excluded-note muted" data-slot="message-excluded"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
+            title="Ответил запасной маршрут, так как основное подключение не ответило"><${Icon} name="corner-down-right" /> через ${String(meta.via).replaceAll("↪", "→")}</div>`}
+          ${excluded && html`<div class="msg-excluded-note muted" data-slot="message-excluded"
+            title="Сообщение исключено из контекста модели, но остаётся в истории чата"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
           <div class=${"body" + (shown && shown.pending ? " regex-pending" : "")} data-slot="message-body"
             aria-live=${streaming ? "polite" : null}>${shown && shown.nodes
             ? html`<${RegexNodes} nodes=${shown.nodes} />` : shown && !shown.pending ? shown.text : text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>

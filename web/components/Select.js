@@ -151,7 +151,7 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
   let at = -1;
   const listboxId = "sel-listbox-" + (anchor.id || Math.random().toString(36).slice(2, 7));
   return html`<div ref=${panel} class="select-list" data-slot="select-list" tabindex="-1">
-    ${filtering && html`<input type="search" class="select-filter" data-slot="select-filter" placeholder="Найти…"
+    ${filtering && html`<input type="search" class="select-filter" data-slot="select-filter" placeholder="Поиск по списку…"
       role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls=${listboxId}
       aria-activedescendant=${active >= 0 ? listboxId + "-opt-" + active : undefined}
       aria-label="Найти в списке" value=${query} onInput=${(e) => setQuery(e.target.value)} />`}
@@ -169,7 +169,7 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
           <span class="select-check">${chosen && html`<${Icon} name="check" />`}</span>
           <span class="select-label">${r.label}</span></div>`;
       })}
-      ${!enabled.length && html`<div class="select-empty muted" role="presentation">${q ? "Ничего не найдено" : "Список пуст"}</div>`}
+      ${!enabled.length && html`<div class="select-empty muted" role="presentation">${q ? "Ничего не найдено" : "В списке пока пусто"}</div>`}
     </div>
   </div>`;
 }

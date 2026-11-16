@@ -23,7 +23,7 @@ export function HistoryPanel({ base, revision, onRestored, onError }) {
   const { data, error, reload } = useLoad(() => api.get(`${base}/history`), [base, revision]);
   const restore = async (version) => {
     if (!await ask("Вернуть к этой версии?", { ok: "Вернуть", danger: true,
-      hint: "Всё, что сделано после неё, можно будет вернуть только заново." })) return;
+      hint: "Все изменения, сделанные после неё, будут отменены. Вы сможете вернуть их, только создав заново." })) return;
     try {
       const { undone } = await api.post(`${base}/history/${version.id}/restore`);
       onRestored(`Возвращено к версии, отменено шагов: ${undone}`);
@@ -34,8 +34,8 @@ export function HistoryPanel({ base, revision, onRestored, onError }) {
   if (!data) return frame(html`<${Pending} error=${error} onRetry=${reload} />`);
   const when = (at) => new Date(at).toLocaleString("ru-RU");
   if (data.versions.length === 0) return frame(html`<${EmptyNote}
-    title=${data.enabled ? "Изменений пока нет" : "История выключена"}
-    hint=${data.enabled ? "Здесь появятся правки: что изменено и как вернуть." : "Включить её можно в настройках."} />`);
+    title=${data.enabled ? "Изменений пока нет" : "История версий выключена"}
+    hint=${data.enabled ? "Здесь появится журнал правок: что было изменено и возможность вернуть любую прошлую версию." : "Включить ведение истории можно в общих настройках приложения."} />`);
   return frame(html`
     ${data.versions.map((v, i) => html`<details key=${v.id} open=${i === 0} class="history-version">
       <summary><strong>${i === 0 && !v.closed_at ? "Сейчас" : when(v.closed_at || v.started_at)}</strong>
@@ -51,8 +51,8 @@ export function HistoryPanel({ base, revision, onRestored, onError }) {
 }
 
 const FIELDS = [
-  ["description", "Описание", 8],
-  ["first_mes", "Первое сообщение", 4],
+  ["description", "Описание", 8, "Внешность, характер, биография, манеры речи и ключевые черты персонажа"],
+  ["first_mes", "Первое сообщение", 4, "Первая реплика или действие, с которого персонаж начинает новый диалог"],
 ];
 // Fields of imported cards (SillyTavern habit). The card does not ask for them, but they stay saved, still
 // go to the model and export; they are shown, folded, only for a card that has any of them filled.
@@ -88,7 +88,7 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
   const say = (text, kind = "ok") => notify(text, kind);
   const undo = async () => {
     if (dirty && !await ask("Отменить последнее сохранённое изменение?", { ok: "Отменить", danger: true,
-      hint: "Несохранённый текст карточки пропадёт." })) return;
+      hint: "В карточке есть несохранённый текст. При отмене он будет заменён на предыдущую сохранённую версию." })) return;
     try {
       const { undone } = await api.post(`/characters/${characterId}/undo`);
       if (undone) say(`Отменено: ${undone.what}`); else say("Отменять больше нечего", "info");
@@ -101,7 +101,8 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
     onClose();
   };
   const requestClose = async () => {
-    if (dirty && !await ask("Закрыть без сохранения?", { ok: "Закрыть", danger: true })) return;
+    if (dirty && !await ask("Закрыть карточку без сохранения?", { ok: "Закрыть", danger: true,
+      hint: "Все несохранённые изменения в карточке будут потеряны." })) return;
     close();
   };
   useEscape(() => (showHistory ? setShowHistory(false) : requestClose())); // Esc closes the history first
@@ -150,7 +151,7 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
           <div class="row char-head-title">
             ${hasAvatar && characterId && html`<img class="speaker-avatar char-head-avatar" src=${`/api/characters/${characterId}/avatar`} alt="" />`}
             <strong>${title}</strong>
-            ${dirty && html`<span class="badge char-dirty-badge" data-slot="char-dirty">не сохранено</span>`}
+            ${dirty && html`<span class="badge char-dirty-badge" data-slot="char-dirty" title="Есть несохранённые изменения">не сохранено</span>`}
           </div>
           <span class="spacer"></span>
           ${characterId && html`<${IconButton} icon="undo-2" label="Отменить последнее изменение"
@@ -188,16 +189,16 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
           <div class="char-option-card">
             <label class="check"><input type="checkbox" checked=${isDefaultMe} onChange=${(e) => setDefaultMe(e.target.checked)} />
               <span>Мой персонаж по умолчанию</span></label>
-            <p class="hint">Входит в каждый новый чат как «это я»</p>
+            <p class="hint">Автоматически входит в каждый новый чат как «это я» (ваш герой, от чьего лица вы пишете).</p>
           </div>
           ${characterId && html`<${BookPicker} scope="character" target=${characterId} onError=${onError}
             title="Лорбуки персонажа"
-            hint="Работают в любом чате, где он участвует, и как персонаж, и как «это я». Сохраняются сразу" />`}
+            hint="Записи из выбранных лорбуков подключаются в любом чате с этим персонажем (и когда он говорит сам, и когда выбран как «это я»). Сохраняются сразу." />`}
           <div class="row sticky-save" data-slot="char-save-bar">
             <button class="primary" type="submit" disabled=${saving}>${saving ? "Сохраняю…" : "Сохранить"}</button>
             <button type="button" onClick=${requestClose}>Отмена</button>
             <span class="spacer"></span>
-            <span class=${"save-state " + (dirty ? "waiting" : "saved")}>${dirty ? "Не сохранено" : "Сохранено"}</span>
+            <span class=${"save-state " + (dirty ? "waiting" : "saved")} role="status">${dirty ? "Есть несохранённые правки" : "Сохранено"}</span>
           </div>
         </form>`}
       </div>

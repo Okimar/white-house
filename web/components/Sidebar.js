@@ -29,7 +29,10 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
     { icon: "download", label: "Скачать (PNG)", onClick: () => onExportCharacter(c.id) },
     { icon: "library", label: "В группу…", onClick: tools.move },
     { icon: "trash-2", label: "Удалить", danger: true, onClick: async () => {
-      if (await ask(`Удалить персонажа «${c.name}»?`, { ok: "Удалить", danger: true, hint: "Чаты останутся." })) onDeleteCharacter(c.id);
+      if (await ask(`Удалить персонажа «${c.name}»?`, {
+        ok: "Удалить", danger: true,
+        hint: "Карточка будет удалена. Все уже начатые чаты с этим персонажем останутся в сохранности.",
+      })) onDeleteCharacter(c.id);
     } },
   ];
 
@@ -41,7 +44,10 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
     { icon: "download", label: "Скачать", href: `/api/chats/${c.id}/export.jsonl` },
     { icon: "library", label: "В группу…", onClick: tools.move },
     { icon: "trash-2", label: "Удалить", danger: true, onClick: async () => {
-      if (await ask(`Удалить чат «${c.title}»?`, { ok: "Удалить", danger: true })) onDeleteChat(c.id);
+      if (await ask(`Удалить чат «${c.title}»?`, {
+        ok: "Удалить", danger: true,
+        hint: "Все сообщения этой беседы и её веток будут удалены без возможности восстановления.",
+      })) onDeleteChat(c.id);
     } },
   ];
 
@@ -69,8 +75,11 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
         <input ref=${chatFileInput} type="file" hidden
           onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
         ${chats.length === 0 && html`<${EmptyNote} icon="message-square" title="Чатов пока нет"
-          hint="Выберите персонажа или начните беседу без него.">
-          <div class="empty-actions"><button type="button" class="empty-btn" onClick=${() => onNewChat(null)}>Новый чат</button></div>
+          hint="Выберите персонажа или начните свободную беседу.">
+          <div class="empty-actions">
+            <button type="button" class="primary empty-btn" onClick=${() => onNewChat(null)}>Новый чат</button>
+            <button type="button" class="empty-btn" onClick=${() => chatFileInput.current.click()}>Импорт чата</button>
+          </div>
         <//>`}
         <${GroupedItems} kind="chat" items=${chats} idOf=${(c) => c.id} labelOf=${(c) => c.title} activeId=${chatId}
           onError=${onError}
@@ -92,8 +101,11 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
         </div>
         <input ref=${fileInput} type="file" accept=".json,.png,application/json,image/png" hidden onChange=${pickFile} />
         ${characters.length === 0 && html`<${EmptyNote} icon="users" title="Персонажей пока нет"
-          hint="Создайте персонажа или загрузите карточку, чтобы начать беседу.">
-          <div class="empty-actions"><button type="button" class="primary empty-btn" onClick=${() => onEditCharacter(null)}>+ Новый персонаж</button></div>
+          hint="Создайте персонажа или загрузите готовую карточку (PNG или JSON).">
+          <div class="empty-actions">
+            <button type="button" class="primary empty-btn" onClick=${() => onEditCharacter(null)}>Создать</button>
+            <button type="button" class="empty-btn" onClick=${() => fileInput.current.click()}>Импорт карточки</button>
+          </div>
         <//>`}
         <${GroupedItems} kind="character" items=${characters} idOf=${(c) => c.id} labelOf=${(c) => c.name}
           onError=${onError} onPress=${(c, el, tools) => openMenu(el, characterActions(c, tools))}

@@ -201,8 +201,16 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
   };
 
   const attach = async (files) => {
-    const list = [...files].filter((f) => f.type.startsWith("image/")).slice(0, MAX_IMAGES - images.length);
-    if (!list.length) return;
+    const allImages = [...files].filter((f) => f.type.startsWith("image/"));
+    if (!allImages.length) return;
+    if (images.length >= MAX_IMAGES) {
+      if (onError) onError(`К сообщению можно прикрепить не более ${MAX_IMAGES} изображений.`);
+      return;
+    }
+    const list = allImages.slice(0, MAX_IMAGES - images.length);
+    if (allImages.length > list.length && onError) {
+      onError(`Прикреплены первые ${list.length} из ${allImages.length} изображений (лимит: ${MAX_IMAGES}).`);
+    }
     setUploading(true);
     try {
       for (const file of list) {
@@ -238,8 +246,8 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
       <div class="sr-only" role="status" aria-live="polite">${running ? "Модель пишет ответ…" : ""}</div>
       ${images.length > 0 && html`<div class="composer-images" data-slot="composer-images">
         ${images.map((name) => html`<span key=${name} class="composer-image">
-          <img src=${"/assets/" + encodeURIComponent(name)} alt="прикреплённая картинка" />
-          <${IconButton} icon="x" label="Убрать картинку" onClick=${() => setImages(images.filter((n) => n !== name))} />
+          <img src=${"/assets/" + encodeURIComponent(name)} alt="Прикреплённое изображение" />
+          <${IconButton} icon="x" label="Удалить прикреплённое изображение" onClick=${() => setImages(images.filter((n) => n !== name))} />
         </span>`)}
       </div>`}
       ${hint && html`<div class="composer-hint muted" data-slot="composer-hint" role="note">
@@ -259,7 +267,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
           ${x.view.undo && html`<button type="button" class="composer-helper-undo"
             onClick=${() => x.view.undo.onClick()}>${x.view.undo.label}</button>`}
         </div>`)}
-      <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение" data-slot="composer-input"
+      <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
         aria-label="Сообщение" aria-description="Enter — отправить, Shift+Enter — перенос строки" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown} onPaste=${onPaste} onClick=${onTap} onScroll=${() => sync.current()}></textarea>
       <div ref=${layer} class="composer-marks" data-slot="composer-marks" aria-hidden="true"
@@ -270,7 +278,9 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
         layer=${layer.current} onClose=${() => setOpenMark(null)} />`}
       <div class="composer-tools">
         <${IconButton} icon=${uploading ? "loader-circle" : "paperclip"} class="attach" data-slot="attach-button"
-          label="Прикрепить картинку" disabled=${disabled || uploading || images.length >= MAX_IMAGES}
+          label=${uploading ? "Загрузка изображения…" : "Прикрепить изображение"}
+          title="Прикрепить изображение (до 8 шт.)"
+          disabled=${disabled || uploading || images.length >= MAX_IMAGES}
           onClick=${() => picker.current && picker.current.click()} />
         ${plugins.composerButtons.filter((b) => resolve(b.show) !== false).map((b, i) => html`<button key=${b.owner + i}
           type="button" class="attach icon-btn" data-slot="composer-plugin-button" data-plugin=${b.owner}
@@ -287,9 +297,9 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
         </label>
         <span class="spacer"></span>
         ${running
-          ? html`<button type="button" class="danger" data-slot="stop-button" aria-label="Остановить генерацию" onClick=${onStop}>
+          ? html`<button type="button" class="danger" data-slot="stop-button" aria-label="Остановить генерацию ответа" title="Остановить генерацию ответа" onClick=${onStop}>
               <${Icon} name="square" /> Стоп</button>`
-          : html`<button type="submit" class="primary" data-slot="send-button" aria-label="Отправить сообщение"
+          : html`<button type="submit" class="primary" data-slot="send-button" aria-label="Отправить сообщение" title="Отправить сообщение (Enter)"
               disabled=${disabled || uploading || (!text.trim() && !images.length)}>
               <${Icon} name="send-horizontal" /> Отправить</button>`}
       </div>

@@ -109,7 +109,7 @@ export function Skills({ onError }) {
     if (skill && skill.id === s.id) setSkill({ ...skill, enabled: !s.enabled });
   });
   const remove = () => act(async () => {
-    if (!(await ask(`Удалить инструкцию «${skill.title}»?`, { ok: "Удалить", danger: true, skip: "skill" }))) return;
+    if (!(await ask(`Удалить инструкцию «${skill.title}»? ${skill.based_on ? "Помощник снова будет использовать встроенную версию." : "Помощник больше не сможет выбирать эту инструкцию при решении задач."}`, { ok: "Удалить", danger: true, skip: "skill" }))) return;
     await api.del(`/skills/${skill.id}`);
     setOpenId(null);
     await reload();
@@ -154,10 +154,18 @@ export function Skills({ onError }) {
         ${notes.length > 0 && html`<ul class="skills-notes">${notes.map((n, i) => html`<li key=${i}>${n}</li>`)}</ul>`}
       </div>
       ${!loaded.data && html`<${Pending} error=${loaded.error} onRetry=${loaded.reload} />`}
-      ${loaded.data && list.length === 0 && html`<${EmptyNote} title="Инструкций пока нет"
-        hint="Создайте свою или дублируйте встроенную." />`}
-      ${loaded.data && list.length > 0 && filteredList.length === 0 && html`<${EmptyNote} title="Ничего не найдено"
-        hint="Попробуйте изменить поисковый запрос." />`}
+      ${loaded.data && list.length === 0 && html`<${EmptyNote} icon="book-open" title="Инструкций пока нет"
+        hint="Создайте свою или дублируйте встроенную.">
+        <div class="empty-actions">
+          <button class="empty-btn" onClick=${create}><${Icon} name="plus" /> Создать инструкцию</button>
+        </div>
+      </${EmptyNote}>`}
+      ${loaded.data && list.length > 0 && filteredList.length === 0 && html`<${EmptyNote} icon="search" title="Ничего не найдено"
+        hint="Попробуйте изменить поисковый запрос.">
+        <div class="empty-actions">
+          <button class="empty-btn" onClick=${() => setSearchQuery("")}>Сбросить поиск</button>
+        </div>
+      </${EmptyNote}>`}
       ${GROUPS.map(([source, label]) => {
         const items = filteredList.filter((s) => groupOf(s) === source);
         if (!items.length) return null;
@@ -173,6 +181,14 @@ export function Skills({ onError }) {
         </div>`;
       })}
     </div>
+    ${!skill && html`<div class="skills-view skills-view-empty" data-slot="skills-view">
+      <${EmptyNote} icon="book-open" title="Инструкция не выбрана"
+        hint="Выберите инструкцию из списка слева, чтобы просмотреть её формулировки, настройки аудитории и правила для критика, или создайте новую.">
+        <div class="empty-actions">
+          <button class="empty-btn" onClick=${create}><${Icon} name="plus" /> Создать инструкцию</button>
+        </div>
+      </${EmptyNote}>
+    </div>`}
     ${skill && html`<div class="skills-view" data-slot="skills-view">
       <div class="row">
         <h3>${skill.title}</h3>

@@ -39,7 +39,7 @@ export function BookPicker({ scope, target = null, title, hint, onError }) {
   return html`<fieldset class="book-picker" data-slot="book-picker">
     <legend>${title}</legend>
     ${books === null && html`<${Pending} error=${error} onRetry=${reload} />`}
-    ${books && books.length === 0 && html`<span class="muted">Лорбуков пока нет: создайте их в разделе «Лорбуки» слева</span>`}
+    ${books && books.length === 0 && html`<p class="muted book-picker-empty">Лорбуков пока нет. Создайте первый лорбук на боковой панели в разделе «Лорбуки», чтобы подключить его здесь.</p>`}
     ${books && books.map((b) => html`<label key=${b.id} title=${b.name}>
       <input type="checkbox" checked=${on.includes(b.id)} onChange=${(e) => toggle(b.id, e.target.checked)} />
       <span class="pick-name">${b.name} <span class="muted">(${b.blocks})</span></span></label>`)}
@@ -112,10 +112,10 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
           <label class="grow">Название
             <input key=${"n" + revision} value=${book.name} onBlur=${(e) => saveField("name", e.target.value.trim())} /></label>
           <label class="grow">Описание
-            <span class="hint">Для себя, модели не уходит</span>
+            <span class="hint">Для себя, модели не передаётся</span>
             <input key=${"d" + revision} value=${book.description} onBlur=${(e) => saveField("description", e.target.value)} /></label>
         </div>`}
-        ${book && connected && html`<p class="hint">Где подключён: ${connected}</p>`}
+        ${book && connected && html`<p class="hint book-connected-hint">Подключён: ${connected}</p>`}
         ${book && html`<${CharacterTree} character=${{ id: bookId, name: book.name, book: true }}
           settings=${settings} revision=${revision} onError=${onError} />`}
       </div>
@@ -153,7 +153,8 @@ export function LorebookShelf({ settings, onError, showHeading = true }) {
     } catch (err) { onError(err.message); }
   };
   const remove = async (book) => {
-    if (!await ask(`Удалить лорбук «${book.name}» со всеми записями?`, { ok: "Удалить", danger: true })) return;
+    if (!await ask(`Удалить лорбук «${book.name}» со всеми записями?`, { ok: "Удалить", danger: true,
+      hint: "Лорбук будет удалён безвозвратно. Его записи больше не будут отправляться модели." })) return;
     try { await api.del(`/lorebooks/${book.id}`); await reload(); } catch (e) { onError(e.message); }
   };
   const bookActions = (b, tools) => [
@@ -174,8 +175,15 @@ export function LorebookShelf({ settings, onError, showHeading = true }) {
     </div>
     <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${pick} />
     ${books === null && html`<${Pending} error=${error} onRetry=${reload} />`}
-    ${books && books.length === 0 && html`<${EmptyNote} title="Лорбуков пока нет"
-      hint="Лорбук — набор записей о мире: места, предметы, правила. Запись попадает к модели, когда в чате всплывает её тема" />`}
+    ${books && books.length === 0 && html`<${EmptyNote}
+      icon="book-open"
+      title="Лорбуков пока нет"
+      hint="Лорбук — это база знаний о вашем мире: места, фракции, предметы, правила и факты. Нужные записи автоматически отправляются модели, когда в чате упоминается их тема.">
+      <div class="row empty-actions" style="margin-top: 12px; gap: 8px">
+        <button class="primary" onClick=${create}><${Icon} name="plus" /> Создать лорбук</button>
+        <button onClick=${() => fileInput.current.click()}><${Icon} name="file-up" /> Импортировать</button>
+      </div>
+    </${EmptyNote}>`}
     ${books && books.length > 0 && html`<${GroupedItems} kind="lorebook" items=${books} idOf=${(b) => b.id}
       labelOf=${(b) => b.name} onError=${onError}
       onPress=${(b, el, tools) => openMenu(el, [{ icon: "book-open", label: "Открыть", onClick: () => setEditing(b.id) }, ...bookActions(b, tools)])}
@@ -230,29 +238,28 @@ export function LorebookSettings({ settings = {}, onChanged, onError }) {
     ${values && html`
     <h2>Сколько места занимают записи</h2>
     <div class="param-grid">
-      ${field("budget_tokens", "Лимит, токенов", "Сколько места в запросе могут занять записи всех лорбуков", 1000000)}
-      ${field("budget_percent", "Или процент окна модели", "Если больше 0, лимит считается от окна модели, а не в токенах (как в SillyTavern: 25). Лимит в токенах — когда окно модели неизвестно", 100)}
+      ${field("budget_tokens", "Лимит, токенов", "Сколько места в запросе могут занять записи всех подключённых лорбуков", 1000000)}
+      ${field("budget_percent", "Или процент окна модели", "Если больше 0, лимит рассчитывается от окна модели в процентах (как в SillyTavern: 25%). Лимит в токенах используется, когда размер окна модели неизвестен", 100)}
     </div>
-    <p class="hint">Если записи не влезают, первыми отпадают записи с меньшим «Порядком» из SillyTavern (у своих записей — стоящие ниже в книге), постоянные и зелёные вместе.
-      Записи с «не считать в лимите» не отпадают никогда. Что не влезло, видно в просмотре запроса у ответа.</p>
+    <p class="hint">Если записи не помещаются в лимит токенов, первыми отпадают записи с меньшим «Порядком» (Order из SillyTavern, либо стоящие ниже в книге). Записи с правилом «не считать в лимите» отправляются всегда. Что именно вошло в запрос, можно увидеть в просмотре промпта (значок 👁 у ответа).</p>
     <h2>Как ищутся записи</h2>
     <div class="param-grid">
       <label class="stack">Искать в последних сообщениях
         <input key=${"scan" + fieldRev} class="num" inputmode="numeric" pattern="[0-9]*" value=${String(search.scan_messages)}
           onChange=${(e) => saveSearch("scan_messages", Math.min(50, Math.max(1, Number(clamp(e.target.value, 50)) || 1)))} />
-        <span class="hint">Сколько последних сообщений читать в поисках ключевых слов. Тот же счётчик, что у пузырей персонажей.</span></label>
+        <span class="hint">Сколько последних сообщений чата проверять на наличие ключевых слов. Общий параметр с пузырями персонажей.</span></label>
       <label class="stack">Порог похожести, от 0 до 1
         <input key=${"thr" + fieldRev} class="num" type="number" min="0" max="1" step="0.05" value=${search.threshold}
           onChange=${(e) => saveSearch("threshold", Math.min(1, Math.max(0, Number(e.target.value) || 0)))} />
-        <span class="hint">Для поиска по смыслу: чем выше, тем ближе по смыслу должна быть запись. Общий с пузырями персонажей.</span></label>
-      ${field("recursion", "Шагов цепочки", "Сколько раз текст найденных записей ищет следующие записи; 0 — без цепочек", 10)}
+        <span class="hint">Для векторного поиска по смыслу: чем выше порог, тем ближе по теме должна быть запись. Общий с пузырями персонажей.</span></label>
+      ${field("recursion", "Шагов цепочки", "Сколько раз текст найденных записей может активировать следующие связанные записи (0 — без цепочек)", 10)}
     </div>
     <h2>В каком порядке берутся записи</h2>
     <ol class="hint lore-order">
-      <li>Лорбуки этого чата.</li>
-      <li>Лорбуки участников чата, в порядке участников.</li>
-      <li>Общие лорбуки.</li>
+      <li>Лорбуки текущего чата.</li>
+      <li>Лорбуки участников чата (в порядке списка участников).</li>
+      <li>Общие лорбуки (включённые везде).</li>
     </ol>
-    <p class="hint">Внутри книги записи идут по их номерам. Когда лимит мал, лишнее отпадает с конца этого списка.</p>`}
+    <p class="hint">Внутри каждой книги записи располагаются по их номерам. Если задан лимит токенов, лишнее отсекается с конца этого списка.</p>`}
   </div>`;
 }

@@ -196,7 +196,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
         <div style=${{ height: end + "px" }}></div>
       </div>
       ${showJump && html`<button type="button" class="vlist-jump" data-slot="vlist-jump"
-        aria-label="К последним сообщениям" title="К последним сообщениям" onClick=${scrollToBottom}>
+        aria-label="Перейти к последним сообщениям" title="Перейти к последним сообщениям" onClick=${scrollToBottom}>
         <${Icon} name="chevron-down" />
       </button>`}
     </div>

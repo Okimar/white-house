@@ -83,10 +83,20 @@ export function Connections({ onChanged, onError }) {
           onInput=${(e) => setFilterQuery(e.target.value)} aria-label="Поиск по подключениям" />
       </div>`}
     <ul class="list conn-list" data-slot="conn-list">
-      ${connections.length === 0 && html`<li><${EmptyNote} title="Подключений пока нет"
-        hint="Подключение говорит Таверне, к какой модели обращаться. Добавьте первое." /></li>`}
-      ${connections.length > 0 && shownConns.length === 0 && html`<li><${EmptyNote} title="Ничего не найдено"
-        hint="Попробуйте изменить поисковый запрос." /></li>`}
+      ${connections.length === 0 && html`<li><${EmptyNote} icon="bot" title="Подключений пока нет"
+        hint="Подключение сообщает Таверне, к какой языковой модели обращаться: облачный сервис или локальная программа.">
+        <div class="empty-actions">
+          <button class="primary empty-btn" onClick=${() => { setAdding(true); setOpenId(null); }}>
+            <${Icon} name="plus" /> Добавить первое подключение
+          </button>
+        </div>
+      </${EmptyNote}></li>`}
+      ${connections.length > 0 && shownConns.length === 0 && html`<li><${EmptyNote} icon="search" title="Ничего не найдено"
+        hint="Попробуйте изменить поисковый запрос по названию или модели.">
+        <div class="empty-actions">
+          <button class="empty-btn" onClick=${() => setFilterQuery("")}>Сбросить поиск</button>
+        </div>
+      </${EmptyNote}></li>`}
       ${shownConns.map((c) => html`
         <li key=${c.id} class="conn">
           <div class=${"conn-card" + (c.id === openId ? " open" : "")}>
@@ -283,7 +293,7 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
   };
 
   const remove = async () => {
-    if (!(await ask(`Удалить подключение «${conn.name}» вместе с его ключами?`, { ok: "Удалить", danger: true }))) return;
+    if (!(await ask(`Удалить подключение «${conn.name}»? Все сохранённые для него ключи будут стёрты. Чаты, которые использовали это подключение, вернутся к основному.`, { ok: "Удалить", danger: true }))) return;
     await api.del(`/connections/${conn.id}`).catch((e) => onError(e.message));
     onRemoved();
   };
@@ -377,7 +387,7 @@ function Keys({ conn, onSaved, onError }) {
   };
 
   const del = async (k) => {
-    if (!(await ask(`Удалить ключ «${k.label || "без названия"}»?`, { ok: "Удалить", danger: true, skip: "key" }))) return;
+    if (!(await ask(`Удалить ключ «${k.label || "без названия"}»? Запросы больше не смогут использовать этот ключ.`, { ok: "Удалить", danger: true, skip: "key" }))) return;
     await api.del(`/connections/${conn.id}/keys/${k.id}`).catch((e) => onError(e.message));
     onSaved();
   };
@@ -395,7 +405,12 @@ function Keys({ conn, onSaved, onError }) {
     <h3>Ключи</h3>
     <p class="hint">Если ключ не сработал, пробуется следующий по порядку.</p>
     <ul class="list keys" data-slot="conn-keys">
-      ${conn.keys.length === 0 && html`<li class="muted">Ключей нет. Для моделей на своём компьютере обычно и не нужно.</li>`}
+      ${conn.keys.length === 0 && html`<li class="keys-empty"><${EmptyNote} icon="link" title="Ключи API не добавлены"
+        hint="Для моделей на своём компьютере ключ обычно не нужен. Для сервисов в интернете добавьте ключ API.">
+        <div class="empty-actions">
+          <button class="empty-btn" onClick=${() => start(null)}><${Icon} name="plus" /> Добавить ключ</button>
+        </div>
+      </${EmptyNote}></li>`}
       ${conn.keys.map((k, i) => html`
         <li key=${k.id} class="key-row">
           <span>${i + 1}. <strong>${k.label || "без названия"}</strong></span>

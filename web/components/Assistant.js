@@ -84,7 +84,11 @@ function ConversationList({ chats, current, onPick, onNew, onRename, onDelete, o
         <${IconButton} icon="trash-2" label="Удалить беседу" disabled=${c.running} onClick=${() => onDelete(c)} />
       </div>`)}
       ${sorted.length > shown && html`<button type="button" class="link assistant-conv-more" onClick=${() => setShown(shown + SHOWN_STEP)}>Показать ещё (${sorted.length - shown})</button>`}
-      ${sorted.length === 0 && html`<p class="muted" role="status">${needle ? "По этому слову ничего не нашлось." : "Бесед пока нет."}</p>`}
+      ${sorted.length === 0 && html`<div class="assistant-conv-empty muted" role="status">
+        <p>${needle ? "По этому запросу ничего не нашлось." : "У вас пока нет бесед с помощником."}</p>
+        <p class="hint">${needle ? "Попробуйте другое слово или очистите строку поиска." : "Нажмите «Новая», чтобы начать диалог или дать задачу."}</p>
+        ${needle && html`<button type="button" class="link assistant-conv-clear" onClick=${() => { setQuery(""); setShown(SHOWN_STEP); }}>Очистить поиск</button>`}
+      </div>`}
     </div>
     <button type="button" class="link assistant-conv-import" onClick=${onImport}><${Icon} name="file-up" /> Загрузить беседу из файла</button>
   </div>`;
@@ -98,7 +102,10 @@ function LibraryPicker({ taken, onPick, onClose, onError }) {
     <div class="row"><strong>Картинки из библиотеки</strong><span class="spacer"></span>
       <${IconButton} icon="x" label="Закрыть выбор картинок" onClick=${onClose} /></div>
     ${assets === null ? html`<p class="muted" role="status">Загрузка…</p>`
-      : assets.length === 0 ? html`<p class="muted" role="status">В библиотеке пока нет картинок.</p>`
+      : assets.length === 0 ? html`<div class="assistant-lib-empty muted" role="status">
+          <p>В библиотеке пока нет картинок.</p>
+          <p class="hint">Их можно загрузить в Настройки → Картинки, либо прикрепить файл прямо с устройства скрепкой.</p>
+        </div>`
       : html`<div class="assistant-library-grid" role="list" aria-label="Картинки">${assets.filter((a) => !a.name.toLowerCase().endsWith(".svg")).map((a) => html`
         <button key=${a.name} type="button" disabled=${taken.includes(a.name)} title=${a.name} aria-label=${"Выбрать картинку " + a.name}
           onClick=${() => onPick(a.name)}><img src=${"/assets/" + encodeURIComponent(a.name)} alt="" loading="lazy" /></button>`)}</div>`}
@@ -126,14 +133,15 @@ function Memory({ memory, onChange, onError }) {
   const forget = (fact) => api.del(`/assistant/memory/${fact.id}`).then(onChange).catch((e) => onError(e.message));
   return html`<div class="assistant-memory" data-slot="assistant-memory">
     <strong>Что я о вас знаю</strong>
-    <p class="hint">Это видит помощник в любой работе. Он сам записывает сюда ваши вкусы; правьте и удаляйте.</p>
+    <p class="hint">Это видит помощник в любой работе. Он сам записывает сюда ваши вкусы и предпочтения; вы можете в любой момент изменить или удалить любую запись.</p>
+    ${memory.length === 0 && html`<p class="muted assistant-memory-empty">Записей пока нет. Напишите ниже, о чём помощнику стоит помнить (например: ваши жанровые вкусы или правила стиля).</p>`}
     ${memory.map((fact) => html`<div class="row" key=${fact.id}>
       <input value=${fact.text} aria-label="Запись памяти" onChange=${async (e) => { const input = e.target; if (await edit(fact, input.value) === false) input.value = fact.text; }} />
-      <${IconButton} icon="trash-2" label="Забыть" onClick=${() => forget(fact)} />
+      <${IconButton} icon="trash-2" label="Забыть эту запись" onClick=${() => forget(fact)} />
     </div>`)}
     <form class="row" onSubmit=${add}>
-      <input value=${text} placeholder="Например: люблю мрачное фэнтези" onInput=${(e) => setText(e.target.value)} />
-      <${IconButton} type="submit" icon="plus" label="Добавить запись" disabled=${!text.trim()} />
+      <input value=${text} placeholder="Например: люблю мрачное фэнтези" aria-label="Новая запись памяти" onInput=${(e) => setText(e.target.value)} />
+      <${IconButton} type="submit" icon="plus" label="Добавить запись в память" disabled=${!text.trim()} />
     </form>
   </div>`;
 }
@@ -220,9 +228,9 @@ const MARKS = { done: "check", undone: "undo-2", denied: "circle-x", failed: "x"
 const AFTER = { undone: " — отменено", denied: " — не разрешено" };
 
 function ActionLine({ action, onUndo }) {
-  return html`<div class=${"assistant-action " + action.status} data-slot="assistant-action" role="status">
+  return html`<div class=${"assistant-action " + action.status} data-slot="assistant-action" role="status" aria-live="polite">
     <span>${MARKS[action.status] && html`<${Icon} name=${MARKS[action.status]} /> `}${action.what}${AFTER[action.status] || ""}</span>
-    ${action.status === "done" && html`<button type="button" class="link assistant-undo-btn" aria-label="Отменить это действие" onClick=${() => onUndo(action)}>Отменить</button>`}
+    ${action.status === "done" && html`<button type="button" class="link assistant-undo-btn" title=${"Отменить действие: " + action.what} aria-label=${"Отменить действие: " + action.what} onClick=${() => onUndo(action)}>Отменить</button>`}
   </div>`;
 }
 
@@ -235,61 +243,68 @@ function QuestionsCard({ message, active, onAnswer }) {
   const value = (q) => own[q.id]?.trim() || picks[q.id] || "";
   const answered = (q) => Boolean(value(q));
   const chosenOnes = () => Object.fromEntries(questions.filter(answered).map((q) => [q.id, value(q)]));
-  return html`<div class="assistant-card questions" data-slot="assistant-questions">
+  return html`<div class="assistant-card questions" data-slot="assistant-questions" role="region" aria-label="Вопросы перед работой">
     <p>${message.text}</p>
     ${questions.map((q) => html`<fieldset key=${q.id} disabled=${!active}>
       <legend>${q.text}</legend>
-      <div class="assistant-options">
+      <div class="assistant-options" role="group" aria-label=${"Варианты: " + q.text}>
         ${q.options.map((option, n) => {
           const isDefault = n === (q.default || 0);
           const chosen = picks[q.id] === option && !own[q.id]?.trim();
           return html`<button type="button" key=${option} class=${(chosen ? "chosen " : "") + (isDefault ? "suggested" : "")} aria-pressed=${chosen}
-            title=${isDefault ? "Предложено помощником" : ""}
+            title=${isDefault ? "Предложено помощником" : ""} aria-label=${option + (isDefault ? " (предложено)" : "") + (chosen ? ", выбрано" : "")}
             onClick=${() => { setPicks({ ...picks, [q.id]: chosen ? "" : option }); setOwn({ ...own, [q.id]: "" }); }}>
             ${option}${isDefault && !chosen ? html`<span class="suggested-dot" title="Предложено"></span>` : ""}
           </button>`;
         })}
       </div>
-      <input type="text" autocomplete="off" spellcheck="false" placeholder="Свой вариант" value=${own[q.id] || ""} aria-label=${"Свой ответ: " + q.text}
+      <input type="text" autocomplete="off" spellcheck="false" placeholder="Свой вариант" value=${own[q.id] || ""} aria-label=${"Свой ответ на вопрос: " + q.text}
         onInput=${(e) => setOwn({ ...own, [q.id]: e.target.value })} />
     </fieldset>`)}
     ${active && html`<div class="row assistant-card-actions">
       <button type="button" class="primary" disabled=${!questions.every(answered)} onClick=${() => onAnswer(chosenOnes())}>Ответить</button>
       <button type="button" onClick=${() => onAnswer(chosenOnes())}>На ваш вкус</button>
     </div>
-    <p class="hint">«Ответить» — когда отвечено на всё. «На ваш вкус»: на что вы не ответили, помощник решит сам.</p>`}
+    <p class="hint">«Ответить» — отправить выбранные варианты. «На ваш вкус» — на оставшиеся вопросы помощник ответит сам.</p>`}
   </div>`;
 }
 
 const ITEM_MARKS = { done: "check", partial: "circle-dot-dashed", todo: "circle" };
+const ITEM_STATUS_RU = { done: "выполнено", partial: "частично", todo: "в очереди", now: "выполняется" };
 
 // The plan: goal, decisions (folded) and items; the live one ticks items off as they are done.
 function PlanCard({ message, task, active, running, onGo, onDrop }) {
   const live = task && task.no === message.data.task && Array.isArray(task.items); // the card may come before the task
   const items = live ? task.items : message.data.items;
   const now = live && running && task.phase === "work" ? items.find((i) => i.status === "todo")?.id : null;
-  return html`<div class="assistant-card plan" data-slot="assistant-plan">
+  return html`<div class="assistant-card plan" data-slot="assistant-plan" role="region" aria-label="План работы">
     <p>${message.text}</p>
     ${message.data.goal && html`<p><strong>${message.data.goal}</strong></p>`}
     ${message.data.decisions?.length > 0 && html`<details><summary>Решения (${message.data.decisions.length})</summary>
       <ul>${message.data.decisions.map((d, i) => html`<li key=${i}>${d}</li>`)}</ul></details>`}
-    <ol class="assistant-items" aria-label="Пункты плана">
-      ${items.map((item) => html`<li key=${item.id} class=${(item.parent ? "sub " : "") + (item.id === now ? "now" : item.status)}
-        title=${item.detail || ""}>
-        <div class="assistant-item-row">
-          <span class="mark"><${Icon} name=${item.id === now ? "play" : ITEM_MARKS[item.status] || "circle"} /></span>
-          <span class="assistant-item-title"><strong>${item.id}.</strong> ${item.title}</span>
-        </div>
-        ${item.steps?.length > 0 && item.status !== "done" && html`<ol class="assistant-substeps" data-slot="assistant-substeps">
-          ${item.steps.map((st, n) => html`<li key=${n} class=${st.done ? "done" : ""}>
-            <${Icon} name=${st.done ? "check" : "circle"} /> ${st.text}</li>`)}</ol>`}
-      </li>`)}
+    <ol class="assistant-items" aria-label="Пункты плана" role="list">
+      ${items.map((item) => {
+        const isNow = item.id === now;
+        const statusKey = isNow ? "now" : (item.status || "todo");
+        const statusLabel = ITEM_STATUS_RU[statusKey] || statusKey;
+        return html`<li key=${item.id} role="listitem" class=${(item.parent ? "sub " : "") + (isNow ? "now" : item.status)}
+          title=${item.detail || ""} aria-label=${`${item.id}. ${item.title} — ${statusLabel}`}>
+          <div class="assistant-item-row">
+            <span class="mark" aria-hidden="true"><${Icon} name=${isNow ? "play" : ITEM_MARKS[item.status] || "circle"} /></span>
+            <span class="assistant-item-title"><strong>${item.id}.</strong> ${item.title}</span>
+          </div>
+          ${item.steps?.length > 0 && item.status !== "done" && html`<ol class="assistant-substeps" data-slot="assistant-substeps" role="list">
+            ${item.steps.map((st, n) => html`<li key=${n} role="listitem" class=${st.done ? "done" : ""}>
+              <${Icon} name=${st.done ? "check" : "circle"} aria-hidden="true" /> ${st.text}</li>`)}</ol>`}
+        </li>`;
+      })}
     </ol>
     ${active && html`<div class="row assistant-plan-actions">
       <button type="button" class="primary" onClick=${onGo}>Начать</button>
       <button type="button" onClick=${onDrop}>Отменить задачу</button>
       <span class="muted">или напишите, что поменять</span>
-    </div>`}
+    </div>
+    <p class="hint">Помощник выполнит пункты плана по очереди. Каждое действие можно будет отменить.</p>`}
   </div>`;
 }
 
@@ -421,8 +436,8 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   };
   const deleteChat = async (chat) => {
     const id = chat?.id || convId;
-    if (!id || !await ask(`Удалить беседу «${chat?.title || data?.chat?.title || "Без названия"}»? Изменения, которые сделал помощник, останутся.`,
-      { ok: "Удалить", danger: true })) return;
+    if (!id || !await ask(`Удалить беседу «${chat?.title || data?.chat?.title || "Без названия"}»? Изменения, которые сделал помощник в чате или данных, останутся на месте.`,
+      { ok: "Удалить беседу", cancel: "Оставить", danger: true })) return;
     try {
       await api.del(`/assistant/chats/${id}`);
       if (id === convId) setConvId("");
@@ -498,7 +513,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     .catch((e) => onError(e.message));
   const go = () => started(convId, api.post(`/assistant/chats/${convId}/go`, { chat_id: chatId || null })).catch((e) => onError(e.message));
   const drop = async () => {
-    if (!await ask("Отменить задачу? План сбросится, сделанное останется.", { ok: "Отменить задачу", cancel: "Не отменять", danger: true })) return;
+    if (!await ask("Отменить задачу? План будет сброшен, но всё, что помощник уже успел сделать, останется на месте.", { ok: "Отменить задачу", cancel: "Продолжить работу", danger: true })) return;
     api.post(`/assistant/chats/${convId}/drop`).then(() => loadChat(convId)).catch((e) => onError(e.message));
   };
   const stop = () => api.post(`/assistant/chats/${convId}/stop`).catch((e) => onError(e.message));
@@ -507,8 +522,8 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   const forget = (factId) => api.del(`/assistant/memory/${factId}`).then(() => loadOverview()).catch((e) => onError(e.message));
   const undo = async (action) => {
     const later = data.actions.filter((a) => a.id > action.id && a.status === "done").length;
-    if (later && !await ask(`Вместе с этим отменится и то, что помощник сделал после (изменений: ${later}).`,
-      { ok: "Отменить", cancel: "Не отменять", danger: true })) return;
+    if (later && !await ask(`Отменить «${action.what}»? Вместе с этим отменятся и последующие действия помощника (ещё ${later}).`,
+      { ok: "Отменить всё", cancel: "Не отменять", danger: true })) return;
     try {
       await api.post(`/assistant/actions/${action.id}/undo`);
       await loadChat(convId);
@@ -642,8 +657,24 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
         onChange=${(e) => { const list = e.target.files; if (list.length) attachFiles(list); e.target.value = ""; }} />
       <div class="assistant-body" data-slot="assistant-body" hidden=${listOpen}>
         ${loadError && html`<${Pending} error=${loadError} onRetry=${() => loadChat(convId)} />`}
-        ${items.length === 0 && !loadError && html`<${EmptyNote} title="Чем помочь?" icon="wand"
-          hint="Например: создать персонажа или лорбук, сменить тему, скрыть сообщения от модели, объяснить ответ. Любое изменение можно отменить." />`}
+        ${items.length === 0 && !loadError && html`<div class="assistant-empty-state" data-slot="assistant-empty">
+          <${EmptyNote} title="Чем помочь?" icon="wand"
+            hint="Помощник умеет настраивать приложение, создавать персонажей и лорбуки, читать чат и искать в сети. Любое изменение можно будет отменить." />
+          <div class="assistant-suggestions" role="group" aria-label="Быстрый старт">
+            <button type="button" class="assistant-suggest-chip" onClick=${() => setText("Создай персонажа: ")}>
+              <${Icon} name="user-plus" /> Создать персонажа
+            </button>
+            <button type="button" class="assistant-suggest-chip" onClick=${() => setText("Создай лорбук на тему: ")}>
+              <${Icon} name="book-plus" /> Создать лорбук
+            </button>
+            <button type="button" class="assistant-suggest-chip" onClick=${() => setText("Объясни последний ответ модели")}>
+              <${Icon} name="help-circle" /> Объяснить ответ
+            </button>
+            <button type="button" class="assistant-suggest-chip" onClick=${() => setText("Подбери подходящую тему оформления")}>
+              <${Icon} name="palette" /> Подобрать тему
+            </button>
+          </div>
+        </div>`}
         ${items.map((item) => {
           if (item.a) return html`<${ActionLine} key=${item.key} action=${item.a} onUndo=${undo} />`;
           const shown = renderMessage(item.m, item.key);
@@ -658,10 +689,13 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
           </div>
         </div>`}
         ${leftMidway && html`<div class="assistant-ask" data-slot="assistant-resume" role="status">
-          <p>${midPlan ? "Работа остановилась, не дойдя до конца. Сделанное на месте." : "Помощник остановился, не закончив просьбу."}</p>
+          <p>${midPlan ? "Работа была прервана. Всё, что помощник уже успел сделать, сохранено." : "Помощник остановился, не завершив просьбу."}</p>
           <div class="row">
             <button type="button" class="primary" onClick=${go}>Продолжить</button>
             ${midPlan && html`<button type="button" onClick=${drop}>Отменить задачу</button>`}
+            <span class="muted">или напишите, что поменять</span>
+          </div>
+        </div>`}
             <span class="muted">или напишите, что поменять</span>
           </div>
         </div>`}

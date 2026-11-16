@@ -624,7 +624,16 @@ function App() {
         ${shown
           ? html`
             ${chat.messages.filter((m) => !m.hidden).length === 0 && html`<div class="empty" data-slot="empty">
-              <${EmptyNote} icon="message-square-text" title="Сообщений пока нет" hint="Напишите первое сообщение в поле ввода внизу." /></div>`}
+              <${EmptyNote} icon="message-square-text"
+                title=${character ? `Беседа с «${character.name}»` : "Сообщений пока нет"}
+                hint=${character
+                  ? "Напишите реплику в поле ввода или нажмите «Начать беседу», чтобы персонаж заговорил первым."
+                  : "Напишите первое сообщение в поле ввода внизу."}>
+                ${character && html`<div class="empty-actions">
+                  <button type="button" class="primary empty-btn" disabled=${chat.running}
+                    onClick=${() => chat.continue(role)}>Начать беседу</button>
+                </div>`}
+              <//></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
               onReachTop=${chat.loadOlder} resetKey=${chatId} layoutKey=${chatView} jumpTo=${jumpTo}
               stickTo=${(chat.messages.find((m) => m.pending) || {}).vkey || null} />
@@ -650,7 +659,13 @@ function App() {
                 </${Select}>
                 <button class="primary" disabled=${chat.running} onClick=${() => applyRoles(false)}>Применить</button>
                 <button disabled=${chat.running}
-                  onClick=${async () => { if (await ask("Сменить роль у всех сообщений текущей ветки?", { ok: "Сменить" })) applyRoles(true); }}>Всем сообщениям</button>
+                  onClick=${async () => {
+                    const roleLabel = ROLES.find((r) => r.id === bulkRole)?.label || bulkRole;
+                    if (await ask("Сменить роль у всех сообщений текущей ветки?", {
+                      ok: "Сменить",
+                      hint: `Все реплики активной ветки получат роль «${roleLabel}». Прежние роли будут заменены.`,
+                    })) applyRoles(true);
+                  }}>Всем сообщениям</button>
                 <button onClick=${toggleSelecting}>Готово</button>
               </div>`}
               ${searchResults && html`<div class="search-results" data-slot="search-results">
@@ -690,18 +705,43 @@ function App() {
               ${chatId && chat.failed && html`<${Pending} error=${chat.failed} onRetry=${() => location.reload()} />`}
               ${!chatId && !loaded && html`<${Pending} />`}
               ${!chatId && loaded && !settings.active_connection && html`<${EmptyNote} icon="settings" title="Подключите модель"
-                hint="White House разговаривает через вашу модель: укажите её адрес и ключ в настройках.">
+                hint="White House общается через вашу модель. Укажите адрес и ключ доступа в настройках подключений.">
                 <div class="empty-actions">
-                  <button class="primary" onClick=${() => openSettings("connections")}>Добавить подключение</button>
+                  <button class="primary empty-btn" onClick=${() => openSettings("connections")}>Добавить подключение</button>
                 </div><//>`}
-              ${!chatId && loaded && settings.active_connection && html`<${EmptyNote} icon="message-square" title="Выберите чат"
-                hint="Откройте чат из списка или начните новую беседу с персонажем.">
+              ${!chatId && loaded && settings.active_connection && chats.length === 0 && characters.length === 0 && html`<${EmptyNote}
+                icon="sparkles" title="Добро пожаловать в White House"
+                hint="Создайте первого персонажа или загрузите готовую карточку (PNG или JSON), чтобы начать ролевую беседу.">
                 <div class="empty-actions">
-                  <button class="primary" onClick=${() => {
+                  <button class="primary empty-btn" onClick=${() => setEditingCharacter(null)}>Создать персонажа</button>
+                  <button class="empty-btn" onClick=${() => {
+                    const input = document.createElement("input");
+                    input.type = "file";
+                    input.accept = ".json,.png,application/json,image/png";
+                    input.onchange = (e) => { const f = e.target.files[0]; if (f) importCard(f); };
+                    input.click();
+                  }}>Импорт карточки</button>
+                  <button class="empty-btn" onClick=${() => newChat(null)}>Чат без персонажа</button>
+                </div><//>`}
+              ${!chatId && loaded && settings.active_connection && chats.length === 0 && characters.length > 0 && html`<${EmptyNote}
+                icon="message-square" title="Начните первую беседу"
+                hint="Персонажи уже созданы. Начните диалог с любым из них или создайте свободный чат.">
+                <div class="empty-actions">
+                  <button class="primary empty-btn" onClick=${() => {
+                    if (window.matchMedia("(max-width: 720px)").matches) setSheet("characters");
+                    else newChat(characters[0].id);
+                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Выбрать персонажа" : `Начать с «${characters[0].name}»`}</button>
+                  <button class="empty-btn" onClick=${() => newChat(null)}>Чат без персонажа</button>
+                </div><//>`}
+              ${!chatId && loaded && settings.active_connection && chats.length > 0 && html`<${EmptyNote}
+                icon="message-square" title="Выберите чат"
+                hint="Откройте беседу из списка или начните новую историю.">
+                <div class="empty-actions">
+                  <button class="primary empty-btn" onClick=${() => {
                     if (window.matchMedia("(max-width: 720px)").matches) setSheet("chats");
                     else newChat(null);
-                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Открыть чаты" : "Новый чат"}</button>
-                  <button onClick=${() => {
+                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Список чатов" : "Новый чат"}</button>
+                  <button class="empty-btn" onClick=${() => {
                     if (window.matchMedia("(max-width: 720px)").matches) setSheet("characters");
                     else setEditingCharacter(null);
                   }}>${window.matchMedia("(max-width: 720px)").matches ? "Персонажи" : "Новый персонаж"}</button>
@@ -746,9 +786,16 @@ function App() {
         onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
       <${DialogHost} />
-      ${toast && html`<div class="toast" data-slot="toast" data-kind=${toast.kind} role=${toast.kind === "error" ? "alert" : "status"}
-        onClick=${dismiss}>${toast.kind === "ok" && html`<${Icon} name="check" />`}${toast.kind === "error" && html`<${Icon} name="triangle-alert" />`}${toast.kind === "info" && html`<${Icon} name="info" />`}
+      ${toast && html`<div class="toast" data-slot="toast" data-kind=${toast.kind}
+        role=${toast.kind === "error" ? "alert" : "status"} tabindex="0"
+        onKeyDown=${(e) => { if (e.key === "Enter" || e.key === " " || e.key === "Escape") { e.preventDefault(); dismiss(); } }}
+        onClick=${(e) => { if (!e.target.closest(".toast-action")) dismiss(); }}>
+        ${toast.kind === "ok" && html`<${Icon} name="check" />`}
+        ${toast.kind === "error" && html`<${Icon} name="triangle-alert" />`}
+        ${toast.kind === "info" && html`<${Icon} name="info" />`}
         <span class="toast-text">${toast.text}</span>
+        ${toast.action && html`<button type="button" class="toast-action"
+          onClick=${(e) => { e.stopPropagation(); toast.action.onClick(); dismiss(); }}>${toast.action.label}</button>`}
         <span class="toast-close" aria-label="Закрыть"><${Icon} name="x" size="14" /></span></div>`}
     </div>
   `;

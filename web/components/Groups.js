@@ -497,7 +497,10 @@ export function GroupedItems({ kind, items, idOf, labelOf, activeId = null, rend
         if (name && name !== group.name) g.rename(id, name);
       } },
       { icon: "trash-2", label: "Удалить группу", danger: true, onClick: async () => {
-        if (await ask(`Удалить группу «${group.name}»?`, { ok: "Удалить", danger: true, hint: `Всё, что в ней, останется и перейдёт в «${NONE_NAME}».` })) g.remove(id);
+        if (await ask(`Удалить группу «${group.name}»?`, {
+          ok: "Удалить", danger: true,
+          hint: `Сами элементы не удалятся: они останутся в общем списке и перейдут в «${NONE_NAME}».`,
+        })) g.remove(id);
       } },
     ];
   };
@@ -554,7 +557,7 @@ export function GroupedItems({ kind, items, idOf, labelOf, activeId = null, rend
           ${s.id !== NONE && html`<${MenuButton} label=${"Действия с группой " + s.name} items=${() => groupMenu(s.id)} />`}
         </div>
         ${open && s.items.length > 0 && html`<ul class="list group-rows">${s.items.map((item) => renderRow(item, tools(item)))}</ul>`}
-        ${open && s.items.length === 0 && html`<p class="muted group-empty">Пусто: удерживайте строку и перетащите сюда, или «В группу…»</p>`}
+        ${open && s.items.length === 0 && html`<p class="muted group-empty">Пусто: зажмите строку для перетаскивания или выберите «В группу…» в меню.</p>`}
       </div>`;
     })}
     ${moving && html`<${GroupPicker} title=${labelOf(moving)} groups=${g.groups} current=${g.members[idOf(moving)] || NONE}

@@ -36,11 +36,15 @@ export function Pending({ error, onRetry, text = "Загрузка…" }) {
 }
 
 // Nothing here yet: what this place is for and, when there is one, the next step.
-export function EmptyNote({ title, hint, icon, children }) {
-  return html`<div class="empty-note">
+export function EmptyNote({ title, hint, icon, action, children }) {
+  return html`<div class="empty-note" data-slot="empty-note">
     ${icon && html`<div class="empty-icon" aria-hidden="true"><${Icon} name=${icon} size="28" /></div>`}
     ${title && html`<p class="empty-title">${title}</p>`}
     ${hint && html`<p class="muted empty-hint">${hint}</p>`}
+    ${action && html`<div class="empty-actions">
+      <button type="button" class=${action.primary !== false ? "primary empty-btn" : "empty-btn"}
+        onClick=${action.onClick}>${action.label}</button>
+    </div>`}
     ${children}
   </div>`;
 }

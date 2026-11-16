@@ -188,8 +188,15 @@ export function Changes({ onError, onOpenConversation, onChanged }) {
     ${state.error && html`<${Pending} error=${state.error} onRetry=${() => load(false)} />`}
     ${!state.error && state.loading && !state.commits.length && html`<${Pending} />`}
     ${!state.loading && !state.error && !state.commits.length && html`<${EmptyNote}
+      icon="history"
       title=${filtered ? "Ничего не найдено" : "Помощник пока ничего не менял"}
-      hint=${filtered ? "Выберите «Все» или другую беседу." : "Когда он что-то создаст, поправит или удалит, это появится здесь."} />`}
+      hint=${filtered
+        ? "В выбранной беседе или за этот промежуток времени записей нет."
+        : "Когда помощник по вашей просьбе создаст персонажа, обновит карточку или изменит лорбук, эти действия появятся здесь с возможностью отката."}>
+      ${filtered && html`<div class="empty-actions">
+        <button type="button" class="empty-btn" onClick=${() => { setRange("all"); setConv(""); }}>Показать за всё время</button>
+      </div>`}
+    <//>`}
     ${days.map((d) => html`<section key=${d.key} class="changes-day">
       <h3>${d.key}</h3>
       ${d.commits.map((c) => html`<${Commit} key=${c.key} commit=${c} onError=${onError}

@@ -101,7 +101,7 @@ function Question({ question, onDone }) {
   };
 
   return html`<div class="overlay ask-overlay" ...${backdrop(cancel)}>
-    <form ref=${formRef} class="dialog ask" data-slot="dialog" role="alertdialog" aria-modal="true"
+    <form ref=${formRef} class="dialog ask" data-slot="dialog" data-danger=${question.danger ? "true" : "false"} role="alertdialog" aria-modal="true"
       aria-labelledby="ask-dialog-title" aria-describedby=${question.hint ? "ask-dialog-hint" : undefined}
       onKeyDown=${onKeyDown}
       onSubmit=${(e) => { e.preventDefault(); open.remember = never; finish(question.input ? value : true); }}>

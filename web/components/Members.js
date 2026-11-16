@@ -46,7 +46,9 @@ function CharacterPicker({ member, characters, taken, onPick, onClose }) {
       <input type="search" value=${query} placeholder="Поиск по имени" aria-label="Поиск персонажа"
         onInput=${(e) => setQuery(e.target.value)} />
       <ul class="list">
-        ${found.length === 0 && html`<li class="muted">Никого не нашлось</li>`}
+        ${found.length === 0 && html`<li class="muted" style="padding: 12px 0; text-align: center">
+          ${query ? `По запросу «${query}» никого не нашлось` : "Персонажей для выбора пока нет"}
+        </li>`}
         ${found.map((c) => html`<li key=${c.id}><button class="item" title=${c.name} disabled=${taken.has(c.id)}
           onClick=${() => onPick(c.id)}>${c.name}${taken.has(c.id) ? " (уже в чате)" : ""}</button></li>`)}
       </ul>
@@ -97,7 +99,8 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
     return undefined;
   };
   const remove = async (m) => {
-    if (await ask(`Убрать «${m.name}» из чата? Сам персонаж останется.`, { ok: "Убрать", danger: true, skip: "member" })) {
+    if (await ask(`Убрать «${m.name}» из этого чата?`, { ok: "Убрать", danger: true, skip: "member",
+      hint: "Сам персонаж останется в библиотеке. Сообщения, уже написанные им в этом чате, сохранятся под его именем." })) {
       apply(api.del(`/chats/${chat.id}/members/${m.slot_id}`));
     }
   };
@@ -124,13 +127,16 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
           кто отвечает) лежат в пресете промпта: настройки, вкладка «Промпт».</p>
         ${!members && html`<${Pending} error=${loadError} onRetry=${loadMembers} />`}
         <ul class="members">
-          ${members && members.length === 0 && html`<li class="muted">В чате пока нет персонажей. Добавьте их ниже.</li>`}
+          ${members && members.length === 0 && html`<li class="empty-note" style="padding: 16px; margin-bottom: 12px">
+            <p class="empty-title">В этом чате пока нет участников</p>
+            <p class="muted empty-hint">Выберите персонажа в поле ниже и нажмите «Добавить», либо создайте нового персонажа для этой истории.</p>
+          </li>`}
           ${(members || []).map((m) => html`
             <li key=${m.slot_id} class=${"member" + (m.is_me ? " me" : "") + (m.empty ? " empty" : "")} data-slot="member">
               <div class="row member-head">
                 ${m.has_avatar && html`<img class="msg-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
                 <strong class=${m.empty ? "muted" : ""}>${m.name}</strong>
-                ${m.empty && html`<span class="badge muted" data-slot="member-empty">нет персонажа</span>`}
+                ${m.empty && html`<span class="badge muted" data-slot="member-empty">нет карточки</span>`}
                 ${m.is_me && html`<span class="badge">это я</span>`}
                 ${m.character_id && m.character_id === chat.character_id && html`<span class="badge">главный</span>`}
                 <span class="spacer"></span>
@@ -141,19 +147,19 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                   onClick=${() => onEditCharacter(m.character_id)} />`}
                 <${IconButton} icon="x" label="Убрать из чата" onClick=${() => remove(m)} />
               </div>
-              ${m.empty && html`<p class="hint">Это пустое место: в чате был персонаж «${m.name}», а карточки здесь нет.
-                Он не отвечает и не попадает в промпт, его реплики остаются под этим именем. Нажмите «Заменить» и
+              ${m.empty && html`<p class="hint">Это пустое место: в импортированном чате участвовал персонаж «${m.name}», но карточки нет в вашей библиотеке.
+                Он не отвечает сам и не попадает в промпт, его реплики остаются под этим именем. Нажмите «Заменить» и
                 выберите своего персонажа: настройки места сохранятся, а прежние реплики станут его репликами.</p>`}
 
               ${!m.empty && html`<h3 class="member-part">Роль в чате</h3>
               <label class="check"><input type="checkbox" checked=${m.is_me}
-                onChange=${(e) => change(m, { is_me: e.target.checked })} /> это я</label>
-              <p class="hint">Персонаж, которого играете вы. Его карточка идёт модели как «ваша».</p>`}
+                onChange=${(e) => change(m, { is_me: e.target.checked })} /> это я (мой герой)</label>
+              <p class="hint">Персонаж, за которого играете вы. Его карточка передаётся модели как описание вашего героя.</p>`}
               ${m.is_me && html`<label class="check"><input type="checkbox" checked=${m.model_may_write}
                   onChange=${(e) => change(m, { model_may_write: e.target.checked })} /> модель может писать за него</label>
                 <p class="hint">${m.model_may_write
-                  ? "Модель может сама писать слова и действия этого персонажа."
-                  : "Модель не пишет за него, пока вы сами не попросите. Формулировка — в пресете, блок «Не писать за меня»."}</p>`}
+                  ? "Модель может свободно создавать реплики и действия вашего героя."
+                  : "Модель не пишет за вашего героя, пока вы не попросите об этом напрямую. Формулировка задаётся в пресете промпта (блок «Не писать за меня»)."}</p>`}
 
               ${!m.is_me && html`
                 <h3 class="member-part">Как говорит</h3>
@@ -174,10 +180,10 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                         onChange=${(e) => saveTalk(m, e.target.value === "" ? m.talkativeness : e.target.value)} />
                     </div>
                   </div>
-                  <p class="hint">Насколько охотно вступает в разговор, когда никого не назвали по имени.</p>
+                  <p class="hint">Насколько охотно персонаж отвечает сам, когда в диалоге никто не был назван по имени.</p>
                   <label class="check"><input type="checkbox" checked=${m.muted}
                     onChange=${(e) => change(m, { muted: e.target.checked })} /> молчит</label>
-                  <p class="hint">Не отвечает сам и не попадает в промпт, пока снова не включите.</p>
+                  <p class="hint">Временно не отвечает сам и не попадает в промпт, пока вы снова не включите.</p>
                 </div>
                 <label class="stack" data-slot="member-blurb">Коротко о нём для остальных
                   <input value=${blurbs[m.slot_id] ?? m.blurb} maxLength="500"
@@ -187,7 +193,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                       const { [m.slot_id]: _, ...rest } = b;
                       return rest;
                     }))} /></label>
-                <p class="hint">Одна строка, которую видят остальные, если выбрано «имена и короткие описания».</p>`}
+                <p class="hint">Краткая справка, которую модель видит при генерации реплик других персонажей (если выбран режим «имена и короткие описания»).</p>`}
 
               <h3 class="member-part">Место карточки в промпте</h3>
               <div class="row">
@@ -203,8 +209,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                     ${IMPORTANCE.map((i) => html`<option key=${i} value=${String(i)}>${i}</option>`)}
                   </${Select}></label>
               </div>
-              <p class="hint">Глубина — за сколько сообщений до конца чата вставить карточку (ближе к концу — сильнее
-                влияет). Важность: 1 — самый важный; при нехватке места первыми убираются карточки с большим числом.</p>
+              <p class="hint">Глубина: за сколько сообщений до конца чата вставлять карточку (ближе к концу — модель сильнее придерживается инструкций). Важность: 1 — самый важный; при нехватке лимита контекста первыми отсекаются карточки с большим числом.</p>
             </li>`)}
         </ul>
         ${replacing && html`<${CharacterPicker} member=${replacing} characters=${characters} taken=${taken}
@@ -219,7 +224,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
         </div>
 
         <h2>Кто говорит</h2>
-        <p class="hint">Общее для всего чата. Ответить может любой: кнопка «Пусть ответит» у персонажа или имя под чатом.</p>
+        <p class="hint">Общие правила для всего чата. Ответить может любой участник: кнопка «Пусть ответит» в списке выше или выбор имени под чатом.</p>
         <div class="stack" data-slot="speaker-settings">
           <label class="stack">Кто отвечает на ваше сообщение
             <${Select} value=${speaking.order} onChange=${(e) => changeSpeaking({ order: e.target.value })}>
@@ -229,12 +234,11 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
             <${Select} value=${speaking.others} onChange=${(e) => changeSpeaking({ others: e.target.value })}>
               ${OTHERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
             </${Select}></label>
-          <p class="hint">Чем больше знает, тем лучше учитывает остальных, но тем длиннее промпт. Фраза «за кого писать»
-            — в пресете, блок «Кто отвечает сейчас».</p>
+          <p class="hint">Чем больше сведений, тем точнее модель учитывает других персонажей, но тем больше токенов расходуется. Фраза «за кого писать» задаётся в пресете промпта (блок «Кто отвечает сейчас»).</p>
           <label class="stack">«Пусть поговорят»: ответов подряд
             <input type="number" min="1" max="50" value=${speaking.talk_limit}
               onChange=${(e) => changeSpeaking({ talk_limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })} /></label>
-          <p class="hint">Сколько ответов персонажи пишут друг другу подряд, пока вы не вмешались.</p>
+          <p class="hint">Сколько реплик подряд персонажи могут написать друг другу без вашего ответа.</p>
         </div>
 
         ${speaking.order === "all" && html`<h2>Все сразу</h2>

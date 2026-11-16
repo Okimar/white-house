@@ -61,6 +61,7 @@ function Versions({ entry, onBack, onError }) {
       <div class="row"><button type="button" onClick=${onBack}><${Icon} name="chevron-left" /> Назад</button><strong>Версии: ${entry.label}</strong></div>
       <p class="muted">Все тексты, с которыми эта часть уходила модели. Только просмотр и копирование.</p>
       ${list === null && html`<${Pending} error=${error} onRetry=${load} />`}
+      ${list !== null && list.length === 0 && html`<p class="muted versions-empty">Предыдущих версий этой части промпта не найдено.</p>`}
       ${(list || []).map((v, i) => html`
         <div key=${v.hash} class=${"prompt-part" + (v.hash === entry.hash ? " current" : "")}>
           <div class="row">
@@ -135,7 +136,7 @@ export function PromptView({ message, onClose, onError }) {
             ${(dropped.extras || []).length > 0 && html`<div class="notice">
               Не влезло в бюджет памяти: ${dropped.extras.join(", ")}</div>`}
             <div class="row">
-              <button type="button" onClick=${count} disabled=${counting}>${counting ? "Считаю…" : "Посчитать точно"}</button>
+              <button type="button" onClick=${count} disabled=${counting}>${counting ? "Подсчёт токенов…" : "Посчитать точно"}</button>
               <button type="button" onClick=${() => copy(whole, onError)}>Копировать всё</button>
             </div>
           </div>

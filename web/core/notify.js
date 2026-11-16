@@ -15,8 +15,12 @@ export function dismiss() {
   listener(null);
 }
 
-export function notify(text, kind = "info") {
+export function notify(text, kindOrOptions = "info") {
   clearTimeout(timer);
-  listener({ text, kind });
-  timer = setTimeout(() => listener(null), LASTS[kind] || LASTS.info);
+  const opts = typeof kindOrOptions === "string" ? { kind: kindOrOptions } : (kindOrOptions || {});
+  const kind = opts.kind || "info";
+  const action = opts.action || null;
+  listener({ text, kind, action });
+  const lasts = opts.timeout || (action ? 8000 : (LASTS[kind] || LASTS.info));
+  timer = setTimeout(() => listener(null), lasts);
 }

@@ -8,6 +8,7 @@ import { notify } from "../core/notify.js";
 import { getChoice, setChoice } from "../core/choice.js";
 import { Icon } from "./Icon.js";
 import { ask } from "./Dialogs.js";
+import { EmptyNote } from "./State.js";
 
 const FIELDS = [
   ["bos", "В самом начале"], ["story_string", "Обёртка системного текста ({{system}})"],
@@ -85,7 +86,7 @@ export function Templates({ onError }) {
   };
 
   const remove = async () => {
-    if (!(await ask(`Удалить шаблон «${draft.name}»?`, { ok: "Удалить", danger: true }))) return;
+    if (!(await ask(`Удалить шаблон «${draft.name}»? Подключения в текстовом режиме, использовавшие этот шаблон, переключатся на автоопределение.`, { ok: "Удалить", danger: true }))) return;
     await api.del(`/templates/${draft.id}`).catch((e) => onError(e.message));
     setOpenId(null);
     reload();
@@ -126,7 +127,12 @@ export function Templates({ onError }) {
       <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${importFile} />
     </div>
     <p class="hint">Импорт принимает наш файл и файлы SillyTavern (instruct, context).</p>
-    ${!draft && html`<p class="muted">Выберите шаблон, чтобы посмотреть его или изменить.</p>`}
+    ${!draft && html`<${EmptyNote} icon="terminal" title="Шаблон разметки не выбран"
+      hint="Выберите шаблон из выпадающего списка выше для просмотра и редактирования, или создайте новый для точной разметки диалога в текстовом режиме.">
+      <div class="empty-actions">
+        <button class="empty-btn" onClick=${create}><${Icon} name="plus" /> Создать новый шаблон</button>
+      </div>
+    </${EmptyNote}>`}
     ${draft && html`
       <section class="template-editor stack" data-slot="template-editor">
         <div class="row">

@@ -264,7 +264,7 @@ export function NotesByNumbers({ chatId, numbers, onClose, onChanged, onError })
                   <strong>${item.message.name || item.message.role}</strong>
                   <span class="muted"> ${item.message.content.slice(0, 80)}</span>
                   ${item.notes.length ? html`<span class="badge"><${Icon} name="notebook-pen" /> ${item.notes.length}</span>`
-                    : html`<span class="badge muted">нет заметки</span>`}
+                    : html`<span class="badge muted">нет заметок</span>`}
                 </summary>
                 <div class="body">${item.message.content}</div>
                 ${item.notes.map((n) => html`<${AttachedNote} key=${n.id + n.text} note=${n} onChanged=${changed} onError=${onError} />`)}
@@ -292,19 +292,20 @@ export function MessageNotes({ chatId, message, shown, onShown, onClose, onChang
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
       <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-labelledby="message-notes-title">
-        <div class="side-head"><strong id="message-notes-title">Заметки сообщения #${number}</strong><span class="spacer"></span>
+        <div class="side-head"><strong id="message-notes-title">Заметки к сообщению #${number}</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         <p class="muted message-preview">${message.content.slice(0, 200)}</p>
         ${!notes && html`<${Pending} />`}
         ${notes && html`
           <div class="row">
             <label><input type="checkbox" checked=${shown} onChange=${(e) => onShown(e.target.checked)} />
-              показывать все заметки возле сообщения, и скрытые тоже</label>
+              Показывать все заметки рядом с сообщением (включая скрытые)</label>
           </div>
           ${notes.length > 1 && html`<div class="row">
-            <button type="button" onClick=${() => kindForAll("visible")}>Все видимыми</button>
-            <button type="button" onClick=${() => kindForAll("hidden")}>Все скрытыми</button>
+            <button type="button" onClick=${() => kindForAll("visible")}>Сделать все видимыми</button>
+            <button type="button" onClick=${() => kindForAll("hidden")}>Сделать все скрытыми</button>
           </div>`}
+          ${notes.length === 0 && html`<p class="muted notes-empty">К этому сообщению пока нет заметок. Вы можете добавить заметку ниже, чтобы направить сюжет или подсказать детали персонажу.</p>`}
           ${notes.map((n) => html`<${AttachedNote} key=${n.id} note=${n} onChanged=${changed} onError=${onError} />`)}
           <${NewNote} messageId=${message.id} chatId=${chatId} hasNotes=${notes.length > 0}
             onChanged=${changed} onError=${onError} />`}

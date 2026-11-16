@@ -93,12 +93,14 @@ function Panel({ anchor, rows, active, listId, onActive, onPick, onClose }) {
   return html`<div ref=${panel} class="select-list suggest-list" data-slot="suggest-list"
     onPointerDown=${(e) => e.preventDefault()} onMouseDown=${(e) => e.preventDefault()}>
     <div ref=${list} class="select-options" role="listbox" id=${listId} aria-label=${anchor.getAttribute("aria-label") || undefined}>
-      ${rows.map((r, i) => html`<div key=${r.id} id=${listId + "-" + i} role="option" aria-selected=${i === active ? "true" : "false"}
-        class=${"select-option suggest-option" + (i === active ? " active" : "")} data-slot="select-option"
-        onPointerMove=${(e) => { if (e.pointerType === "mouse" && active !== i) onActive(i); }}
-        onClick=${() => onPick(r.id)}>
-        <span class="suggest-id">${r.id}</span>
-        ${r.name && html`<span class="suggest-name muted">${r.name}</span>`}</div>`)}
+      ${rows.length === 0
+        ? html`<div class="suggest-empty muted" role="status">Нет подходящих вариантов</div>`
+        : rows.map((r, i) => html`<div key=${r.id} id=${listId + "-" + i} role="option" aria-selected=${i === active ? "true" : "false"}
+            class=${"select-option suggest-option" + (i === active ? " active" : "")} data-slot="select-option"
+            onPointerMove=${(e) => { if (e.pointerType === "mouse" && active !== i) onActive(i); }}
+            onClick=${() => onPick(r.id)}>
+            <span class="suggest-id">${r.id}</span>
+            ${r.name && html`<span class="suggest-name muted">${r.name}</span>`}</div>`)}
     </div>
   </div>`;
 }
