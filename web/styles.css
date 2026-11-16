@@ -1476,8 +1476,9 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 .sidebar .list li:hover .icon-btn, .sidebar .list li .icon-btn:focus-visible { opacity: 1; }
 @media (pointer: coarse) {
   .sidebar .list li { gap: 4px; }
-  .sidebar .list li .icon-btn { min-width: 44px; min-height: 44px; opacity: 1; }
-  .sidebar .list li .icon-btn::after { content: ""; position: absolute; inset: -4px; min-width: 44px; min-height: 44px; }
+  /* The button is 44x44 itself: no ::after hit area. An absolute ::after on this unpositioned button covered the
+     whole list, so every tap on a chat row landed on the «…» of the last row and no chat could be opened. */
+  .sidebar .list li .icon-btn { min-width: 44px; min-height: 44px; opacity: 1; position: relative; }
 }
 @media (prefers-reduced-motion: reduce) { .menu, .select-list, .state-spinner { animation: none; } }
 .count { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
