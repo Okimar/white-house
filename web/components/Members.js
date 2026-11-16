@@ -134,18 +134,22 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
           ${(members || []).map((m) => html`
             <li key=${m.slot_id} class=${"member" + (m.is_me ? " me" : "") + (m.empty ? " empty" : "")} data-slot="member">
               <div class="row member-head">
-                ${m.has_avatar && html`<img class="msg-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
-                <strong class=${m.empty ? "muted" : ""}>${m.name}</strong>
-                ${m.empty && html`<span class="badge muted" data-slot="member-empty">нет карточки</span>`}
-                ${m.is_me && html`<span class="badge">это я</span>`}
-                ${m.character_id && m.character_id === chat.character_id && html`<span class="badge">главный</span>`}
+                <div class="member-title-group">
+                  ${m.has_avatar && html`<img class="msg-avatar member-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
+                  <strong class=${"member-name" + (m.empty ? " muted" : "")}>${m.name}</strong>
+                  ${m.empty && html`<span class="badge muted" data-slot="member-empty">нет карточки</span>`}
+                  ${m.is_me && html`<span class="badge badge-accent">это я</span>`}
+                  ${m.character_id && m.character_id === chat.character_id && html`<span class="badge">главный</span>`}
+                </div>
                 <span class="spacer"></span>
-                <button data-slot="member-replace" onClick=${() => setReplacing(m)}>Заменить</button>
-                ${!m.is_me && !m.empty && html`<${IconButton} icon="message-circle-reply" label="Пусть ответит"
-                  onClick=${() => onAnswer(m.character_id)} />`}
-                ${!m.empty && html`<${IconButton} icon="pencil" label="Карточка персонажа"
-                  onClick=${() => onEditCharacter(m.character_id)} />`}
-                <${IconButton} icon="x" label="Убрать из чата" onClick=${() => remove(m)} />
+                <div class="member-actions">
+                  <button class="member-replace-btn" data-slot="member-replace" onClick=${() => setReplacing(m)}>Заменить</button>
+                  ${!m.is_me && !m.empty && html`<${IconButton} icon="message-circle-reply" label="Пусть ответит"
+                    onClick=${() => onAnswer(m.character_id)} />`}
+                  ${!m.empty && html`<${IconButton} icon="pencil" label="Карточка персонажа"
+                    onClick=${() => onEditCharacter(m.character_id)} />`}
+                  <${IconButton} icon="x" label="Убрать из чата" onClick=${() => remove(m)} />
+                </div>
               </div>
               ${m.empty && html`<p class="hint">Это пустое место: в импортированном чате участвовал персонаж «${m.name}», но карточки нет в вашей библиотеке.
                 Он не отвечает сам и не попадает в промпт, его реплики остаются под этим именем. Нажмите «Заменить» и
@@ -223,55 +227,64 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
           <button onClick=${() => onEditCharacter(null)}>Создать персонажа</button>
         </div>
 
-        <h2>Кто говорит</h2>
-        <p class="hint">Общие правила для всего чата. Ответить может любой участник: кнопка «Пусть ответит» в списке выше или выбор имени под чатом.</p>
-        <div class="stack" data-slot="speaker-settings">
-          <label class="stack">Кто отвечает на ваше сообщение
-            <${Select} value=${speaking.order} onChange=${(e) => changeSpeaking({ order: e.target.value })}>
-              ${ORDERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-            </${Select}></label>
-          <label class="stack">Что модель знает об остальных, когда пишет за одного
-            <${Select} value=${speaking.others} onChange=${(e) => changeSpeaking({ others: e.target.value })}>
-              ${OTHERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-            </${Select}></label>
-          <p class="hint">Чем больше сведений, тем точнее модель учитывает других персонажей, но тем больше токенов расходуется. Фраза «за кого писать» задаётся в пресете промпта (блок «Кто отвечает сейчас»).</p>
-          <label class="stack">«Пусть поговорят»: ответов подряд
-            <input type="number" min="1" max="50" value=${speaking.talk_limit}
-              onChange=${(e) => changeSpeaking({ talk_limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })} /></label>
-          <p class="hint">Сколько реплик подряд персонажи могут написать друг другу без вашего ответа.</p>
+        <div class="members-section-card" data-slot="speaker-card">
+          <h2 class="members-section-title">Кто говорит</h2>
+          <p class="hint">Общие правила для всего чата. Ответить может любой участник: кнопка «Пусть ответит» в списке выше или выбор имени под чатом.</p>
+          <div class="stack" data-slot="speaker-settings">
+            <label class="stack">Кто отвечает на ваше сообщение
+              <${Select} value=${speaking.order} onChange=${(e) => changeSpeaking({ order: e.target.value })}>
+                ${ORDERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+              </${Select}></label>
+            <label class="stack">Что модель знает об остальных, когда пишет за одного
+              <${Select} value=${speaking.others} onChange=${(e) => changeSpeaking({ others: e.target.value })}>
+                ${OTHERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+              </${Select}></label>
+            <p class="hint">Чем больше сведений, тем точнее модель учитывает других персонажей, но тем больше токенов расходуется. Фраза «за кого писать» задаётся в пресете промпта (блок «Кто отвечает сейчас»).</p>
+            <label class="stack">«Пусть поговорят»: ответов подряд
+              <input type="number" min="1" max="50" value=${speaking.talk_limit}
+                onChange=${(e) => changeSpeaking({ talk_limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })} /></label>
+            <p class="hint">Сколько реплик подряд персонажи могут написать друг другу без вашего ответа.</p>
+          </div>
         </div>
 
-        ${speaking.order === "all" && html`<h2>Все сразу</h2>
-        <div class="stack" data-slot="together-settings">
-          <label class="stack">Как показывать ответы всех сразу
-            <${Select} value=${speaking.together} onChange=${(e) => changeSpeaking({ together: e.target.value })}>
-              ${TOGETHER.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-            </${Select}></label>
-          <label class="check">
-            <input type="checkbox" checked=${speaking.narrator.enabled}
-              onChange=${(e) => changeSpeaking({ narrator: { enabled: e.target.checked } })} /> Рассказчик сводит ход в одну сцену</label>
-          <p class="hint">После хода всех сразу ещё один запрос сводит их действия в одну сцену.
-            Текст указания — в пресете, блок «Рассказчик после хода «все сразу»».</p>
-          ${speaking.narrator.enabled && html`<div class="row" data-slot="narrator-settings">
-            <label>Имя <input value=${narratorName ?? speaking.narrator.name} maxLength="200"
-              onInput=${(e) => setNarratorName(e.target.value)}
-              onChange=${(e) => changeSpeaking({ narrator: { name: e.target.value } }).then(() => setNarratorName(null))} /></label>
-            <label>Подключение <${Select} value=${speaking.narrator.connection_id}
-              onChange=${(e) => changeSpeaking({ narrator: { connection_id: e.target.value } })}>
-              <option value="">как у чата</option>
-              ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
-            </${Select}></label>
-            <label>Модель <input value=${narratorModel ?? speaking.narrator.model} placeholder="как у подключения"
-              onInput=${(e) => setNarratorModel(e.target.value)}
-              onChange=${(e) => changeSpeaking({ narrator: { model: e.target.value } }).then(() => setNarratorModel(null))} /></label>
+        ${speaking.order === "all" && html`<div class="members-section-card" data-slot="together-card">
+          <h2 class="members-section-title">Все сразу</h2>
+          <div class="stack" data-slot="together-settings">
+            <label class="stack">Как показывать ответы всех сразу
+              <${Select} value=${speaking.together} onChange=${(e) => changeSpeaking({ together: e.target.value })}>
+                ${TOGETHER.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+              </${Select}></label>
+            <label class="check">
+              <input type="checkbox" checked=${speaking.narrator.enabled}
+                onChange=${(e) => changeSpeaking({ narrator: { enabled: e.target.checked } })} />
+              <span>Рассказчик сводит ход в одну сцену</span></label>
+            <p class="hint">После хода всех сразу ещё один запрос сводит их действия в одну сцену.
+              Текст указания — в пресете, блок «Рассказчик после хода «все сразу»».</p>
+            ${speaking.narrator.enabled && html`<div class="narrator-grid" data-slot="narrator-settings">
+              <label>Имя <input value=${narratorName ?? speaking.narrator.name} maxLength="200"
+                onInput=${(e) => setNarratorName(e.target.value)}
+                onChange=${(e) => changeSpeaking({ narrator: { name: e.target.value } }).then(() => setNarratorName(null))} /></label>
+              <label>Подключение <${Select} value=${speaking.narrator.connection_id}
+                onChange=${(e) => changeSpeaking({ narrator: { connection_id: e.target.value } })}>
+                <option value="">как у чата</option>
+                ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+              </${Select}></label>
+              <label>Модель <input value=${narratorModel ?? speaking.narrator.model} placeholder="как у подключения"
+                onInput=${(e) => setNarratorModel(e.target.value)}
+                onChange=${(e) => changeSpeaking({ narrator: { model: e.target.value } }).then(() => setNarratorModel(null))} /></label>
+            </div>
+            <p class="hint">Имя подписывает сообщение рассказчика. Подключение и модель можно взять другие, подешевле.</p>`}
           </div>
-          <p class="hint">Имя подписывает сообщение рассказчика. Подключение и модель можно взять другие, подешевле.</p>`}
         </div>`}
 
-        <h2>Пресет промпта этого чата</h2>
-        <p class="hint">Порядок и тексты всего, что уходит модели. Пустой выбор — общий пресет из настроек.</p>
-        <${Select} value=${chat.meta.preset_id || ""} onChange=${(e) => choosePreset(e.target.value)}>
-          <option value="">Общий${globalPreset ? ` (${globalPreset.name})` : ""}</option>
+        <div class="members-section-card" data-slot="chat-preset-card">
+          <h2 class="members-section-title">Пресет промпта этого чата</h2>
+          <p class="hint">Порядок и тексты всего, что уходит модели. Пустой выбор — общий пресет из настроек.</p>
+          <${Select} value=${chat.meta.preset_id || ""} onChange=${(e) => choosePreset(e.target.value)}>
+            <option value="">Общий${globalPreset ? ` (${globalPreset.name})` : ""}</option>
+            ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
+          </${Select}>
+        </div>
           ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
         </${Select}>
 

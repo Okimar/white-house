@@ -6,6 +6,7 @@
 import { html, useEffect, useRef, useState } from "../vendor/preact-htm.mjs";
 import { backdrop, useEscape } from "../core/keys.js";
 import { api } from "../core/api.js";
+import { Icon } from "./Icon.js";
 
 let show = null;
 
@@ -105,7 +106,10 @@ function Question({ question, onDone }) {
       aria-labelledby="ask-dialog-title" aria-describedby=${question.hint ? "ask-dialog-hint" : undefined}
       onKeyDown=${onKeyDown}
       onSubmit=${(e) => { e.preventDefault(); open.remember = never; finish(question.input ? value : true); }}>
-      <p id="ask-dialog-title" class="ask-text">${question.text}</p>
+      <div class="ask-head">
+        ${question.danger && html`<span class="ask-danger-icon" aria-hidden="true"><${Icon} name="triangle-alert" size="20" /></span>`}
+        <p id="ask-dialog-title" class="ask-text">${question.text}</p>
+      </div>
       ${question.hint && html`<p id="ask-dialog-hint" class="muted ask-hint">${question.hint}</p>`}
       ${question.skip && html`<label class="ask-never" data-slot="ask-never"><input type="checkbox" checked=${never}
         onChange=${(e) => setNever(e.target.checked)} /> <span>Больше не спрашивать</span>

@@ -208,11 +208,21 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
 // --- notices that must work even when the rest of the page does not -------------------------------------
 // Plain DOM with inline styles: they do not depend on the app's own components or on any theme.
 
-const BAR = "display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;"
-  + "background:var(--panel,#1f1f24);color:var(--fg,#eee);border-bottom:2px solid var(--warning,#e0a030);"
-  + "font:14px/1.4 system-ui,sans-serif;overflow-wrap:anywhere;word-break:break-word;";
-const BTN = "padding:8px 14px;min-height:44px;border-radius:6px;border:1px solid currentColor;"
-  + "background:transparent;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;touch-action:manipulation;";
+const BAR = "display:flex;flex-wrap:wrap;gap:10px;align-items:center;"
+  + "padding:10px max(14px,env(safe-area-inset-right)) 10px max(14px,env(safe-area-inset-left));"
+  + "background:color-mix(in srgb,var(--warning,#e5a855) 12%,var(--panel,#1b1917));"
+  + "color:var(--fg,#f2ece2);border-bottom:1px solid color-mix(in srgb,var(--warning,#e5a855) 30%,var(--line,#2e2b26));"
+  + "font:500 var(--text-sm,14px)/1.45 var(--font,system-ui,sans-serif);"
+  + "overflow-wrap:anywhere;word-break:break-word;text-wrap:pretty;";
+const BTN_BASE = "padding:6px 14px;min-height:var(--tap,44px);border-radius:var(--radius-sm,8px);"
+  + "font:500 var(--text-sm,14px)/1.3 var(--font,system-ui,sans-serif);cursor:pointer;"
+  + "display:inline-flex;align-items:center;justify-content:center;touch-action:manipulation;"
+  + "transition:transform 120ms ease,background-color 120ms ease,border-color 120ms ease,box-shadow 120ms ease;";
+const BTN = BTN_BASE
+  + "border:1px solid color-mix(in srgb,var(--fg,#f2ece2) 20%,transparent);"
+  + "background:color-mix(in srgb,var(--panel,#1b1917) 80%,transparent);color:var(--fg,#f2ece2);";
+const BTN_PRIMARY = BTN_BASE
+  + "border:1px solid var(--accent,#96570f);background:var(--accent,#96570f);color:var(--accent-fg,#fff);font-weight:600;";
 
 function el(tag, style, text, children = []) {
   const node = document.createElement(tag);
@@ -222,12 +232,15 @@ function el(tag, style, text, children = []) {
   return node;
 }
 
-function button(label, onClick) {
-  const node = el("button", BTN, label);
+function button(label, onClick, primary = false) {
+  const node = el("button", primary ? BTN_PRIMARY : BTN, label);
   node.type = "button";
   node.addEventListener("click", onClick);
+  node.addEventListener("pointerdown", () => { node.style.transform = "scale(0.97)"; });
+  node.addEventListener("pointerup", () => { node.style.transform = ""; });
+  node.addEventListener("pointercancel", () => { node.style.transform = ""; });
   node.addEventListener("focus", () => {
-    node.style.outline = "2px solid currentColor";
+    node.style.outline = "var(--focus-ring, 2px solid var(--accent))";
     node.style.outlineOffset = "2px";
   });
   node.addEventListener("blur", () => {
@@ -254,15 +267,17 @@ function safeBar() {
   if (LOOK.safe_persistent) how.push("Включён постоянный режим (`python -m tavern safe-mode on`).");
   if (LOOK.safe_run) how.push("Включён на текущий запуск (`--safe`): перезапустите программу без этого флага.");
   if (SAFE_IN_ADDRESS) how.push("Включён адресом с параметром `?safe`.");
-  bar.appendChild(el("strong", "", "Безопасный режим: сторонние темы, стили и скрипты отключены."));
-  bar.appendChild(el("span", "opacity:.85", how.join(" ")));
+  const badge = el("span", "display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:var(--text-xs,12px);font-weight:700;letter-spacing:0.02em;background:color-mix(in srgb,var(--warning,#e5a855) 25%,transparent);color:var(--fg,#f2ece2);border:1px solid color-mix(in srgb,var(--warning,#e5a855) 40%,transparent);margin-right:4px;", "Безопасный режим");
+  const head = el("div", "display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:600;", "", [badge, el("span", "", "Сторонние темы, стили и эффекты отключены.")]);
+  bar.appendChild(head);
+  if (how.length) bar.appendChild(el("span", "opacity:.85;font-size:var(--text-xs,12px);", how.join(" ")));
   if (LOOK.safe_persistent || SAFE_IN_ADDRESS) {
     bar.appendChild(button("Выйти из безопасного режима", async () => {
       try { if (LOOK.safe_persistent) await post("/api/look/safe", { on: false }); } catch (e) { /* try anyway */ }
       location.href = "/";
-    }));
+    }, true));
   } else {
-    bar.appendChild(el("span", "opacity:.85", "Для выхода закройте программу и запустите её снова без флага `--safe`."));
+    bar.appendChild(el("span", "opacity:.85;font-size:var(--text-xs,12px);", "Для выхода закройте программу и запустите её снова без флага `--safe`."));
   }
   return bar;
 }
@@ -275,17 +290,19 @@ function parkedBar() {
   bar.setAttribute("role", "alert");
   bar.setAttribute("aria-live", "assertive");
   bar.dataset.slot = "look-parked-bar";
+  const badge = el("span", "display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:var(--text-xs,12px);font-weight:700;letter-spacing:0.02em;background:color-mix(in srgb,var(--warning,#e5a855) 25%,transparent);color:var(--fg,#f2ece2);border:1px solid color-mix(in srgb,var(--warning,#e5a855) 40%,transparent);margin-right:4px;", "Обновление");
   const text = el("span", "", parkedText(LOOK.parked));
   text.dataset.part = "text";
-  bar.appendChild(text);
-  const actions = el("span", "display:flex;flex-wrap:wrap;gap:8px");
-  const warning = el("div", "flex-basis:100%;display:none;opacity:.9",
+  const head = el("div", "display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:200px;", "", [badge, text]);
+  bar.appendChild(head);
+  const actions = el("span", "display:flex;flex-wrap:wrap;gap:8px;align-items:center;");
+  const warning = el("div", "flex-basis:100%;display:none;opacity:.9;padding:6px 10px;border-radius:6px;background:color-mix(in srgb,var(--fg,#f2ece2) 6%,transparent);font-size:var(--text-xs,12px);line-height:1.4;",
     "Прежнее оформление создавалось под старый интерфейс и может нарушить отображение меню. "
     + "Если это произойдёт, откройте безопасный режим (адрес с ?safe или команда `python -m tavern safe-mode on`) "
     + "и смените тему в «Настройки → Оформление».");
   const confirm = button("Всё равно вернуть", async () => {
     try { await post("/api/look/restore"); location.reload(); } catch (e) { confirm.textContent = "Не удалось восстановить. Попробуйте ещё раз"; }
-  });
+  }, true);
   confirm.style.display = "none";
   const ask = button("Вернуть прежний вид", () => {
     warning.style.display = "block";

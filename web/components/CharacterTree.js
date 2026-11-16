@@ -353,7 +353,7 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
 
   return html`
     <aside class=${"tree-panel" + (folded ? " folded" : "")} data-slot="tree-panel" aria-label="Пузырь" data-folded=${folded ? "true" : "false"}>
-      <div class="row">${foldButton}<span class="muted path">${path}</span><span class="spacer"></span>
+      <div class="row panel-top-row">${foldButton}<span class="path" title=${path}><span class="path-badge">${path}</span></span><span class="spacer"></span>
         <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
       <input class="tree-title" value=${draft.title} aria-label="Название"
         onInput=${(e) => set({ title: e.target.value })} />
@@ -367,16 +367,18 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
       <textarea rows="7" value=${draft.content} placeholder="Текст, который получит модель"
         onInput=${(e) => set({ content: e.target.value })}></textarea>
       ${draft.mode === "search" && html`
-        <div class="stack">
+        <div class="stack panel-keywords-stack">
           <span class="muted">Ключевые слова
             ${vectorized ? html` · <${Icon} name="waypoints" size=${14} /> векторизован` : ""}</span>
           <span class="hint">Название тоже считается, окончания не важны</span>
-          <div class="chips">
-            ${draft.keywords.map((k) => html`<span key=${k} class="chip">${k}
-              <button type="button" aria-label=${"Убрать слово " + k} title="Убрать"
-                onClick=${() => set({ keywords: draft.keywords.filter((x) => x !== k) }, true)}><${Icon} name="x" size=${14} /></button></span>`)}
-          </div>
-          <div class="row">
+          ${draft.keywords.length > 0
+            ? html`<div class="chips">
+                ${draft.keywords.map((k) => html`<span key=${k} class="chip">${k}
+                  <button type="button" aria-label=${"Убрать слово " + k} title="Убрать"
+                    onClick=${() => set({ keywords: draft.keywords.filter((x) => x !== k) }, true)}><${Icon} name="x" size=${14} /></button></span>`)}
+              </div>`
+            : html`<span class="hint empty-keywords-hint">Ключевых слов пока нет — поиск срабатывает по названию</span>`}
+          <div class="row keywords-input-row">
             <input value=${word} placeholder="слово, ещё слово" aria-label="Новое ключевое слово"
               onInput=${(e) => setWord(e.target.value)}
               onKeyDown=${(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addWords(word); } }} />
@@ -385,7 +387,7 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
               ${busy ? "Думаю…" : "Подобрать"}</button>
           </div>
         </div>`}
-      <div class="row">
+      <div class="block-fields-grid" data-slot="block-fields-grid">
         <label title="За сколько сообщений до конца чата вставить. Пусто — рядом с карточкой">Глубина
           <input class="num" inputmode="numeric" pattern="[0-9]*" placeholder="рядом"
             value=${draft.depth === null ? "" : String(draft.depth)} onInput=${depthInput} /></label>
@@ -402,14 +404,15 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
         ${draft.mode === "always" && html`<label title="Сколько ответов пропускать между отправками: 0 — на каждый ответ">
           Через <input class="num" inputmode="numeric" pattern="[0-9]*" value=${String(draft.every ?? 0)}
             aria-label="Через сколько ответов" onInput=${(e) => set({ every: digitsOf(e, 1000) ?? 0 })} /> отв.</label>`}
-        <label title="Как показывать подпузыри на карте">Подпузыри на карте
+        <label class="block-field-wide" title="Как показывать подпузыри на карте">Подпузыри на карте
           <${Select} value=${draft.layout.display || "line"}
             onChange=${(e) => set({ layout: { ...draft.layout, display: e.target.value } }, true)}>
             <option value="line">линиями</option><option value="nested">внутри пузыря</option>
           </${Select}></label>
-        <label title="Спрятать подпузыри на карте (на отправку модели не влияет)">
+        <label class="check block-field-full" title="Спрятать подпузыри на карте (на отправку модели не влияет)">
           <input type="checkbox" checked=${Boolean(draft.layout.collapsed)}
-            onChange=${(e) => set({ layout: { ...draft.layout, collapsed: e.target.checked } }, true)} /> скрыть подпузыри на карте</label>
+            onChange=${(e) => set({ layout: { ...draft.layout, collapsed: e.target.checked } }, true)} />
+          <span>Скрыть подпузыри на карте</span></label>
       </div>
       <span class="hint">Глубина: за сколько сообщений до конца чата вставить пузырь; пусто — рядом с карточкой.${draft.mode === "search"
         ? " Держится: сколько ответов пузырь остаётся после того, как тема всплыла. Шанс: с какой вероятностью найденный пузырь уйдёт модели."
@@ -1323,9 +1326,9 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
           <button key=${sp.id} class=${"crumb" + (i === spaces.length - 1 ? " current" : "")} onClick=${() => closeSpaces(i + 1)}>
             ${byId.get(sp.id)?.title}</button>`)}
         <span class="spacer"></span>
-        <label title="Бросить пузырь на другой: положить внутрь. Выключено: пузыри только двигаются">
+        <label class="check tree-nest-check" title="Бросить пузырь на другой: положить внутрь. Выключено: пузыри только двигаются">
           <input type="checkbox" checked=${nestOnDrop} onChange=${(e) => setNestOnDrop(e.target.checked)} />
-          Класть внутрь при перетаскивании</label>
+          <span>Класть внутрь при переносе</span></label>
       </div>`}
       <div key="body" class="tree-body">
         ${view === "map"

@@ -115,29 +115,33 @@ export function SpendingSettings({ onError }) {
       <p class="hint">Пусто — в долларах. Сервисы берут доллары; курс вы пишете сами.</p>
 
       <h3>Лимит</h3>
-      <div class="row">
-        <label>В день, ${cur} ${decimal("day", settings.limits.day, "Лимит в день",
+      <div class="row spend-limits-grid">
+        <label class="stack">В день, ${cur} ${decimal("day", settings.limits.day, "Лимит в день",
           (day) => change({ limits: { ...settings.limits, day } }), { placeholder: "нет" })}</label>
-        <label>В месяц, ${cur} ${decimal("month", settings.limits.month, "Лимит в месяц",
+        <label class="stack">В месяц, ${cur} ${decimal("month", settings.limits.month, "Лимит в месяц",
           (month) => change({ limits: { ...settings.limits, month } }), { placeholder: "нет" })}</label>
-        <${Select} value=${settings.on_limit} aria-label="Что делать у лимита"
-          onChange=${(e) => change({ on_limit: e.target.value })}>
-          <option value="warn">только предупреждать</option>
-          <option value="stop">не отправлять новые запросы</option>
-        </${Select}>
+        <label class="stack">Действие у лимита
+          <${Select} value=${settings.on_limit} aria-label="Что делать у лимита"
+            onChange=${(e) => change({ on_limit: e.target.value })}>
+            <option value="warn">только предупреждать</option>
+            <option value="stop">не отправлять новые запросы</option>
+          </${Select}>
+        </label>
       </div>
 
       <h3>Свои цены</h3>
       <p class="hint">Долларов за миллион токенов. Своя цена важнее цены сервиса.</p>
       <ul class="list">
-        ${prices.map((p, i) => html`<li key=${i} class="row">
-          <input value=${p.model} placeholder="модель" aria-label="Модель" onInput=${(e) => setPrice(i, { model: e.target.value })} />
-          <label>Запрос, $ <input class="num" type="text" inputmode="decimal" value=${p.in}
-            onInput=${(e) => setPrice(i, { in: e.target.value })} /></label>
-          <label>Ответ, $ <input class="num" type="text" inputmode="decimal" value=${p.out}
-            onInput=${(e) => setPrice(i, { out: e.target.value })} /></label>
-          <${IconButton} icon="trash-2" label=${"Убрать цену для модели " + (p.model || ("№" + (i + 1)))}
-            onClick=${() => { setPrices(prices.filter((_, j) => j !== i)); setDirty(true); }} />
+        ${prices.map((p, i) => html`<li key=${i} class="spend-price-row">
+          <input class="grow" value=${p.model} placeholder="модель" aria-label="Модель" onInput=${(e) => setPrice(i, { model: e.target.value })} />
+          <div class="spend-price-inputs">
+            <label>Запрос, $ <input class="num" type="text" inputmode="decimal" value=${p.in}
+              onInput=${(e) => setPrice(i, { in: e.target.value })} /></label>
+            <label>Ответ, $ <input class="num" type="text" inputmode="decimal" value=${p.out}
+              onInput=${(e) => setPrice(i, { out: e.target.value })} /></label>
+            <${IconButton} icon="trash-2" label=${"Убрать цену для модели " + (p.model || ("№" + (i + 1)))}
+              onClick=${() => { setPrices(prices.filter((_, j) => j !== i)); setDirty(true); }} />
+          </div>
         </li>`)}
       </ul>
       <div class="row">

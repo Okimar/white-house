@@ -90,21 +90,31 @@ export function Profiles({ onApplied, onError }) {
       hint="Выберите подключение, модель и пресет, дайте название и сохраните текущее как профиль." />`}
     <ul class="list profiles" data-slot="profiles">
       ${profiles.map((p) => html`<li key=${p.id} class=${"profile-row" + (p.id === active ? " active" : "")}>
-        <button class=${p.id === active ? "primary" : ""} onClick=${async () => { if (await apply(p.id)) onApplied(); }}
-          title=${`${p.connection_name} · ${p.model || "модель не выбрана"}`}>${p.name}</button>
-        ${PARTS.map(([k, label]) => html`<label key=${k}><input type="checkbox" checked=${p.parts[k]}
-          onChange=${() => toggle(p, k)} />${label}</label>`)}
-        <span class="spacer"></span>
-        <${IconButton} icon="refresh-cw" label=${"Записать в профиль «" + p.name + "» то, что выбрано сейчас"} onClick=${() => recapture(p)} />
-        <${IconButton} icon="trash-2" label=${"Удалить профиль «" + p.name + "»"} onClick=${() => remove(p)} />
+        <div class="profile-head">
+          <button class=${p.id === active ? "primary" : ""} onClick=${async () => { if (await apply(p.id)) onApplied(); }}
+            title=${`${p.connection_name} · ${p.model || "модель не выбрана"}`}>${p.name}</button>
+          <span class="muted profile-meta">${p.connection_name || ""}${p.model ? " · " + p.model : ""}</span>
+          <div class="profile-actions">
+            <${IconButton} icon="refresh-cw" label=${"Записать в профиль «" + p.name + "» то, что выбрано сейчас"} onClick=${() => recapture(p)} />
+            <${IconButton} icon="trash-2" label=${"Удалить профиль «" + p.name + "»"} onClick=${() => remove(p)} />
+          </div>
+        </div>
+        <div class="profile-parts">
+          ${PARTS.map(([k, label]) => html`<label key=${k} class="check"><input type="checkbox" checked=${p.parts[k]}
+            onChange=${() => toggle(p, k)} />${label}</label>`)}
+        </div>
       </li>`)}
     </ul>
-    <form class="row" onSubmit=${save}>
-      <input required placeholder="Название профиля" value=${name} onInput=${(e) => setName(e.target.value)}
-        aria-label="Название профиля" />
-      ${PARTS.map(([k, label]) => html`<label key=${k}><input type="checkbox" checked=${parts[k]}
-        onChange=${() => setParts({ ...parts, [k]: !parts[k] })} />${label}</label>`)}
-      <button type="submit">Сохранить текущее как профиль</button>
+    <form class="stack profile-new-form" onSubmit=${save}>
+      <div class="row">
+        <input required placeholder="Название профиля" value=${name} onInput=${(e) => setName(e.target.value)}
+          aria-label="Название профиля" class="grow" />
+        <button type="submit" class="primary">Сохранить как профиль</button>
+      </div>
+      <div class="profile-parts">
+        ${PARTS.map(([k, label]) => html`<label key=${k} class="check"><input type="checkbox" checked=${parts[k]}
+          onChange=${() => setParts({ ...parts, [k]: !parts[k] })} />${label}</label>`)}
+      </div>
     </form>`;
 }
 

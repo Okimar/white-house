@@ -31,8 +31,10 @@ function Panel({ anchor, items, onClose }) {
     el.style.maxHeight = `${maxH}px`;
     const h = Math.min(el.offsetHeight, maxH);
     const top = below ? box.bottom + gap : Math.max(margin, box.top - gap - h);
-    const left = Math.min(box.right - el.offsetWidth, winW - el.offsetWidth - margin);
-    el.style.left = `${Math.max(margin, left)}px`;
+    const alignLeft = box.left + el.offsetWidth <= winW - margin && box.left < winW / 2;
+    const idealLeft = alignLeft ? box.left : box.right - el.offsetWidth;
+    const left = Math.min(Math.max(margin, idealLeft), Math.max(margin, winW - el.offsetWidth - margin));
+    el.style.left = `${left}px`;
     el.style.top = `${Math.max(margin, top)}px`;
     el.dataset.side = below ? "down" : "up";
     el.focus({ preventScroll: true }); // arrows then walk the items; no ring on an item after a tap

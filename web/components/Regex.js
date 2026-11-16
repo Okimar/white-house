@@ -197,10 +197,18 @@ function RuleEditor({ rule, scope, owner, chatId, onClose, onSaved }) {
         <textarea rows="3" value=${sample} aria-label="Текст для пробы" onInput=${(e) => setSample(e.target.value)}></textarea>
         ${probe && !probe.ok && html`<p class="error" role="alert" data-slot="regex-try-error">${probe.error}</p>`}
         ${probe && probe.ok && html`
-          <${Highlighted} text=${sample} matches=${probe.matches} />
-          <small class="muted">${probe.matches.length ? `Найдено: ${probe.matches.length}` : "Ничего не найдено"}</small>
-          <div class="rx-result" data-slot="regex-result">
-            ${probe.nodes ? html`<${RegexNodes} nodes=${probe.nodes} />` : html`<div class="rx-sample">${probe.result}</div>`}</div>`}
+          <div class="rx-panels stack">
+            <div>
+              <small class="muted">Найдено совпадений: <strong>${probe.matches.length}</strong></small>
+              <${Highlighted} text=${sample} matches=${probe.matches} />
+            </div>
+            <div>
+              <small class="muted">Результат замены:</small>
+              <div class="rx-result" data-slot="regex-result">
+                ${probe.nodes ? html`<${RegexNodes} nodes=${probe.nodes} />` : html`<div class="rx-sample">${probe.result}</div>`}
+              </div>
+            </div>
+          </div>`}
       </div>
       ${saveError && html`<p class="error" role="alert">${saveError}</p>`}
       <div class="row">

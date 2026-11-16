@@ -64,33 +64,34 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
           <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> <span class="block-name">${block.name}</span> <span class="muted">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
           ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
           ${block.group && html`<span class="tag" title="Из блоков группы включён только один"><${Icon} name="arrow-left-right" /> ${block.group}</span>`}</button>
-        ${!readOnly && html`
+        ${!readOnly && html`<div class="actions">
           <${IconButton} icon="arrow-up" label=${"Переместить блок «" + block.name + "» выше"}
             disabled=${index === 0} onClick=${() => onMove(index, -1)} />
           <${IconButton} icon="arrow-down" label=${"Переместить блок «" + block.name + "» ниже"}
             disabled=${index === count - 1} onClick=${() => onMove(index, 1)} />
           ${REMOVABLE.includes(block.kind) && !block.when && html`<${IconButton} icon="trash-2"
             label=${"Удалить блок «" + block.name + "»"} class="danger-text"
-            onClick=${dropBlock} />`}`}
+            onClick=${dropBlock} />`}
+        </div>`}
       </div>
       ${open && html`<div class="stack block-edit">
         <label class="stack">Название
           <input value=${block.name} disabled=${readOnly} onInput=${(e) => set({ name: e.target.value })} /></label>
         ${block.kind === "history" ? html`
-          <div class="row">
-            <label>Отправлять
+          <div class="row history-params-grid">
+            <label class="stack">Отправлять
               <${Select} value=${block.history.mode} disabled=${readOnly}
                 onChange=${(e) => set({ history: { ...block.history, mode: e.target.value } })}>
                 <option value="all">всю историю</option>
                 <option value="last">последние N сообщений</option>
               </${Select}></label>
-            ${block.history.mode === "last" && html`<label>N
+            ${block.history.mode === "last" && html`<label class="stack">N
               <input class="num" type="number" min="1" value=${block.history.count} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, count: Number(e.target.value) || 1 } })} /></label>`}
-            <label>Не больше токенов
+            <label class="stack">Не больше токенов
               <input class="num" type="number" min="0" value=${block.history.max_tokens} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, max_tokens: Number(e.target.value) || 0 } })} /></label>
-            <label>Слать прошлые размышления (ответов)
+            <label class="stack">Слать прошлые размышления
               <input type="number" min="0" value=${block.history.thoughts || 0} disabled=${readOnly}
                 onInput=${(e) => set({ history: { ...block.history, thoughts: Math.max(0, Number(e.target.value) || 0) } })} /></label>
           </div>

@@ -573,14 +573,14 @@ function App() {
           ${menuFolded && html`<span class="phone-folded" data-slot="phone-folded">
             <${IconButton} icon="menu" label="Развернуть верхнюю панель" data-slot="phone-unfold" onClick=${() => setMenuFolded(false)} />
             <button class="brand brand-home icon-btn" data-slot="phone-folded-home" title="На главную: чат останется в списке"
-              aria-label="На главную" onClick=${goHome}>⌂</button>
+              aria-label="На главную" onClick=${goHome}><${Icon} name="home" /></button>
             <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="phone-folded-search" onClick=${openSearch} />
             <${IconButton} icon="settings" label="Настройки" data-slot="phone-folded-settings" onClick=${() => openSettings()} />
           </span>`}
           ${menuFolded && html`<span class="menu-folded only-wide" data-slot="menu-folded">
             <${IconButton} icon="menu" label="Развернуть меню" data-slot="unfold-menu" onClick=${() => setMenuFolded(false)} />
             <button class="brand brand-home icon-btn" data-slot="folded-home" title="На главную: чат останется в списке"
-              aria-label="На главную" onClick=${goHome}>⌂</button>
+              aria-label="На главную" onClick=${goHome}><${Icon} name="home" /></button>
             <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="folded-search" onClick=${openSearch} />
             <${IconButton} icon="settings" label="Настройки" data-slot="folded-settings" onClick=${() => openSettings()} />
           </span>`}
@@ -796,7 +796,8 @@ function App() {
         <span class="toast-text">${toast.text}</span>
         ${toast.action && html`<button type="button" class="toast-action"
           onClick=${(e) => { e.stopPropagation(); toast.action.onClick(); dismiss(); }}>${toast.action.label}</button>`}
-        <span class="toast-close" aria-label="Закрыть"><${Icon} name="x" size="14" /></span></div>`}
+        <button type="button" class="toast-close" aria-label="Закрыть"
+          onClick=${(e) => { e.stopPropagation(); dismiss(); }}><${Icon} name="x" size="16" /></button></div>`}
     </div>
   `;
 }

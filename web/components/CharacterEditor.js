@@ -9,7 +9,7 @@ import { html, useState, useEffect, useMemo } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { CharacterTree } from "./CharacterTree.js";
 import { BookPicker } from "./Lorebooks.js";
-import { IconButton } from "./Icon.js";
+import { Icon, IconButton } from "./Icon.js";
 import { RegexOwner } from "./Regex.js";
 import { ask } from "./Dialogs.js";
 import { EmptyNote, Pending, useLoad } from "./State.js";
@@ -150,8 +150,8 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
         <div class="side-head">
           <div class="row char-head-title">
             ${hasAvatar && characterId && html`<img class="speaker-avatar char-head-avatar" src=${`/api/characters/${characterId}/avatar`} alt="" />`}
-            <strong>${title}</strong>
-            ${dirty && html`<span class="badge char-dirty-badge" data-slot="char-dirty" title="Есть несохранённые изменения">не сохранено</span>`}
+            <strong class="char-dialog-title" title=${title}>${title}</strong>
+            ${dirty && html`<span class="badge char-dirty-badge" data-slot="char-dirty" title="Есть несохранённые изменения"><span class="dirty-dot" aria-hidden="true"></span> Не сохранено</span>`}
           </div>
           <span class="spacer"></span>
           ${characterId && html`<${IconButton} icon="undo-2" label="Отменить последнее изменение"
@@ -198,7 +198,10 @@ export function CharacterEditor({ characterId, settings, initialTab, onClose, on
             <button class="primary" type="submit" disabled=${saving}>${saving ? "Сохраняю…" : "Сохранить"}</button>
             <button type="button" onClick=${requestClose}>Отмена</button>
             <span class="spacer"></span>
-            <span class=${"save-state " + (dirty ? "waiting" : "saved")} role="status">${dirty ? "Есть несохранённые правки" : "Сохранено"}</span>
+            <span class=${"save-state save-state-pill " + (dirty ? "waiting" : "saved")} role="status">
+              <${Icon} name=${dirty ? "circle-dot" : "check"} size=${14} />
+              <span>${dirty ? "Есть несохранённые правки" : "Сохранено"}</span>
+            </span>
           </div>
         </form>`}
       </div>

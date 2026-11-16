@@ -676,7 +676,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
               <${Icon} name="user-plus" /> Создать персонажа
             </button>
             <button type="button" class="assistant-suggest-chip" onClick=${() => setText("Создай лорбук на тему: ")}>
-              <${Icon} name="book-plus" /> Создать лорбук
+              <${Icon} name="book-open" /> Создать лорбук
             </button>
             <button type="button" class="assistant-suggest-chip" onClick=${() => setText("Объясни последний ответ модели")}>
               <${Icon} name="help-circle" /> Объяснить ответ

@@ -99,8 +99,8 @@ export function Connections({ onChanged, onError }) {
       </${EmptyNote}></li>`}
       ${shownConns.map((c) => html`
         <li key=${c.id} class="conn">
-          <div class=${"conn-card" + (c.id === openId ? " open" : "")}>
-            <label class="conn-active">
+          <div class=${"conn-card" + (c.id === openId ? " open" : "") + (c.id === active ? " is-active" : "")}>
+            <label class=${"conn-active" + (c.id === active ? " active" : "")}>
               <input type="radio" name="active" checked=${c.id === active}
                 aria-label=${"Сделать «" + c.name + "» основным подключением"}
                 onChange=${() => choose(c.id)} />
@@ -111,7 +111,7 @@ export function Connections({ onChanged, onError }) {
               onClick=${() => setOpenId(c.id === openId ? null : c.id)}>
               <strong>${c.name}</strong>
               <span class="muted">${serviceName(c.service) || c.base_url}${c.model ? " · " + c.model : ""}</span>
-              <span class="badge">${c.keys.length ? `ключей: ${c.keys.length}` : "без ключа"}</span>
+              <span class=${"badge" + (c.keys.length ? " badge-ok" : " badge-quiet")}>${c.keys.length ? `ключей: ${c.keys.length}` : "без ключа"}</span>
             </button>
           </div>
           ${c.id === openId && html`<${ConnectionEditor} key=${c.id} conn=${c} catalog=${catalog}
@@ -307,13 +307,14 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
 
   return html`
     <section ref=${root} class="conn-editor stack" data-slot="conn-editor" aria-label=${"Подключение " + conn.name}>
-      <div class="row">
-        <label class="stack">Название
+      <div class="conn-head-row">
+        <label class="stack grow">Название
           <input value=${head.name} onInput=${(e) => setHead({ ...head, name: e.target.value })}
             onChange=${(e) => saveHead({ name: e.target.value })} /></label>
-        <span class="badge">${KIND_LABEL[conn.kind] || "протокол " + conn.kind}</span>
-        <span class="spacer"></span>
-        <button class="danger-text" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
+        <div class="conn-head-actions">
+          <span class="badge">${KIND_LABEL[conn.kind] || "протокол " + conn.kind}</span>
+          <button class="danger-text conn-delete-btn" onClick=${remove}><${Icon} name="trash-2" /> Удалить</button>
+        </div>
       </div>
       <label class="stack">Адрес API
         <input value=${head.base_url} onInput=${(e) => setHead({ ...head, base_url: e.target.value })}
@@ -324,17 +325,19 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
       <${Keys} conn=${conn} onSaved=${onSaved} onError=${onError} />
 
       <h3>Модель</h3>
-      <div class="row">
-        <label class="stack">Название модели
+      <div class="model-select-row">
+        <label class="stack grow">Название модели
           <${Suggest} value=${head.model} options=${models}
             onInput=${(e) => setHead({ ...head, model: e.target.value })}
             onChange=${(e) => saveHead({ model: e.target.value })} /></label>
-        <button disabled=${Boolean(busy)} onClick=${inspect} title="Бесплатно: спросить у сервиса модели и их возможности">
-          ${busy === "inspect" ? "Проверяю…" : "Проверить"}
-        </button>
-        <button disabled=${Boolean(busy)} onClick=${probe} title="По одному крошечному запросу на каждую настройку">
-          ${busy === "probe" ? "Запросы…" : "Пробные запросы"}
-        </button>
+        <div class="model-btn-group">
+          <button type="button" disabled=${Boolean(busy)} onClick=${inspect} title="Бесплатно: спросить у сервиса модели и их возможности">
+            ${busy === "inspect" ? "Проверяю…" : "Проверить"}
+          </button>
+          <button type="button" disabled=${Boolean(busy)} onClick=${probe} title="По одному крошечному запросу на каждую настройку">
+            ${busy === "probe" ? "Запросы…" : "Пробные запросы"}
+          </button>
+        </div>
       </div>
       <p class="hint">«Проверить» бесплатно: спросит у сервиса список моделей и их возможности.
         «Пробные запросы» платные: по одному крошечному запросу на каждую настройку.</p>

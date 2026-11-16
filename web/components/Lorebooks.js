@@ -108,14 +108,20 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
         ${showHistory && html`<${HistoryPanel} base=${base} revision=${revision}
           onRestored=${(text) => { notify(text, "ok"); setRevision((r) => r + 1); onChanged(); }} onError=${onError} />`}
         ${book === null && html`<${Pending} />`}
-        ${book && html`<div class="row book-head" data-slot="book-head">
-          <label class="grow">Название
-            <input key=${"n" + revision} value=${book.name} onBlur=${(e) => saveField("name", e.target.value.trim())} /></label>
-          <label class="grow">Описание
-            <span class="hint">Для себя, модели не передаётся</span>
-            <input key=${"d" + revision} value=${book.description} onBlur=${(e) => saveField("description", e.target.value)} /></label>
+        ${book && html`<div class="book-head-card" data-slot="book-head-card">
+          <div class="row book-head" data-slot="book-head">
+            <label class="grow">Название
+              <input key=${"n" + revision} value=${book.name} onBlur=${(e) => saveField("name", e.target.value.trim())} /></label>
+            <label class="grow">Описание
+              <span class="hint">Для себя, модели не передаётся</span>
+              <input key=${"d" + revision} value=${book.description} onBlur=${(e) => saveField("description", e.target.value)} /></label>
+          </div>
+          <div class="row book-head-sub">
+            ${connected ? html`<div class="book-connected-pill" role="status"><${Icon} name="link" size=${13} /> <span>Подключён: <strong>${connected}</strong></span></div>` : null}
+            <span class="spacer"></span>
+            <span class="save-state-pill saved book-auto-save-pill"><${Icon} name="check" size=${13} /> <span>Сохраняется при выходе из поля</span></span>
+          </div>
         </div>`}
-        ${book && connected && html`<p class="hint book-connected-hint">Подключён: ${connected}</p>`}
         ${book && html`<${CharacterTree} character=${{ id: bookId, name: book.name, book: true }}
           settings=${settings} revision=${revision} onError=${onError} />`}
       </div>

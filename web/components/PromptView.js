@@ -36,7 +36,7 @@ function Part({ entry, onVersions, onError }) {
       <div class="row">
         <span title=${roleOf(entry.role).label} aria-label=${roleOf(entry.role).label}><${Icon} name=${ROLE_ICONS[entry.role] || "user"} /></span>
         <strong>${entry.label || entry.kind}</strong>
-        <span class="muted">≈${tokens(entry.text)} ${tokenWord(tokens(entry.text))}</span>
+        <span class="muted prompt-tokens">≈${tokens(entry.text)} ${tokenWord(tokens(entry.text))}</span>
         <span class="spacer"></span>
         ${entry.versions > 1 && html`<button type="button" onClick=${() => onVersions(entry)}>Версии: ${entry.versions}</button>`}
         <${IconButton} icon="copy" label="Копировать" onClick=${() => copy(entry.text, onError)} />

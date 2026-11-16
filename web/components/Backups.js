@@ -408,8 +408,8 @@ export function BackupsTab({ onError }) {
       </div>
 
       <h3>Сколько хранить</h3>
-      <div class="row">
-        ${KEEP.map(([kind, label]) => html`<label key=${kind}>${label} <${NumField} value=${settings.keep[kind]} lo=${1} hi=${1000}
+      <div class="keep-counts-grid">
+        ${KEEP.map(([kind, label]) => html`<label key=${kind} class="stack">${label} <${NumField} value=${settings.keep[kind]} lo=${1} hi=${1000}
           onValue=${(n) => change({ keep: { ...settings.keep, [kind]: n } })} /></label>`)}
       </div>
 

@@ -64,7 +64,7 @@ function useConnections() {
 
 function ConnectionField({ field, value, onSave }) {
   const connections = useConnections();
-  return html`<label>${field.label}<br /><${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
+  return html`<label class="stack">${field.label}<${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
     <option value="">Как в чате</option>
     ${connections.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
   </${Select}></label>`;
@@ -105,7 +105,7 @@ function ModelField({ field, value, plugin, onSave }) {
     const v = text.trim() === own ? "" : text.trim();
     if (v !== (value || "")) onSave(v);
   };
-  return html`<label>${field.label}<br /><${Suggest} value=${draft} options=${models} aria-label=${field.label}
+  return html`<label class="stack">${field.label}<${Suggest} value=${draft} options=${models} aria-label=${field.label}
     placeholder=${own || "модель подключения"} onInput=${(e) => setDraft(e.target.value)}
     onChange=${(e) => save(e.target.value)} /></label>
     ${problem && html`<div class="muted">Список моделей не получен: ${problem}</div>`}`;
@@ -135,7 +135,7 @@ function SecretField({ field, plugin, onSave }) {
   const [draft, setDraft] = useState("");
   const set = Boolean(plugin && plugin.secrets_set && plugin.secrets_set[field.key]);
   const save = () => { const v = draft.trim(); if (v) { onSave(v); setDraft(""); } };
-  return html`<label>${field.label} ${set ? html`<span class="muted">(задан)</span>` : html`<span class="muted">(не задан)</span>`}<br />
+  return html`<label class="stack">${field.label} ${set ? html`<span class="muted">(задан)</span>` : html`<span class="muted">(не задан)</span>`}
     <input type="password" autocomplete="off" value=${draft} placeholder=${set ? "введите новый, чтобы заменить" : "вставьте ключ"}
       onInput=${(e) => setDraft(e.target.value)} onBlur=${save}
       onKeyDown=${(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></label>
@@ -176,7 +176,7 @@ function DynamicChoice({ field, value, plugin, onSave }) {
   }, [stamp]);
   const list = options || [];
   const known = list.some(([v]) => v === value);
-  return html`<label>${field.label}<br /><${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
+  return html`<label class="stack">${field.label}<${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
     <option value="">По умолчанию</option>
     ${!known && value && html`<option value=${value}>${value}</option>`}
     ${list.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
@@ -199,16 +199,16 @@ function SettingField({ field, value, onSave, plugin }) {
       onChange=${(e) => onSave(e.target.checked)} /> ${field.label}</label>`;
   }
   if (field.type === "choice") {
-    return html`<label>${field.label}<br /><${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
+    return html`<label class="stack">${field.label}<${Select} value=${value} onChange=${(e) => onSave(e.target.value)}>
       ${field.choices.map(([v, label]) => html`<option key=${v} value=${v}>${label}</option>`)}
     </${Select}></label>`;
   }
   const number = field.type === "number";
   if (field.multiline) {
-    return html`<label>${field.label}<br /><textarea rows="3" value=${draft} onInput=${(e) => setDraft(e.target.value)}
+    return html`<label class="stack">${field.label}<textarea rows="3" value=${draft} onInput=${(e) => setDraft(e.target.value)}
       onBlur=${() => { if (draft !== value) onSave(draft); }}></textarea></label>`;
   }
-  return html`<label>${field.label}<br /><input type=${number ? "number" : "text"} value=${draft}
+  return html`<label class="stack">${field.label}<input type=${number ? "number" : "text"} value=${draft}
     min=${field.min} max=${field.max} onInput=${(e) => setDraft(e.target.value)}
     onBlur=${() => { const v = number ? Number(draft) : draft; if (v !== value) onSave(v); }} /></label>`;
 }

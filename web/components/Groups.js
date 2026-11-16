@@ -532,7 +532,7 @@ export function GroupedItems({ kind, items, idOf, labelOf, activeId = null, rend
 
   return html`<div class="groups" data-slot="groups" data-kind=${kind} ref=${rootRef}>
     <div class="group-bar">
-      <span class="muted group-bar-note">${grouped ? `Групп: ${g.groups.length}` : "Групп нет"}</span>
+      <span class="muted group-bar-note">${grouped ? `Групп: ${g.groups.length}` : "Без группировки"}</span>
       <span class="spacer"></span>
       <${IconButton} icon=${view === "list" ? "waypoints" : "menu"} data-slot="group-view"
         label=${view === "list" ? "Показать пузырями" : "Показать списком"} onClick=${() => setView(view === "list" ? "bubbles" : "list")} />

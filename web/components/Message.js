@@ -268,21 +268,23 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
       </header>
       ${editing !== null
         ? html`
-          <textarea class="body edit-inline" ref=${editRef} value=${editing} rows="1" spellcheck="false"
-            aria-label="Текст сообщения" disabled=${saving}
-            onInput=${(e) => { setEditing(e.target.value); grow(e.target); }}
-            onKeyDown=${(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
-              else if (e.key === "Escape") { e.preventDefault(); cancel(); }
-            }}></textarea>
-          <div class="edit-bar" data-slot="message-edit-bar">
-            <button type="button" class="primary" disabled=${saving} onClick=${save}>Сохранить</button>
-            <button type="button" disabled=${saving} onClick=${cancel}>Отмена</button>
-            <span class="muted edit-hint">Ctrl+Enter — сохранить, Esc — отменить</span>
+          <div class="msg-edit-wrap" data-slot="message-edit-wrap">
+            <textarea class="body edit-inline" ref=${editRef} value=${editing} rows="1" spellcheck="false"
+              aria-label="Текст сообщения" disabled=${saving}
+              onInput=${(e) => { setEditing(e.target.value); grow(e.target); }}
+              onKeyDown=${(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+                else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+              }}></textarea>
+            <div class="edit-bar" data-slot="message-edit-bar">
+              <button type="button" class="primary" disabled=${saving} onClick=${save}>Сохранить</button>
+              <button type="button" disabled=${saving} onClick=${cancel}>Отмена</button>
+              <span class="muted edit-hint">Ctrl+Enter — сохранить, Esc — отменить</span>
+            </div>
           </div>`
-        : html`${thinking && thinkingDisplay !== "hidden" && html`<details class="thinking" data-slot="message-thinking"
+        : html`${thinking && thinkingDisplay !== "hidden" && html`<details class=${"thinking" + (streaming && !text ? " thinking-streaming" : "")} data-slot="message-thinking"
             open=${thinkingDisplay === "open" || (streaming && !text)}>
-            <summary title="Ход мыслей модели перед ответом"><${Icon} name="brain" /> Размышления${streaming && !text ? "…" : ""}</summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${thinking}</div>
+            <summary title="Ход мыслей модели перед ответом"><${Icon} name="brain" class="thinking-brain" /> <span>Размышления${streaming && !text ? "…" : ""}</span><span class="spacer"></span><${Icon} name="chevron-down" class="thinking-chevron" /></summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${thinking}</div>
           </details>`}
           ${(pending ? [] : messageTrees(message)).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
