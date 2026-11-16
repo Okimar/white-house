@@ -167,6 +167,7 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
     },
     reducedMotion: motion.matches,
     phone: matchMedia("(max-width: 720px)").matches,
+    coarse: matchMedia("(pointer: coarse)").matches,
     signal: controller.signal,
   };
   try {

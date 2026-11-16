@@ -18,6 +18,7 @@ import { MenuButton, openMenu } from "./Menu.js";
 import { Pending, EmptyNote } from "./State.js";
 import { OPEN_SKILL_KEY } from "./Skills.js";
 import { useEscape } from "../core/keys.js";
+import { usePluginUi } from "../core/plugins.js";
 
 const POS_KEY = "tavern.assistant.pos";
 const CHAT_KEY = "tavern.assistant.chat";
@@ -72,17 +73,18 @@ function ConversationList({ chats, current, onPick, onNew, onRename, onDelete, o
       ${sorted.slice(0, shown).map((c) => html`<div key=${c.id} role="listitem"
           class=${"assistant-conv" + (c.id === current ? " current" : "")} data-slot="assistant-conv"
           aria-current=${c.id === current ? "true" : "false"}>
-        <button class="assistant-conv-open" onClick=${() => onPick(c.id)}>
+        <button class="assistant-conv-open" onClick=${() => onPick(c.id)}
+          aria-label=${(c.title || "Без названия") + (c.running ? " (работает)" : "")}>
           <span class="assistant-conv-title">${c.running ? html`<span class="assistant-running" title="Работает">● работает: </span>` : ""}${c.title || "Без названия"}</span>
           <small class="muted">${ago(c.updated_at)}${c.imported ? " · из файла" : ""}</small>
         </button>
-        <${IconButton} icon="pencil" label="Переименовать" onClick=${() => onRename(c)} />
+        <${IconButton} icon="pencil" label="Переименовать беседу" onClick=${() => onRename(c)} />
         <${IconButton} icon="trash-2" label="Удалить беседу" disabled=${c.running} onClick=${() => onDelete(c)} />
       </div>`)}
-      ${sorted.length > shown && html`<button type="button" class="link" onClick=${() => setShown(shown + SHOWN_STEP)}>Показать ещё (${sorted.length - shown})</button>`}
+      ${sorted.length > shown && html`<button type="button" class="link assistant-conv-more" onClick=${() => setShown(shown + SHOWN_STEP)}>Показать ещё (${sorted.length - shown})</button>`}
       ${sorted.length === 0 && html`<p class="muted" role="status">${needle ? "По этому слову ничего не нашлось." : "Бесед пока нет."}</p>`}
     </div>
-    <button type="button" class="link" onClick=${onImport}><${Icon} name="file-up" /> Загрузить беседу из файла</button>
+    <button type="button" class="link assistant-conv-import" onClick=${onImport}><${Icon} name="file-up" /> Загрузить беседу из файла</button>
   </div>`;
 }
 
@@ -218,7 +220,7 @@ const AFTER = { undone: " — отменено", denied: " — не разреш
 function ActionLine({ action, onUndo }) {
   return html`<div class=${"assistant-action " + action.status} data-slot="assistant-action" role="status">
     <span>${MARKS[action.status] && html`<${Icon} name=${MARKS[action.status]} /> `}${action.what}${AFTER[action.status] || ""}</span>
-    ${action.status === "done" && html`<button type="button" class="link" onClick=${() => onUndo(action)}>Отменить</button>`}
+    ${action.status === "done" && html`<button type="button" class="link assistant-undo-btn" aria-label="Отменить это действие" onClick=${() => onUndo(action)}>Отменить</button>`}
   </div>`;
 }
 
@@ -246,10 +248,10 @@ function QuestionsCard({ message, active, onAnswer }) {
           </button>`;
         })}
       </div>
-      <input placeholder="Свой вариант" value=${own[q.id] || ""} aria-label=${"Свой ответ: " + q.text}
+      <input type="text" autocomplete="off" spellcheck="false" placeholder="Свой вариант" value=${own[q.id] || ""} aria-label=${"Свой ответ: " + q.text}
         onInput=${(e) => setOwn({ ...own, [q.id]: e.target.value })} />
     </fieldset>`)}
-    ${active && html`<div class="row">
+    ${active && html`<div class="row assistant-card-actions">
       <button type="button" class="primary" disabled=${!questions.every(answered)} onClick=${() => onAnswer(chosenOnes())}>Ответить</button>
       <button type="button" onClick=${() => onAnswer(chosenOnes())}>На ваш вкус</button>
     </div>
@@ -281,7 +283,7 @@ function PlanCard({ message, task, active, running, onGo, onDrop }) {
             <${Icon} name=${st.done ? "check" : "circle"} /> ${st.text}</li>`)}</ol>`}
       </li>`)}
     </ol>
-    ${active && html`<div class="row">
+    ${active && html`<div class="row assistant-plan-actions">
       <button type="button" class="primary" onClick=${onGo}>Начать</button>
       <button type="button" onClick=${onDrop}>Отменить задачу</button>
       <span class="muted">или напишите, что поменять</span>
@@ -309,6 +311,7 @@ function timeline(messages, actions) {
 }
 
 export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpenSkills, onError }) {
+  const pluginUi = usePluginUi();
   const [overview, setOverview] = useState(null);
   const [convId, setConvId] = useState(openConv || stored(CHAT_KEY, ""));
   const [data, setData] = useState(null);
@@ -605,7 +608,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   return html`<section class=${"assistant" + (folded ? " folded" : "")} ref=${box} style=${style}
       data-slot="assistant" role="dialog" aria-label="Помощник">
     <div class="assistant-head" data-slot="assistant-head" onPointerDown=${drag}>
-      <strong class="assistant-title"><${Icon} name="wand" /> Помощник</strong>
+      <strong class="assistant-title"><${Icon} name="wand" /> <span class="assistant-title-text">Помощник</span></strong>
       ${!folded && html`<button class="assistant-conv-btn" aria-label="Беседы" aria-expanded=${listOpen} data-slot="assistant-conv-btn"
           onClick=${() => { setShowSettings(false); setListOpen(!listOpen); }}>
         <span>${anyRunning && !currentRunning ? html`<span class="assistant-running">● </span>` : ""}${currentTitle}</span><${Icon} name="chevron-down" /></button>
@@ -675,13 +678,22 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
       </div>`}
       <form class="assistant-input" data-slot="assistant-input" onSubmit=${send}>
         <${IconButton} type="button" icon="paperclip" label="Приложить файл или картинку" disabled=${uploading} onClick=${attachMenu} />
-        <textarea rows="2" value=${text} aria-label="Просьба помощнику"
+        ${(pluginUi?.assistantButtons || []).filter((b) => (typeof b.show === "function" ? b.show() : b.show !== false)).map((b, i) => {
+          const icon = typeof b.icon === "function" ? b.icon() : b.icon;
+          const title = typeof b.title === "function" ? b.title() : b.title;
+          return html`<button key=${b.owner ? b.owner + i : i} type="button" class="icon-btn assistant-plugin-btn"
+            data-slot="assistant-plugin-button" data-plugin=${b.owner || ""} title=${title} aria-label=${title}
+            disabled=${uploading || Boolean(runId && !working)} onClick=${() => b.onClick()}>
+            ${typeof icon === "string" && !/[\s\uD800-\uDFFF]/.test(icon) ? html`<${Icon} name=${icon} />` : icon}
+          </button>`;
+        })}
+        <textarea rows="2" value=${text} aria-label="Просьба помощнику" enterkeyhint="send"
           placeholder=${working ? "Дописать в план…" : liveQuestions ? "Или ответьте своими словами…" : "Что сделать?"}
           onInput=${(e) => setText(e.target.value)}
           onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) send(e); }}></textarea>
         ${working && (text.trim() || files.length > 0) && html`<${IconButton} class="primary" type="submit" icon="send-horizontal" label="Добавить в план" />`}
         ${runId
-          ? html`<button type="button" class="assistant-stop-btn" onClick=${stop}><${Icon} name="square" /> Стоп</button>`
+          ? html`<button type="button" class="assistant-stop-btn" aria-label="Остановить работу помощника" onClick=${stop}><${Icon} name="square" /> Стоп</button>`
           : html`<${IconButton} class="primary" type="submit" icon="send-horizontal" label="Отправить" disabled=${!text.trim() && files.length === 0} />`}
       </form>`}
   </section>`;

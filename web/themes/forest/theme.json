@@ -1,0 +1,12 @@
+{
+  "format": "tavern-theme",
+  "format_version": 1,
+  "id": "forest",
+  "name": "Изумруд",
+  "author": "White House",
+  "version": "1",
+  "description": "Глубокая ночная палитра хвойного леса: тёмный нефрит, спокойный сланец и мягкий тёплый янтарь.",
+  "license": "CC0",
+  "base": "dark",
+  "preview": "preview.svg"
+}

@@ -1,0 +1,24 @@
+:root {
+  --bg: #0f1715;
+  --panel: #16221f;
+  --fg: #e6edea;
+  --muted: #7e948c;
+  --line: #233530;
+  --accent: #d4a359;
+  --accent-fg: #191409;
+  --danger: #e25b5b;
+  --danger-fg: #ffffff;
+  --success: #3db87a;
+  --warning: #d4a359;
+  --user: color-mix(in srgb, var(--fg) 7%, var(--bg));
+  --raised: color-mix(in srgb, var(--fg) 6%, var(--panel));
+  --text2: color-mix(in srgb, var(--fg) 78%, var(--panel));
+  --app-bg: var(--bg);
+  --sidebar-bg: var(--panel);
+  --topbar-bg: var(--panel);
+  --composer-bg: var(--panel);
+  --msg-user-bg: var(--user);
+  --msg-bot-bg: var(--panel);
+  --shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  --menu-shadow: 0 12px 30px rgba(0, 0, 0, .6);
+}

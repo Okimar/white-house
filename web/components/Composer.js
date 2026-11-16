@@ -170,6 +170,20 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
     for (const h of plugins.composerHelpers) h.onText(text, caret);
   }, [text]);
 
+  // Auto-grow textarea with content so typing on phone/desktop is comfortable without inner scroll
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    if (!text) {
+      el.style.height = "";
+      return;
+    }
+    el.style.height = "auto";
+    const max = window.innerHeight < 500 ? 120 : 180;
+    const next = Math.min(el.scrollHeight, max);
+    el.style.height = next > 0 ? `${next}px` : "";
+  }, [text]);
+
   const submit = async () => {
     const value = text.trim();
     if ((!value && !images.length) || running || disabled || uploading) return;

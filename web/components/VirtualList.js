@@ -7,6 +7,7 @@
 // it share the `vkey`, so the row keeps its node and measured height. `stickTo` (a vkey) scrolls to the bottom when it
 // appears: the user just sent that message.
 import { html, useState, useRef, useLayoutEffect, useEffect, useCallback } from "../vendor/preact-htm.mjs";
+import { Icon } from "./Icon.js";
 
 const ESTIMATE = 90;
 const OVERSCAN_PX = 600;
@@ -27,6 +28,18 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
   const anchor = useRef(null); // { id, offset } of the first item before an update
   const [, redraw] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 600 });
+  const [showJump, setShowJump] = useState(false);
+  const showJumpRef = useRef(false);
+
+  const scrollToBottom = () => {
+    const el = box.current;
+    if (!el) return;
+    stuck.current = true;
+    jump.current = null;
+    showJumpRef.current = false;
+    setShowJump(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  };
 
   // The user's finger (or its inertia) owns the scroll position: code must not write scrollTop then,
   // or the browser drops the touch and the list "sticks" and has to be dragged very hard.
@@ -38,7 +51,12 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
   // The user just sent a message: show it even when the list was scrolled up. Declared before the layout effect
   // below, which then sees `stuck` and scrolls.
   useLayoutEffect(() => {
-    if (stickTo) { stuck.current = true; jump.current = null; }
+    if (stickTo) {
+      stuck.current = true;
+      jump.current = null;
+      showJumpRef.current = false;
+      setShowJump(false);
+    }
   }, [stickTo]);
 
   // Unmeasured items are guessed from the measured ones, so corrections stay small.
@@ -84,6 +102,8 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
     heights.current = new Map();
     stuck.current = true;
     anchor.current = null;
+    showJumpRef.current = false;
+    setShowJump(false);
   }, [resetKey]);
 
   // The look of the rows changed (chat view «Пузыри» / «Документ»): every cached height is stale, also those of rows
@@ -129,7 +149,14 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
 
   const onScroll = useCallback(() => {
     const el = box.current;
-    if (!jump.current) stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (!jump.current) stuck.current = distance < STICK_PX;
+    const needJump = distance > 180;
+    if (needJump !== showJumpRef.current) {
+      showJumpRef.current = needJump;
+      setShowJump(needJump);
+    }
     // The user moved the view: that is the new reference point, not a layout shift to undo.
     anchor.current = captureAnchor(el.scrollTop);
     setViewport({ top: el.scrollTop, height: el.clientHeight });
@@ -155,16 +182,22 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
   };
 
   return html`
-    <div class="vlist" ref=${box} onScroll=${onScroll}
-      onTouchStart=${() => { touching.current = true; stuck.current = false; }}
-      onTouchEnd=${() => { touching.current = false; markUser(700); }}
-      onTouchCancel=${() => { touching.current = false; markUser(700); }}
-      onWheel=${(e) => { markUser(200); if (e.deltaY < 0) stuck.current = false; }}>
-      <div style=${{ height: start + "px" }}></div>
-      ${items.slice(from, to).map((item) => html`
-        <div class="vitem" key=${keyOf(item)} data-id=${keyOf(item)} ref=${measure}>${renderItem(item)}</div>
-      `)}
-      <div style=${{ height: end + "px" }}></div>
+    <div class="vlist-wrap" data-slot="virtual-list-wrap">
+      <div class="vlist" ref=${box} onScroll=${onScroll}
+        onTouchStart=${() => { touching.current = true; stuck.current = false; }}
+        onTouchEnd=${() => { touching.current = false; markUser(700); }}
+        onTouchCancel=${() => { touching.current = false; markUser(700); }}
+        onWheel=${(e) => { markUser(200); if (e.deltaY < 0) stuck.current = false; }}>
+        <div style=${{ height: start + "px" }}></div>
+        ${items.slice(from, to).map((item) => html`
+          <div class="vitem" key=${keyOf(item)} data-id=${keyOf(item)} ref=${measure}>${renderItem(item)}</div>
+        `)}
+        <div style=${{ height: end + "px" }}></div>
+      </div>
+      ${showJump && html`<button type="button" class="vlist-jump" data-slot="vlist-jump"
+        aria-label="К последним сообщениям" title="К последним сообщениям" onClick=${scrollToBottom}>
+        <${Icon} name="chevron-down" />
+      </button>`}
     </div>
   `;
 }
