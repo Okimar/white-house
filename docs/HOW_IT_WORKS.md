@@ -119,8 +119,13 @@ page ──POST /api/chats/{id}/send──▶ api/chats.py:send ──▶ servic
 
 1. `provider = ctx.providers.create(connection)` (section 6.3).
    `llm = LLMClient(provider, model, budget=run.budget, trace=run.trace, defaults=request_params(kind, params),
-   meter=spending.meter(...))`. The connection's `max_context_tokens` is popped from the params and becomes the
-   budget. The preset's `params` are never used (model settings live on the connection).
+   meter=spending.meter(...), calibrate=learn_ratio)`. The connection's `max_context_tokens` (the window, in the
+   service's tokens) is popped from the params. `response_reserve` keeps the connection's `max_tokens` free (at most
+   ¾ of the window). `core/tokens.py:ratio` (settings `token_ratio`, per connection + model) turns the window into
+   estimated tokens (`tokens.window`): the whole window goes to the lorebooks (their percent), window − reserve to
+   the assembly and the job. After the reply `learn_ratio` compares the service's real `prompt_tokens` with our
+   estimate of what was sent (not for pictures or a fallback's answer). The preset's `params` are never used (model
+   settings live on the connection).
 2. `history` is the active path without the reply itself and without `skip_ids`.
 3. When `ask_speaker` is set, `speakers.ask_model` makes one `generate_json` request
    (`{"name": enum}`, purpose `speaker`). If it fails, `speakers.choose` decides. Then `chats.set_speaker`.
@@ -320,7 +325,12 @@ Rules that apply to every block:
    - images from `swipe_meta.images` are loaded through `load_image`;
    - attached notes go to `entry.follow`.
 3. `history.max_tokens` cap: the newest messages are kept while they fit.
-4. **Budget**, only when `max_context_tokens > 0`. Cost = `estimate_tokens` = len/4. Steps, in order:
+4. **Budget**, only when `max_context_tokens > 0`. Cost = `estimate_tokens` (`core/tokens.py:count`: by script, a
+   Latin word ≈ 1 token per 5 letters, Cyrillic per 3.5, CJK one per character, digits in threes; LRU-cached per
+   text; `web/core/tokens.js` is the same for the «Что видела модель» numbers). Steps, in order:
+   0. With the examples block's `examples_mode` "room" (default; "always" skips this, "never" sends none): members'
+      examples (with their separators) are dropped whole, last member first, while over the budget
+      (`dropped.examples`).
    1. Drop the oldest messages, keeping `MIN_HISTORY=6` and the live tail from `tail_from`, against
       `max_context − memory_reserve` (the reserve counts only when conditional extras exist).
    2. Drop unconditional extras by `drop_rank`, lowest first.
@@ -329,7 +339,7 @@ Rules that apply to every block:
    4. Drop old messages down to 1.
    5. Add the conditional extras that fit (section 7.1).
 
-   `Prompt.dropped = {messages: n, members: [...], lore: lore_dropped, extras?, memory?}`.
+   `Prompt.dropped = {messages: n, members: [...], lore: lore_dropped, extras?, memory?, examples?}`.
 
 ### 3.4 Injections at depth
 

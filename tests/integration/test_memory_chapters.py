@@ -225,7 +225,8 @@ async def test_nothing_is_cut_with_the_chat_switch_off_and_the_table_follows_the
 async def test_a_found_chapter_brings_its_best_piece_with_neighbours_and_loose_old_messages_are_still_found(
         client, ctx, fake_llm):
     marks = {6: "Королева Изольда ждёт у костра.", 12: "*** Глава"}
-    _, chat_id, ids = await chapter_chat(client, ctx, fake_llm, 30, marks, window=120,
+    # 180: Russian text is counted honestly since wave 3 (core/tokens.py); the window still holds only the tail
+    _, chat_id, ids = await chapter_chat(client, ctx, fake_llm, 30, marks, window=180,
                                          settings={"tail_percent": 20, "tail_min": 4, "memory_tokens": 400},
                                          pad="unique")
     ctx.chats.set_content(ids[18], "Загадочная Тарабарская башня стоит на холме")  # in the open part: no chapter

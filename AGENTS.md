@@ -242,6 +242,9 @@ tavern/                 Python package (backend)
                         service's or own price), sums per message/chat/day/month, limits (warn/stop),
                         currency at own rate; storage/repos/spending.py (table `spending`)
   services/connections.py  what models can do: the service's model list, trial requests per setting
+  core/tokens.py        token estimate by script (pure Python, cached per text; web/core/tokens.js is its twin) and
+                        the ratio real / estimated learned per connection + model from the service's own counts
+                        (settings `token_ratio`); services/chat.py keeps the reply's length free in the window
   core/structured.py    structured output: JSON Schema check (pure Python subset), the request in
                         words, the retry note; used by LLMClient.generate_json
   core/templates.py     instruct templates: conversation -> one text for text completion (built-ins,

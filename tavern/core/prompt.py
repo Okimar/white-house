@@ -11,17 +11,18 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from tavern.core import macros
+from tavern.core import macros, tokens
 from tavern.providers.base import ChatMessage
 
-CHARS_PER_TOKEN = 4  # rough estimate; real counts come from providers where available
+CHARS_PER_TOKEN = 4  # rough size of a token, only for cutting texts to a length; counts use core/tokens.py
 # Some backends (Gemini) reject a conversation without any user turn ("contents is not specified").
 START_TURN = "[Start]"
 DEFAULT_CHAR_NAME = "Assistant"  # {{char}} in a chat without a character
 
 
 def estimate_tokens(text: str) -> int:
-    return max(1, len(text) // CHARS_PER_TOKEN) if text else 0
+    """Estimated tokens of a text, by script and remembered per text (core/tokens.py)."""
+    return tokens.count(text) if text else 0
 
 
 def substitute(

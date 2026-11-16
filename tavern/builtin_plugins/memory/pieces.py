@@ -27,7 +27,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from tavern.core.prompt import CHARS_PER_TOKEN, estimate_tokens
+from tavern.core import tokens as token_count
+from tavern.core.prompt import estimate_tokens
 from tavern.core.retrieval import stem
 
 TARGET_TOKENS = 300
@@ -100,8 +101,8 @@ def cut(text: str) -> list[str]:
             continue
         for sentence in _SENTENCE.split(paragraph):
             sentence = sentence.strip()
-            size = MAX_TOKENS * CHARS_PER_TOKEN
-            while len(sentence) > size:  # one huge sentence: cut by size at the last space
+            while estimate_tokens(sentence) > MAX_TOKENS:  # one huge sentence: cut by size at the last space
+                size = token_count.chars_for(sentence, MAX_TOKENS)
                 at = sentence.rfind(" ", 0, size)
                 at = at if at > size // 2 else size
                 units.append(sentence[:at].strip())

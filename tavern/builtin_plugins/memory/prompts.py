@@ -19,7 +19,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from tavern.core.prompt import CHARS_PER_TOKEN, estimate_tokens
+from tavern.core import tokens as token_count
+from tavern.core.prompt import estimate_tokens
 from tavern.providers.base import ChatMessage
 
 SUMMARY_SCHEMA: dict[str, Any] = {
@@ -78,11 +79,11 @@ def problem(summary: str, source: str, target_tokens: int) -> str:
 
 def shorten(text: str, tokens: int) -> str:
     """`text` cut to about `tokens` tokens, keeping its start and end."""
-    size = tokens * CHARS_PER_TOKEN
-    if len(text) <= size:
+    if estimate_tokens(text) <= tokens:
         return text
-    head = size * 2 // 3
-    return text[:head].rstrip() + " [...] " + text[len(text) - (size - head):].lstrip()
+    head = token_count.chars_for(text, tokens * 2 // 3)
+    tail = token_count.chars_for(text[::-1], tokens - tokens * 2 // 3)
+    return text[:head].rstrip() + " [...] " + text[len(text) - tail:].lstrip()
 
 
 def chapter_lines(messages: list[dict[str, Any]]) -> list[str]:
@@ -220,9 +221,9 @@ def wrong_language(text: str, source: str) -> str:
 
 def cut_to(text: str, tokens: int) -> str:
     """`text` cut at a sentence end to about `tokens` tokens (the last resort of the self-compression)."""
-    size = tokens * CHARS_PER_TOKEN
-    if len(text) <= size:
+    if estimate_tokens(text) <= tokens:
         return text
+    size = token_count.chars_for(text, tokens - 1)  # room for the «…»
     head = text[:size]
     end = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
     return (head[:end + 1] if end > size // 2 else head.rstrip() + "…").strip()

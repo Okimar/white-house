@@ -134,6 +134,14 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
           <p class="hint">Блоки с одной группой — варианты на выбор: включите один, остальные выключатся.</p>
           ${block.position === "depth" && html`<p class="hint">Тексты одной глубины, одного порядка и одной роли (этот блок, заметка автора,
             записи лорбуков) уходят одним сообщением. С другим порядком — отдельным: больший стоит ближе к следующему сообщению. Обычно 100.</p>`}
+          ${block.kind === "examples" && html`<label class="stack" data-slot="examples-mode">Когда отправлять примеры
+            <${Select} value=${block.examples_mode || "room"} disabled=${readOnly}
+              onChange=${(e) => set({ examples_mode: e.target.value })}>
+              <option value="room">если есть место</option>
+              <option value="always">всегда</option>
+              <option value="never">никогда</option>
+            </${Select}>
+            <span class="hint">Как в SillyTavern: в длинном чате окно модели сначала заполняет переписка, а примеры идут, только если место осталось. «Всегда» — примеры не вырезаются никогда, вместо них уходят старые сообщения.</span></label>`}
           ${block.kind === "thinking" && html`<p class="muted">Шаблон, который модель заполняет перед ответом.
             White House сам попросит думать внутри ${"<thinking>…</thinking>"} и уберёт размышление из текста ответа.</p>`}
           ${TEXT_KINDS.includes(block.kind) && html`<textarea rows="5" value=${block.text} disabled=${readOnly}

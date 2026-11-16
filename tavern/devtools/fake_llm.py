@@ -62,9 +62,27 @@ class FakeLLM:
     # API key -> HTTP status to answer with (e.g. {"spent": 429}); other keys are accepted.
     key_status: dict[str, int] = field(default_factory=dict)
     seen_keys: list[str] = field(default_factory=list)
+    # How this fake service counts prompt tokens against the app's estimate (see _prompt_tokens).
+    token_scale: float = 1.0
+    message_overhead: int = 0
 
     def queue(self, *texts: str) -> None:
         self.replies.extend(texts)
+
+    def _prompt_tokens(self, messages: list[Any]) -> int:
+        """A chat prompt's count the way a real service reports it: the texts by the app's own estimate
+        (core/tokens.py) times `token_scale`, plus `message_overhead` per message for the roles. The defaults (1, 0)
+        keep the app's learned ratio at 1, so a test's window means what it says; other values show the app
+        learning them."""
+        from tavern.core.tokens import count
+
+        texts = []
+        for message in messages if isinstance(messages, list) else []:
+            content = message.get("content") if isinstance(message, dict) else ""
+            if isinstance(content, list):
+                content = " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+            texts.append(str(content or ""))
+        return max(1, round(self.token_scale * sum(count(t) for t in texts)) + self.message_overhead * len(texts))
 
     def fail_next(self, status: int = 500, message: str = "fake failure") -> None:
         self.failures.append((status, message))
@@ -157,7 +175,7 @@ class FakeLLM:
             return refusal
         text = self._next_reply(body)
         usage = {
-            "prompt_tokens": _rough_tokens(json.dumps(body.get("messages", []))),
+            "prompt_tokens": self._prompt_tokens(body.get("messages", [])),
             "completion_tokens": _rough_tokens(text),
         }
         usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]

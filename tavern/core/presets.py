@@ -104,6 +104,9 @@ PROMPT_ST_KEYS = {
     "new_example_chat": "new_example_chat_prompt",
     "send_if_empty": "send_if_empty",
 }
+# The examples block (wave 3, SillyTavern's «example messages behaviour»): room = sent only while there is room after
+# the chat history (ST's default: in a long chat the history wins), always = never cut, never = not sent.
+EXAMPLE_MODES = ("room", "always", "never")
 ORIGIN_ST = "sillytavern"  # preset["origin"]: imported from SillyTavern, so its texts go bare (no headers of ours)
 TEXTS_VERSION = 2  # preset["texts_version"]: 2 = behaviour blocks follow SillyTavern's default texts and roles
 
@@ -218,7 +221,7 @@ DEFAULT_PRESET: dict[str, Any] = {
         _block("persona"),
         _block("cast"),
         _block("lore_after"),
-        _block("examples"),
+        _block("examples", examples_mode="room"),
         _block("memory"),
         _block("history", history={"mode": "all", "count": 50, "max_tokens": 0, "thoughts": 0}),
         _block("post_history"),
@@ -286,6 +289,11 @@ def normalize_block(raw: Any, index: int) -> dict[str, Any]:
     if not isinstance(group, str):
         raise PresetError(f"Block {index + 1}: group must be text")
     block["group"] = " ".join(group.split())[:MAX_GROUP] if kind != "history" else ""
+    if kind == "examples":
+        mode = raw.get("examples_mode", EXAMPLE_MODES[0])
+        if mode not in EXAMPLE_MODES:
+            raise PresetError(f"Block {index + 1}: examples_mode must be one of {', '.join(EXAMPLE_MODES)}")
+        block["examples_mode"] = mode
     if kind == "history":
         options = raw.get("history") or {}
         if not isinstance(options, dict):

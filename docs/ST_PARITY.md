@@ -25,7 +25,7 @@
 | 0 | Основа: эталоны, тест по ним, запись запроса (`capture.py`), сравнение (`compare_requests.py`), экзамен | идёт (эталоны и тест есть, все 12 совпадают; экзамена на ваших настройках нет) |
 | 1 | Путь владельца: макросы, начало истории («[Start a new Chat]»), слова вокруг карточки, персоны и примеров, параметры запроса из пресета | сделано 2026-11-16 (часть значений для макросов ещё не подаётся, см. раздел 7) |
 | 2 | Точность лорбука и заметок автора | лорбук сделан 2026-11-16; заметки автора не начаты |
-| 3 | Длинные чаты: что выпадает из окна и точный подсчёт текста как в ST (на чистом Python, с запоминанием по сообщению) | не начато |
+| 3 | Длинные чаты: что выпадает из окна и точный подсчёт текста как в ST (на чистом Python, с запоминанием по сообщению) | сделано 2026-11-16 |
 | 4 | Прямые подключения Gemini и Claude | сделано 2026-11-16 |
 | 5 | Чего нет: «продолжить это сообщение», когда срабатывает блок пресета, режимы карточек в группе | не начато |
 | 6 | Текстовый режим | не начато |
@@ -52,6 +52,8 @@
 | 3ж | Текстовый режим | не начато |
 
 **Журнал** (что сделано, словами пользователя; всё ниже «не проверено на экране»).
+
+- 2026-11-16, волна 3 (длинные чаты): под ответ модели теперь оставляется место — из окна подключения вычитается «Максимум токенов ответа», как в ST. Токены считаются по-новому: русский текст стоит дороже английского (раньше считалось «4 буквы = 1 токен», и длинные русские чаты не влезали в окно). После каждого ответа сервис сообщает, сколько токенов было на самом деле, и приложение подстраивает счёт под эту модель — точнее, чем у ST для Gemini и Claude. Примеры диалогов, как в ST, идут только если после переписки осталось место (в блоке «Примеры диалогов» можно выбрать «всегда» или «никогда»). В «Что видела модель» видно, сколько оставлено под ответ и какие примеры не влезли.
 
 - 2026-11-16, волна 1 (начало истории и слова): перед первым сообщением чата стоит системная строка «[Start a new Chat]» (в группе «[Start a new group chat. Group members: …]»). Подсказка группе «[Write the next reply only as …]» идёт сразу после последнего сообщения, до пост-истории. «Написать за меня» уходит последним системным сообщением, как в ST. Префилл («начало ответа») уходит только в Claude и в текстовый режим, Gemini и OpenAI его больше не получают. Пресет из ST шлёт карточку, персону и примеры голыми, без наших заголовков («Description:», «(played by the user)»), а примеры — отдельными сообщениями «[Example Chat]» с именами. Наш собственный пресет оставил свои заголовки. Есть «Если чат кончается ответом модели» (send_if_empty), по умолчанию пусто.
 - 2026-11-16, волна 1 (макросы): `{{// комментарии}}`, `{{trim}}`, `{{newline}}`, `{{random}}`, `{{pick}}`, `{{roll}}`, время и дата, `{{if}}…{{else}}…{{/if}}`, переменные, `{{group}}` и длинные имена полей карточки раскрываются как в ST.
@@ -132,7 +134,7 @@ into the connection (the page asks; the test answers yes).
 | Character's Note (card `extensions.depth_prompt`: prompt, depth default 4, role default system) injected in chat every reply. | Not read. | missing | cards.py, A, C | Card with depth_prompt, depth 1: before the last message. |
 | Example dialogues: `mes_example` split by `<START>`; each block preceded by a system separator `new_example_chat_prompt` (default "[Example Chat]"); each line group is its own system message named example_user / example_assistant, leading "Name:" removed. | Preset from ST: the same structure (`example_dialogues`, `new_example_chat` text, `example_user` / `example_assistant` names, never squashed). Ours keeps one "Example dialogue of X:" text. | done 2026-11-16 for ST presets | A `examples`, `example_dialogues` | `<START>\n{{user}}: hi\n{{char}}: yo` → [sys "[Example Chat]", sys(name example_user) "hi", sys(name example_assistant) "yo"]. |
 | Named example messages reach each API differently: Claude / Gemini / merge modes put "Name: " back in front and drop the name; plain OpenAI-compatible sends the `name` field. Named system messages never squashed. | `ChatMessage.name` / `speaker`: OpenAI-compatible sends `name`; Gemini, Claude and text templates put "Name: " in front (`spoken()`). | done 2026-11-16 | providers, A | `test_named_lines_reach_each_service` |
-| Example behaviour (settings.json): normal = only if room after history; always keep; never = stripped. Whole blocks dropped together. | Always sent, never cut. | partly | A | Tight window: ST drops examples first. |
+| Example behaviour (settings.json): normal = only if room after history; always keep; never = stripped. Whole blocks dropped together. | Per preset: the examples block's «Когда отправлять примеры» (room / always / never); a member's examples dropped whole. | done 2026-11-16 | A, P | `tests/unit/test_long_chats.py` |
 | WI entries "before / after examples" are parsed like example text and put at the start / end of the example blocks. | Plain text around the examples block. | partly | A `place_lore("examples_*")` | Position 5 with `<START>` content. |
 | Groups, join mode: fields of all members wrapped with join prefix / suffix; muted left out unless "join, include muted". Default is **swap**: only the speaker's card. | All cards always, each "### Name". | partly | A `cast`, S | A and B, A speaks, swap: only A's description. |
 
@@ -231,9 +233,9 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 
 | ST behaviour (default) | Ours | Status | Files |
 |---|---|---|---|
-| Budget = context size minus response length; real tokenizer. | `max_context_tokens` of the connection (0 = none), response not subtracted, 4 chars ≈ 1 token. | partly | C, A, `core/prompt.py` |
-| Fixed prompts always go; if they alone overflow the request fails. | We drop members' cards, then plugin texts. | partly | A |
-| History newest → oldest until the budget ends (separator, nudges, continue reserved first); depth items counted on the kept part. Examples after history in priority unless "always keep". | Oldest dropped, min 6 kept, then cards, then more history; examples never dropped. | partly | A |
+| Budget = context size minus response length; real tokenizer. | Window − the connection's `max_tokens` (at most ¾ of the window; none when unset) — same. Counting: `core/tokens.py` by script (pure Python, cached per text), times a ratio learned per connection + model from the service's real prompt count (`token_ratio`); the window is turned into estimated units (`tokens.window`). | done 2026-11-16; counting **отличается нарочно** (learns every model, ST guesses for Gemini / Claude) | C `response_reserve`, `learn_ratio`, `core/tokens.py` |
+| Fixed prompts always go; if they alone overflow the request fails. | We drop members' cards, then plugin texts. | **отличается нарочно** (a reply instead of an error) | A |
+| History newest → oldest until the budget ends (separator, nudges, continue reserved first); depth items counted on the kept part. Examples after history in priority unless "always keep". | Examples block `examples_mode`: room (default, ST normal: a member's examples go whole before any message), always, never. Then oldest messages, min 6 kept, then cards, then more history. | done 2026-11-16 for examples; min 6 kept **отличается нарочно** | A, P |
 
 ## 11. Request body per service
 
@@ -301,7 +303,7 @@ The first findings (Gemini behind an OpenAI-compatible proxy) put the regex tric
 9. **Tail order.** Done 2026-11-16.
 10. **Names behaviour.** ST prefixes every character line in groups (including the speaker).
 11. **Past reasoning sent** after import (done: last one, in the model's own tag).
-12. **Different history kept.** No response reserve, 4-chars estimate, our drop order.
+12. **Different history kept.** Done 2026-11-16: response reserve, counting by script with the learned ratio, examples only while room is left; our min 6 messages stays.
 13. **Character's Note (card depth prompt) missing**, AN before / after main missing, interval counted differently.
 14. **Sampling values.** With an empty connection no temperature, penalties or max_tokens are sent, so the proxy's defaults decide (fits "answers badly" more than refusals); Claude limited-sampling rules, custom exclude-body / headers and post-processing missing.
 

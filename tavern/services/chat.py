@@ -19,9 +19,11 @@ from tavern.core.assembly import PromptInput
 from tavern.core.generation import DefaultGenerator, GenerationJob
 from tavern.core.llm import LLMClient
 from tavern.core.presets import provider_extras, when_texts
-from tavern.core.prompt import DEFAULT_CHAR_NAME, substitute
+from tavern.core import tokens
+from tavern.core.prompt import DEFAULT_CHAR_NAME, estimate_tokens, substitute
 from tavern.core.runs import Run
 
+from tavern.providers.base import ChatMessage
 from tavern.providers.params import request_params
 from tavern.services import cast, character_tree, lorebooks, parallel, speakers, spending
 from tavern.services import messages as message_service
@@ -135,6 +137,32 @@ def generation_kind(reply: dict[str, Any], new_swipe: bool) -> str:
     if reply.get("role") == "user":
         return "impersonate"
     return "swipe" if new_swipe else "normal"
+
+
+def response_reserve(window: int, max_tokens: Any) -> int:
+    """Tokens kept free for the reply (SillyTavern subtracts the response length from the context): the
+    connection's «max tokens», never more than three quarters of the window (a setting larger than the window is
+    a mistake, and the prompt must still get room). No window or no length set: nothing."""
+    if window <= 0 or isinstance(max_tokens, bool) or not isinstance(max_tokens, (int, float)) or max_tokens <= 0:
+        return 0
+    return min(int(max_tokens), window * 3 // 4)
+
+
+def learn_ratio(ctx: AppContext, connection: dict[str, Any], provider: Any, sent: list[ChatMessage],
+                real: int) -> None:
+    """After a reply: how many prompt tokens the service really counted against our estimate, kept per
+    connection and model (core/tokens.py). Not learned from pictures (counted apart) or a fallback's answer
+    (another model)."""
+    if getattr(provider, "used", "") or any(m.images for m in sent):
+        return
+    store = dict(ctx.settings.get(tokens.RATIO_KEY) or {})
+    key = tokens.ratio_key(connection["id"], connection["model"])
+    old = store.get(key) if isinstance(store.get(key), (int, float)) else None
+    new = tokens.learn(old, sum(estimate_tokens(m.content) for m in sent), real)
+    if new is None or new == old:
+        return
+    store[key] = new
+    ctx.settings.set(tokens.RATIO_KEY, store)
 
 
 def make_budget(ctx: AppContext) -> RunBudget:
@@ -514,10 +542,16 @@ def _writer(
     chat_id = chat["id"]
     params = dict(connection["params"])
     preset = preset_service.resolve(ctx, chat)
-    max_context = int(params.pop("max_context_tokens", 0) or 0)
+    window = int(params.pop("max_context_tokens", 0) or 0)  # the model's window, in the service's tokens
     # Model settings live only in the connection; the preset's old `params` are not used. A preset from SillyTavern
     # adds its request options (system field, post-processing, custom body / headers): the providers read them.
     model_defaults = {**request_params(connection["kind"], params), **provider_extras(preset["data"])}
+    # Wave 3 (ST parity): the reply needs room too, so the prompt gets the window minus the reply's length (when the
+    # connection sets one). Both go into the estimate's units by what this model really counted before.
+    reserve = response_reserve(window, params.get("max_tokens"))
+    factor = tokens.ratio(ctx.settings.get(tokens.RATIO_KEY), connection["id"], connection["model"])
+    max_context = tokens.window(window, factor)  # the whole window: the lorebook's percent is of this
+    prompt_budget = tokens.window(window - reserve, factor) if window else 0
     generator_id = chat["meta"].get("generator") or ctx.settings.get("generator")
     me = user_name(ctx, chat_id)
 
@@ -535,7 +569,7 @@ def _writer(
             "connection_id": connection["id"], "connection_name": connection["name"],
             "model": connection["model"], "params": model_defaults,
             "tokens": job.prompt.tokens, "dropped": job.prompt.dropped,
-            "max_context_tokens": max_context,
+            "max_context_tokens": window, "response_reserve": reserve, "token_ratio": factor,
         }
         try:
             ctx.prompt_log.record(chat_id, reply["id"], swipe_idx, entries, meta)
@@ -612,7 +646,8 @@ def _writer(
             llm = LLMClient(provider, model=connection["model"], budget=run.budget, trace=run.trace,
                             defaults=model_defaults,
                             meter=spending.meter(ctx, connection, chat_id=chat_id, message_id=reply["id"],
-                                                 tally=tally))
+                                                 tally=tally),
+                            calibrate=lambda sent, real: learn_ratio(ctx, connection, provider, sent, real))
             history = [
                 m for m in ctx.chats.active_path(chat_id) if m["id"] != reply["id"] and m["id"] not in skip_ids
             ]
@@ -664,7 +699,7 @@ def _writer(
                 members=members,
                 history=note_service.with_attached(ctx, chat_id, history), user_name=me,
                 impersonate=reply["role"] == "user",
-                max_context_tokens=max_context,
+                max_context_tokens=prompt_budget,
                 notes=note_service.for_reply(ctx, chat_id, [m.character_id for m in members], history),
                 lore=lore.found, lore_dropped=lore.dropped,
                 load_image=lambda name: load_image(ctx, name),
@@ -675,7 +710,7 @@ def _writer(
             )
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,
-                                max_context_tokens=max_context, instruction=instruction,
+                                max_context_tokens=prompt_budget, instruction=instruction,
                                 prompt_input=prompt_input, message_id=reply["id"])
             job.meaning = found_meaning
             job.params["split_thinking"] = True  # <thinking> written in the reply goes to «Размышление»

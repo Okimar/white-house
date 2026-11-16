@@ -9,6 +9,7 @@ import { Pending } from "./State.js";
 import { notify } from "../core/notify.js";
 import { copyText } from "../core/clipboard.js";
 import { backdrop, useEscape } from "../core/keys.js";
+import { estimateTokens } from "../core/tokens.js";
 
 const PREVIEW = 400;
 const ROLE_ICONS = { user: "user", assistant: "bot", system: "terminal" };
@@ -18,7 +19,9 @@ async function copy(text, onError) {
   else onError("Не удалось скопировать");
 }
 
-const tokens = (text) => Math.max(1, Math.floor(text.length / 4));
+// The estimate (web/core/tokens.js) times what this model really counted per estimated token when the reply was
+// written (meta.token_ratio, learned from the service; 1 until then): numbers in the model's own tokens.
+const tokens = (text, ratio = 1) => Math.max(1, Math.round(estimateTokens(text) * ratio));
 
 function plural(n, forms) {
   const last = n % 10;
@@ -29,14 +32,14 @@ function plural(n, forms) {
 }
 const tokenWord = (n) => plural(n, ["токен", "токена", "токенов"]);
 
-function Part({ entry, onVersions, onError }) {
+function Part({ entry, ratio, onVersions, onError }) {
   const [open, setOpen] = useState(entry.text.length <= PREVIEW);
   return html`
     <div class=${"prompt-part kind-" + (entry.kind || "other")} data-slot="prompt-part">
       <div class="row">
         <span title=${roleOf(entry.role).label} aria-label=${roleOf(entry.role).label}><${Icon} name=${ROLE_ICONS[entry.role] || "user"} /></span>
         <strong>${entry.label || entry.kind}</strong>
-        <span class="muted prompt-tokens">≈${tokens(entry.text)} ${tokenWord(tokens(entry.text))}</span>
+        <span class="muted prompt-tokens">≈${tokens(entry.text, ratio)} ${tokenWord(tokens(entry.text, ratio))}</span>
         <span class="spacer"></span>
         ${entry.versions > 1 && html`<button type="button" onClick=${() => onVersions(entry)}>Версии: ${entry.versions}</button>`}
         <${IconButton} icon="copy" label="Копировать" onClick=${() => copy(entry.text, onError)} />
@@ -107,8 +110,15 @@ export function PromptView({ message, onClose, onError }) {
 
   const whole = record ? record.entries.map((e) => e.text).join("\n\n") : "";
   const meta = record ? record.meta : {};
-  const estimate = record ? record.entries.reduce((sum, e) => sum + tokens(e.text), 0) : 0;
+  const ratio = typeof meta.token_ratio === "number" && meta.token_ratio > 0 ? meta.token_ratio : 1;
+  const estimate = record ? record.entries.reduce((sum, e) => sum + tokens(e.text, ratio), 0) : 0;
+  const reserve = meta.response_reserve || 0;
   const dropped = meta.dropped || {};
+  const windowDropped = [
+    dropped.messages > 0 ? `старых сообщений — ${dropped.messages}` : "",
+    (dropped.members || []).length ? `карточки: ${dropped.members.join(", ")}` : "",
+    (dropped.examples || []).length ? `примеры диалогов: ${dropped.examples.join(", ")}` : "",
+  ].filter(Boolean);
 
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
@@ -124,11 +134,9 @@ export function PromptView({ message, onClose, onError }) {
           <div class="prompt-meta">
             <div>Пресет: <strong>${meta.preset_name}</strong> · модель: <strong>${meta.model || "—"}</strong>
               ${` (${meta.connection_name})`}</div>
-            <div>Примерно <strong class="tabular">${estimate}</strong> ${tokenWord(estimate)}${meta.max_context_tokens ? html` из <span class="tabular">${meta.max_context_tokens}</span>` : ""}
+            <div>Примерно <strong class="tabular">${estimate}</strong> ${tokenWord(estimate)}${meta.max_context_tokens ? html` из <span class="tabular">${meta.max_context_tokens}</span>` : ""}${reserve ? html`, из них <span class="tabular">${reserve}</span> оставлено под ответ` : ""}
               ${exact !== null && html` · точно: <strong class="tabular">${exact}</strong>`}</div>
-            ${(dropped.messages > 0 || (dropped.members || []).length > 0) && html`<div class="notice">
-              Не влезло в память модели: ${dropped.messages > 0 ? `старых сообщений — ${dropped.messages}` : ""}
-              ${(dropped.members || []).length ? ` карточки: ${dropped.members.join(", ")}` : ""}</div>`}
+            ${windowDropped.length > 0 && html`<div class="notice">Не влезло в память модели: ${windowDropped.join("; ")}</div>`}
             ${(dropped.lore || []).length > 0 && html`<div class="notice">
               Не влезло в лимит лорбуков: ${dropped.lore.join(", ")}</div>`}
             ${(dropped.memory || []).length > 0 && html`<div class="notice">
@@ -143,7 +151,7 @@ export function PromptView({ message, onClose, onError }) {
           ${record.entries.map((entry, i) => html`
             ${(i === 0 || record.entries[i - 1].msg !== entry.msg) && html`<div class="prompt-msg-sep"
               key=${"sep" + i}>Сообщение ${entry.msg + 1} · ${roleOf(entry.role).label}</div>`}
-            <${Part} key=${i} entry=${entry} onVersions=${setVersionsOf} onError=${onError} />`)}`)}
+            <${Part} key=${i} entry=${entry} ratio=${ratio} onVersions=${setVersionsOf} onError=${onError} />`)}`)}
       </div>
     </div>
   `;

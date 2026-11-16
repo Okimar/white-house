@@ -98,8 +98,9 @@ def test_the_live_tail_is_not_cut_before_older_messages():
     """The reserve for memory would cut into the newest messages; the tail stops that."""
     msgs = history(30, size=30)
     memory = [fragment(0)]
-    without = build(msgs, memory, max_context_tokens=900, memory_reserve=400)
-    protected = build(msgs, memory, max_context_tokens=900, memory_reserve=400, tail_from="m15")
+    # one message ≈ 64 tokens (core/tokens.py: a Russian word of 5 letters is 2): the tail of 15 fits 1100
+    without = build(msgs, memory, max_context_tokens=1100, memory_reserve=400)
+    protected = build(msgs, memory, max_context_tokens=1100, memory_reserve=400, tail_from="m15")
     kept = lambda p: [e.source for e in p.entries if e.kind == "message"]  # noqa: E731
     assert len(kept(without)) < 15  # making room for memory ate into the newest messages
     assert all(f"message:m{i}" in kept(protected) for i in range(15, 30))
@@ -108,8 +109,8 @@ def test_the_live_tail_is_not_cut_before_older_messages():
 
 def test_the_reserve_is_kept_free_for_memory_while_messages_are_cut():
     msgs = history(30)
-    small = build(msgs, [fragment(0)], max_context_tokens=500, memory_reserve=0)
-    reserved = build(msgs, [fragment(0)], max_context_tokens=500, memory_reserve=200)
+    small = build(msgs, [fragment(0)], max_context_tokens=1000, memory_reserve=0)  # ≈ 84 tokens a message
+    reserved = build(msgs, [fragment(0)], max_context_tokens=1000, memory_reserve=200)
     assert reserved.dropped["messages"] > small.dropped["messages"]  # more history left out to make room
     assert "отрывок про 0" in sent(reserved)
 

@@ -325,6 +325,7 @@ def assemble(data: PromptInput) -> Prompt:
             (after if history_seen else before).append(entry)
 
     blocks_placed: set[str] = set()
+    examples_mode = "room"  # the examples block's choice, read when it is placed (presets.EXAMPLE_MODES)
     slot = Entry("system", "", "", "", "_slot")  # where the preset's «memory» block stands
     slot_list: list[Entry] | None = None
     slot_run: list[Entry] = []  # what was put at the slot so far
@@ -480,7 +481,8 @@ def assemble(data: PromptInput) -> Prompt:
                 scene = ""
         elif kind == "examples":
             place_lore("examples_top", block)
-            for member in others:
+            examples_mode = block.get("examples_mode", "room")
+            for member in others if examples_mode != "never" else ():
                 source, label = f"character:{member.character_id}:examples", f"{block['name']}: {member.name}"
                 if st_way:
                     for entry in example_entries(member, role, source, label):
@@ -631,7 +633,7 @@ def assemble(data: PromptInput) -> Prompt:
                           "Начало ответа (prefill)", "prompt"))
 
     dropped: dict[str, Any] = {"messages": 0, "members": [], "lore": list(data.lore_dropped),
-                               "extras": list(data.extras_dropped), "memory": []}
+                               "extras": list(data.extras_dropped), "memory": [], "examples": []}
     history_ids = [m["id"] for m in data.history]  # the whole branch, in order
 
     def total() -> int:
@@ -644,6 +646,19 @@ def assemble(data: PromptInput) -> Prompt:
                 messages.pop(0)
                 dropped["messages"] += 1
 
+        # SillyTavern fills the window with the history first and adds example dialogues only while room is left:
+        # in mode «room» a member's examples (with their separators) go, whole, before any chat message.
+        if examples_mode == "room":
+            for member in reversed(others):
+                if total() <= data.max_context_tokens:
+                    break
+                mine = (lambda e, owner=member.character_id: e.kind == "examples" and e.owner == owner)
+                if not any(mine(e) for e in (*before, *after)) and not any(mine(i.entry) for i in injections):
+                    continue
+                before[:] = [e for e in before if not mine(e)]
+                after[:] = [e for e in after if not mine(e)]
+                injections[:] = [i for i in injections if not mine(i.entry)]
+                dropped["examples"].append(member.name)
         keep = MIN_HISTORY
         if data.tail_from and data.tail_from in history_ids:  # the live tail is not cut before older messages
             sent_now = {e.source for e in messages}
@@ -712,7 +727,7 @@ def assemble(data: PromptInput) -> Prompt:
         put_at_slot([entry for _, _, entry in sorted(chosen, key=lambda c: (c[0], c[1]))])
     if slot_list is not None and slot in slot_list:
         slot_list.remove(slot)
-    for key in ("extras", "memory"):  # without a plugin the record is what it always was
+    for key in ("extras", "memory", "examples"):  # without a plugin the record is what it always was
         if not dropped[key]:
             del dropped[key]
 

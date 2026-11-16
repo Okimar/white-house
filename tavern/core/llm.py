@@ -47,6 +47,8 @@ class StructuredOutputError(ProviderError):
 # (model asked for, usage, estimated, provider) -> cost in dollars or None when the price is unknown
 MeterFn = Callable[[str, Usage, bool, Provider], "float | None"]
 GateFn = Callable[[], Awaitable[None]]
+# (messages sent, prompt tokens the service counted) -> None
+CalibrateFn = Callable[[list[ChatMessage], int], None]
 
 
 class LLMClient:
@@ -60,6 +62,7 @@ class LLMClient:
         defaults: dict[str, Any] | None = None,
         meter: MeterFn | None = None,
         gate: GateFn | None = None,
+        calibrate: CalibrateFn | None = None,
     ) -> None:
         self.provider = provider
         self.model = model
@@ -68,6 +71,9 @@ class LLMClient:
         self.defaults = defaults or {}
         self.meter = meter
         self.gate = gate
+        # Told the messages and the service's real prompt count of every request it reported one for (the chat
+        # reply's client only: core/tokens.py learns how this model counts). Never copied by fork().
+        self.calibrate = calibrate
 
     def fork(
         self, *, provider: Provider | None = None, model: str | None = None, meter: MeterFn | None = None,
@@ -111,6 +117,11 @@ class LLMClient:
                 sum(len(m.content) for m in messages) // 4, len(text) // 4
             )
             estimated = True
+        elif self.calibrate is not None and usage.prompt_tokens and not estimated:
+            try:
+                self.calibrate(messages, usage.prompt_tokens)
+            except Exception:  # noqa: BLE001 - learning the ratio must never cost a reply
+                pass
         cost = self.meter(model, usage, estimated, self.provider) if self.meter else None
         self.budget.charge(usage.prompt_tokens, usage.completion_tokens, cost or 0.0)
         return usage
