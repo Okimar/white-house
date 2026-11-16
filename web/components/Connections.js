@@ -113,10 +113,13 @@ function NewConnection({ catalog, onCreated, onCancel, onError }) {
   const [query, setQuery] = useState("");
   const [service, setService] = useState(null);
   const [form, setForm] = useState({ name: "", base_url: "", key: "", proxy: "" });
+  const [showKey, setShowKey] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const pick = (s) => {
     setService(s);
     setForm({ name: s.name, base_url: s.base_url, key: "", proxy: "" });
+    setShowKey(false);
   };
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const q = query.trim().toLowerCase();
@@ -126,6 +129,8 @@ function NewConnection({ catalog, onCreated, onCancel, onError }) {
 
   const create = async (e) => {
     e.preventDefault();
+    if (creating) return;
+    setCreating(true);
     try {
       const keys = form.key || form.proxy ? [{ label: "Ключ 1", key: form.key, proxy: form.proxy }] : [];
       const conn = await api.post("/connections", {
@@ -133,7 +138,7 @@ function NewConnection({ catalog, onCreated, onCancel, onError }) {
       });
       if (conn.address_fixed) notify(`Адрес исправлен: ${conn.address_fixed}`, "ok");
       onCreated(conn);
-    } catch (err) { onError(err.message); }
+    } catch (err) { onError(err.message); } finally { setCreating(false); }
   };
 
   if (!service) return html`
@@ -161,13 +166,18 @@ function NewConnection({ catalog, onCreated, onCancel, onError }) {
         <input required value=${form.base_url} onInput=${set("base_url")} /></label>
       ${service.key !== "none" && html`
         <label class="stack">${service.key === "required" ? "Ключ API" : "Ключ API (необязательно)"}
-          <input type="password" autocomplete="off" value=${form.key} onInput=${set("key")} /></label>
+          <div class="row password-wrap">
+            <input class="grow" type=${showKey ? "text" : "password"} autocomplete="off" value=${form.key} onInput=${set("key")} />
+            <${IconButton} icon=${showKey ? "eye-off" : "eye"} label=${showKey ? "Скрыть ключ" : "Показать ключ"}
+              onClick=${() => setShowKey(!showKey)} />
+          </div></label>
         ${service.site && html`<span class="hint">Где взять ключ: ${service.site}</span>`}`}
       <label class="stack">Прокси для ключа (необязательно)
         <input value=${form.proxy} onInput=${set("proxy")} /></label>
       <span class="hint">Например, socks5://логин:пароль@адрес:порт</span>
       <div class="row">
-        <button type="submit">Создать</button>
+        <button type="submit" class="primary" disabled=${creating}>
+          ${creating ? html`<${Icon} name="loader-circle" class="spin" /> Создаю…` : "Создать"}</button>
         <button type="button" onClick=${() => setService(null)}>Другой сервис</button>
         <button type="button" onClick=${onCancel}>Отмена</button>
       </div>

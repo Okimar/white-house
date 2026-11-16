@@ -87,7 +87,7 @@ function Commit({ commit, onOpenConversation, onRolledBack, onError }) {
     setBusy(true);
     try {
       await api.post(`/changes/actions/${commit.rollback_id}/rollback`, { accepted: true });
-      notify("Откат сделан");
+      notify("Откат сделан", "ok");
     } catch (e) {
       onError(e.message); // the half that was done is shown by the reload below
     }

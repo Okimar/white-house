@@ -592,7 +592,8 @@ function App() {
             <${IconButton} icon="chevron-down" label="Свернуть верхнюю панель" class="fold-top" data-slot="phone-fold"
               onClick=${() => { setSheet(null); setMenuFolded(true); }} />
             ${SECTIONS.map(([id, icon, label]) => html`<${IconButton} key=${id} icon=${icon} label=${label}
-              aria-pressed=${sheet === id} onClick=${() => setSheet(sheet === id ? null : id)} />`)}
+              aria-pressed=${sheet === id} aria-haspopup="true" aria-expanded=${sheet === id}
+              onClick=${() => setSheet(sheet === id ? null : id)} />`)}
             <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="phone-search" onClick=${openSearch} />
             <${IconButton} icon="wand" label=${assistantBusy ? "Помощник: есть работа" : "Помощник"}
               class=${assistantBusy ? "has-mark" : ""}

@@ -168,7 +168,7 @@ export function Search({ characters, onOpen, onClose, onError }) {
 
         ${mode === "plain" && html`
           <form class="search-form" role="search" onSubmit=${(e) => { e.preventDefault(); run(false); }}>
-            <${Icon} name="search" />
+            <${Icon} name=${plain.loading ? "loader-circle" : "search"} class=${plain.loading ? "state-spinner" : ""} />
             <input type="search" value=${query} autofocus enterkeyhint="search" aria-label="Что искать"
               placeholder=${scope === "chats" ? "Слова из сообщений, «точная фраза» в кавычках" : "Слова из разговоров с помощником"}
               onInput=${(e) => setQuery(e.target.value)} />
@@ -180,7 +180,7 @@ export function Search({ characters, onOpen, onClose, onError }) {
             ${plain.done && !plain.hits.length && !plain.loading && !plain.error && html`<${EmptyNote}
               title="Ничего не найдено" hint="Попробуйте другие слова или уберите ограничения выше."/>`}
             ${plain.hits.map((h) => html`<${Hit} key=${h.scope + h.id} hit=${h} onPick=${onOpen} />`)}
-            ${plain.loading && html`<p class="muted state-note" role="status">Ищу…</p>`}
+            ${plain.loading && html`<div class="muted state-note state-pending" role="status"><span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" size="16" /></span> <span>Ищу…</span></div>`}
             ${plain.more && !plain.loading && html`<button class="search-more" onClick=${() => run(true)}>Показать ещё</button>`}
           </div>`}
 

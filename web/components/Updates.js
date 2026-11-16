@@ -8,6 +8,7 @@
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { ask } from "./Dialogs.js";
+import { Icon } from "./Icon.js";
 
 const WAIT_MS = 5 * 60 * 1000;
 
@@ -75,8 +76,14 @@ export function Updates({ onError }) {
     <h2>Обновление программы</h2>
     ${current && html`<p class="muted">Сейчас: версия ${current.version}${current.commit ? `, сборка ${current.commit}` : ""}${current.date ? ` от ${current.date}` : ""}${current.subject ? `, «${current.subject}»` : ""}.</p>`}
     <div class="row">
-      <button disabled=${Boolean(busy)} onClick=${check}>${busy === "check" ? "Проверяю…" : "Проверить обновления"}</button>
-      ${found && found.can_update && html`<button class="primary" disabled=${Boolean(busy)} onClick=${apply}>${busy === "apply" ? "Обновляю…" : "Обновить"}</button>`}
+      <button disabled=${Boolean(busy)} onClick=${check}>
+        ${busy === "check" && html`<span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" size="14" /></span> `}
+        ${busy === "check" ? "Проверяю…" : "Проверить обновления"}
+      </button>
+      ${found && found.can_update && html`<button class="primary" disabled=${Boolean(busy)} onClick=${apply}>
+        ${busy === "apply" && html`<span class="state-spinner" aria-hidden="true"><${Icon} name="loader-circle" size="14" /></span> `}
+        ${busy === "apply" ? "Обновляю…" : "Обновить"}
+      </button>`}
     </div>
     ${found && found.state === "up_to_date" && html`<p>У вас последняя версия.${found.ahead ? " В вашей копии есть свои правки кода, которых нет на сервере." : ""}</p>`}
     ${found && found.state === "available" && html`<p>Есть новая версия${found.latest ? `: ${found.latest.commit}${found.latest.date ? ` от ${found.latest.date}` : ""}` : ""}. Новых изменений: ${found.behind}.</p>`}
