@@ -7,11 +7,13 @@ import { Icon, IconButton } from "./Icon.js";
 import { panelFolded, setPanelFolded, useLayout } from "../core/layout.js";
 
 const MARK = { wait: "loader-circle", done: "check", error: "triangle-alert" };
+const STATE_LABEL = { wait: "Выполняется", done: "Готово", error: "Ошибка" };
 
 function Item({ item }) {
   const children = item.children || [];
+  const stateLabel = STATE_LABEL[item.state] || item.state;
   return html`<li class="ptree-item" data-state=${item.state || ""}>
-    <div class="ptree-head">${MARK[item.state] && html`<span class="ptree-mark" title=${item.state}><${Icon} name=${MARK[item.state]} /></span>`}
+    <div class="ptree-head">${MARK[item.state] && html`<span class="ptree-mark" title=${stateLabel} aria-label=${stateLabel}><${Icon} name=${MARK[item.state]} /></span>`}
       <strong>${item.title}</strong></div>
     ${item.text && html`<div class="ptree-text">${item.text}</div>`}
     ${children.length > 0 && html`<ul class="ptree-list">${children.map((c, i) => html`<${Item} key=${i} item=${c} />`)}</ul>`}

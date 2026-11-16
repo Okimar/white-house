@@ -779,6 +779,22 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
     startWide();
     applyCamera({ s, x: px - ((px - c.x) * s) / c.s, y: py - ((py - c.y) * s) / c.s });
   };
+  const zoomIn = () => {
+    boxCache.current = null;
+    const box = boxOf();
+    zoomAt(box.width / 2, box.height / 2, 1.25);
+  };
+  const zoomOut = () => {
+    boxCache.current = null;
+    const box = boxOf();
+    zoomAt(box.width / 2, box.height / 2, 0.8);
+  };
+  const zoomReset = () => {
+    boxCache.current = null;
+    startWide();
+    applyCamera({ x: 40, y: 200, s: 1 });
+    commitCamera();
+  };
 
   useEffect(() => {
     const el = viewport.current;
@@ -1356,6 +1372,18 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
               ${!loaded && html`<${Pending} error=${loadError} onRetry=${reload} />`}
               ${loaded && blocks.length === 0 && html`<p class="tree-empty muted">Нажмите «Пузырь» вверху, чтобы добавить первый пузырь:
                 например «Внешность», а в него «Волосы»</p>`}
+              <div class="tree-zoom-controls" data-slot="tree-zoom-controls" role="toolbar" aria-label="Управление масштабом"
+                onPointerDown=${(e) => e.stopPropagation()}>
+                <button type="button" class="zoom-btn" title="Приблизить (+)" aria-label="Приблизить" onClick=${zoomIn}>
+                  <${Icon} name="plus" size=${16} />
+                </button>
+                <button type="button" class="zoom-btn" title="Отдалить (-)" aria-label="Отдалить" onClick=${zoomOut}>
+                  <${Icon} name="minus" size=${16} />
+                </button>
+                <button type="button" class="zoom-btn" title="Сбросить масштаб (100%)" aria-label="Сбросить масштаб" onClick=${zoomReset}>
+                  <${Icon} name="maximize-2" size=${15} />
+                </button>
+              </div>
             </div>`
           : html`<${TreeList} kids=${kids} selected=${selected} vectorized=${vectorized} open=${openIds}
               loaded=${loaded} error=${loadError} onRetry=${reload}

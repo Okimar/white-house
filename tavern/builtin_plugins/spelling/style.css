@@ -5,5 +5,12 @@
 }
 .composer-helper[data-plugin="spelling"] button {
   min-height: var(--tap); padding: 0 10px; max-width: 100%; overflow-wrap: anywhere;
+  transition: transform 120ms var(--ease-out), background-color 120ms var(--ease-out), border-color 120ms var(--ease-out);
+}
+.composer-helper[data-plugin="spelling"] button:active {
+  transform: scale(0.97);
+}
+.composer-helper[data-plugin="spelling"] button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
 }
 .composer-helper[data-plugin="spelling"] .composer-helper-note { font-size: var(--text-sm); overflow-wrap: anywhere; }

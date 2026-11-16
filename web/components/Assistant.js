@@ -17,6 +17,7 @@ import { ask, askText } from "./Dialogs.js";
 import { MenuButton, openMenu } from "./Menu.js";
 import { Pending, EmptyNote } from "./State.js";
 import { OPEN_SKILL_KEY } from "./Skills.js";
+import { useEscape } from "../core/keys.js";
 
 const POS_KEY = "tavern.assistant.pos";
 const CHAT_KEY = "tavern.assistant.chat";
@@ -78,10 +79,10 @@ function ConversationList({ chats, current, onPick, onNew, onRename, onDelete, o
         <${IconButton} icon="pencil" label="Переименовать" onClick=${() => onRename(c)} />
         <${IconButton} icon="trash-2" label="Удалить беседу" disabled=${c.running} onClick=${() => onDelete(c)} />
       </div>`)}
-      ${sorted.length > shown && html`<button class="link" onClick=${() => setShown(shown + SHOWN_STEP)}>Показать ещё (${sorted.length - shown})</button>`}
-      ${sorted.length === 0 && html`<p class="muted">${needle ? "Ничего не нашлось." : "Бесед пока нет."}</p>`}
+      ${sorted.length > shown && html`<button type="button" class="link" onClick=${() => setShown(shown + SHOWN_STEP)}>Показать ещё (${sorted.length - shown})</button>`}
+      ${sorted.length === 0 && html`<p class="muted" role="status">${needle ? "По этому слову ничего не нашлось." : "Бесед пока нет."}</p>`}
     </div>
-    <button class="link" onClick=${onImport}><${Icon} name="file-up" /> Загрузить беседу из файла</button>
+    <button type="button" class="link" onClick=${onImport}><${Icon} name="file-up" /> Загрузить беседу из файла</button>
   </div>`;
 }
 
@@ -217,7 +218,7 @@ const AFTER = { undone: " — отменено", denied: " — не разреш
 function ActionLine({ action, onUndo }) {
   return html`<div class=${"assistant-action " + action.status} data-slot="assistant-action" role="status">
     <span>${MARKS[action.status] && html`<${Icon} name=${MARKS[action.status]} /> `}${action.what}${AFTER[action.status] || ""}</span>
-    ${action.status === "done" && html`<button class="link" onClick=${() => onUndo(action)}>Отменить</button>`}
+    ${action.status === "done" && html`<button type="button" class="link" onClick=${() => onUndo(action)}>Отменить</button>`}
   </div>`;
 }
 
@@ -249,8 +250,8 @@ function QuestionsCard({ message, active, onAnswer }) {
         onInput=${(e) => setOwn({ ...own, [q.id]: e.target.value })} />
     </fieldset>`)}
     ${active && html`<div class="row">
-      <button class="primary" disabled=${!questions.every(answered)} onClick=${() => onAnswer(chosenOnes())}>Ответить</button>
-      <button onClick=${() => onAnswer(chosenOnes())}>На ваш вкус</button>
+      <button type="button" class="primary" disabled=${!questions.every(answered)} onClick=${() => onAnswer(chosenOnes())}>Ответить</button>
+      <button type="button" onClick=${() => onAnswer(chosenOnes())}>На ваш вкус</button>
     </div>
     <p class="hint">«Ответить» — когда отвечено на всё. «На ваш вкус»: на что вы не ответили, помощник решит сам.</p>`}
   </div>`;
@@ -281,8 +282,8 @@ function PlanCard({ message, task, active, running, onGo, onDrop }) {
       </li>`)}
     </ol>
     ${active && html`<div class="row">
-      <button class="primary" onClick=${onGo}>Начать</button>
-      <button onClick=${onDrop}>Отменить задачу</button>
+      <button type="button" class="primary" onClick=${onGo}>Начать</button>
+      <button type="button" onClick=${onDrop}>Отменить задачу</button>
       <span class="muted">или напишите, что поменять</span>
     </div>`}
   </div>`;
@@ -327,6 +328,13 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   const [, setScreen] = useState(0);
   const box = useRef(null);
   const bottom = useRef(null);
+
+  useEscape(() => {
+    if (library) { setLibrary(false); return; }
+    if (showSettings) { setShowSettings(false); return; }
+    if (listOpen) { setListOpen(false); return; }
+    onClose();
+  });
 
   const loadOverview = () => api.get("/assistant").then((o) => {
     setOverview(o);
@@ -640,15 +648,15 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
         ${data?.ask && html`<div class="assistant-ask" data-slot="assistant-ask" role="alert">
           <p>Помощник спрашивает: <strong>${data.ask.text}</strong></p>
           <div class="row">
-            <button class="primary" onClick=${() => answer(true)}>Разрешить</button>
-            <button onClick=${() => answer(false)}>Нет</button>
+            <button type="button" class="primary" onClick=${() => answer(true)}>Разрешить</button>
+            <button type="button" onClick=${() => answer(false)}>Нет</button>
           </div>
         </div>`}
         ${leftMidway && html`<div class="assistant-ask" data-slot="assistant-resume" role="status">
           <p>${midPlan ? "Работа остановилась, не дойдя до конца. Сделанное на месте." : "Помощник остановился, не закончив просьбу."}</p>
           <div class="row">
-            <button class="primary" onClick=${go}>Продолжить</button>
-            ${midPlan && html`<button onClick=${drop}>Отменить задачу</button>`}
+            <button type="button" class="primary" onClick=${go}>Продолжить</button>
+            ${midPlan && html`<button type="button" onClick=${drop}>Отменить задачу</button>`}
             <span class="muted">или напишите, что поменять</span>
           </div>
         </div>`}
@@ -673,7 +681,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
           onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) send(e); }}></textarea>
         ${working && (text.trim() || files.length > 0) && html`<${IconButton} class="primary" type="submit" icon="send-horizontal" label="Добавить в план" />`}
         ${runId
-          ? html`<button type="button" onClick=${stop}><${Icon} name="square" /> Стоп</button>`
+          ? html`<button type="button" class="assistant-stop-btn" onClick=${stop}><${Icon} name="square" /> Стоп</button>`
           : html`<${IconButton} class="primary" type="submit" icon="send-horizontal" label="Отправить" disabled=${!text.trim() && files.length === 0} />`}
       </form>`}
   </section>`;

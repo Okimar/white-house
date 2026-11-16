@@ -38,5 +38,6 @@ export function WindowButtons({ windows }) {
 export function StatusChips({ chips }) {
   return chips.map((c, i) => html`<button key=${c.owner + i} type="button" class=${"plugin-chip " + (c.state || "")}
     data-slot="plugin-status" data-plugin=${c.owner} data-state=${c.state || ""} title=${c.title || c.text}
+    aria-label=${c.title || c.text} role="status"
     onClick=${c.onClick || null}>${c.text}</button>`);
 }

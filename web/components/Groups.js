@@ -545,11 +545,11 @@ export function GroupedItems({ kind, items, idOf, labelOf, activeId = null, rend
       const open = !closed.has(s.id);
       return html`<div key=${s.id || "none"} class="group" data-slot="group" data-sid=${s.id}>
         <div class="group-head">
-          <button class="group-fold" aria-expanded=${open} title=${s.name} onClick=${() => {
+          <button class="group-fold" aria-expanded=${open ? "true" : "false"} title=${s.name} onClick=${() => {
             const next = new Set(closed);
             if (open) next.add(s.id); else next.delete(s.id);
             keepClosed(next);
-          }}><${Icon} name=${open ? "chevron-down" : "chevron-right"} /><span class="group-name">${s.name}</span>
+          }}><${Icon} name="chevron-down" /><span class="group-name">${s.name}</span>
             <span class="muted count">${s.items.length}</span></button>
           ${s.id !== NONE && html`<${MenuButton} label=${"Действия с группой " + s.name} items=${() => groupMenu(s.id)} />`}
         </div>
