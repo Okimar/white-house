@@ -282,13 +282,12 @@ data/                   user data, git-ignored. Never commit, never delete
 
 ## Rules
 
-1. **No SillyTavern code.** Do not read, copy or translate its source. Implement formats from
-   public specs (character card V2/V3 spec) and observed behaviour. The owner keeps a full
-   SillyTavern install in `SillyTavern/` at the repo root as a reference of how the program behaves.
-   Never copy, translate or adapt code from it, for any reason. Behaviour may be studied only
-   clean-room: one agent reads it and writes a description in plain words (no code, no ST function
-   names), a different agent implements from that description without opening `SillyTavern/`. The
-   folder is git-ignored and never committed.
+1. **No SillyTavern code.** The owner keeps a full SillyTavern install in `SillyTavern/` at the repo root as a
+   reference (owner, 2026-11-17): **opening and reading it is allowed** — its code to learn how a feature behaves,
+   its data folder (`SillyTavern/data/<user>/`: settings.json, presets, instruct / context files, world files) to
+   see the owner's real settings, and to check what we must import. **Copying, translating or adapting its code is
+   never allowed** (it is AGPL): our code is written from our own understanding, in our own structure and names.
+   Do not read the owner's chats or secrets there unless asked. The folder is git-ignored and never committed.
 2. **Pure-Python dependencies only.** Anything needing Rust or a C compiler breaks Termux
    (`pydantic`, `orjson`, `uvloop`, `tiktoken`, `Pillow` are out). New dependency: pin the exact
    version in `requirements.txt`, check `pip install --only-binary=:all:` gives a `py3-none-any`

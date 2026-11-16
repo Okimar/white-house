@@ -515,6 +515,24 @@ function TextModeTemplate({ catalog, kind, params, info, onSet, onDrop, onError 
     </details>`;
 }
 
+// A list setting (stop strings) as text: one per line, or SillyTavern's JSON form ["\n\n", "User:"] — needed as soon as
+// an item holds a line break; such a list is also shown that way so editing keeps it whole.
+function listText(items) {
+  const list = Array.isArray(items) ? items : [];
+  return list.some((s) => /[\n\r]/.test(s)) ? JSON.stringify(list) : list.join("\n");
+}
+
+function parseList(text) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.filter((s) => typeof s === "string" && s !== "");
+    } catch (e) { /* not finished typing yet: read it line by line meanwhile */ }
+  }
+  return text.split("\n").filter((s) => s);
+}
+
 function ParamRow({ spec, value, on, mark, limit, templates, onSet, onDrop }) {
   const [text, setText] = useState(null); // raw text of list/json fields while typing
   const [badJson, setBadJson] = useState(false);
@@ -555,9 +573,10 @@ function ParamRow({ spec, value, on, mark, limit, templates, onSet, onDrop }) {
       onChange=${(e) => onSet(spec.id, e.target.value)}>
       ${spec.choices.map((c) => html`<option value=${c}>${c}</option>`)}</${Select}>`;
   } else if (spec.type === "list") {
-    control = html`<textarea rows="2" disabled=${!on} aria-label=${spec.label} placeholder="по одной на строку"
-      value=${text ?? (current || []).join("\n")}
-      onInput=${(e) => { setText(e.target.value); onSet(spec.id, e.target.value.split("\n").filter((s) => s)); }} />`;
+    control = html`<textarea rows="2" disabled=${!on} aria-label=${spec.label}
+      placeholder=${'по одной на строку, или как в SillyTavern: ["\\n\\n", "User:"]'}
+      value=${text ?? listText(current)}
+      onInput=${(e) => { setText(e.target.value); onSet(spec.id, parseList(e.target.value)); }} />`;
   } else {
     control = html`<textarea rows="2" class="mono" disabled=${!on} aria-label=${spec.label}
       value=${text ?? JSON.stringify(current ?? {})} onInput=${(e) => json(e.target.value)} />

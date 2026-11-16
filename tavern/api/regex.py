@@ -9,7 +9,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from tavern.api.util import BadRequest, attachment, copy_before, ctx_of, field, json_body
-from tavern.services import regex
+from tavern.services import lorebooks, regex
 
 
 def _scope(request: Request) -> tuple[str, str]:
@@ -127,6 +127,11 @@ async def import_rules(request: Request) -> JSONResponse:
     """Body: {scope, owner?, scripts: <a SillyTavern script, an array of them, or our export>}."""
     body = await json_body(request)
     result = regex.import_rules(ctx_of(request), body.get("scripts"), body.get("scope", "global"), body.get("owner", ""))
+    # SillyTavern's settings.json also carries its world info settings and global books: they come along
+    lore = (await lorebooks.apply_st_settings(ctx_of(request), body.get("scripts"))
+            if body.get("scope", "global") == "global" else None)
+    if lore is not None:
+        result["lorebooks"] = lore
     _changed(request)
     return JSONResponse(result, status_code=201)
 

@@ -166,6 +166,63 @@ def uses(ctx: AppContext, scope: str, target: str | None = None) -> list[str]:
     return ctx.lorebooks.uses(scope, _check_place(ctx, scope, target))
 
 
+# SillyTavern's world info settings (settings.json -> world_info_settings) -> ours. Whole words and case stay ours:
+# our keyword search knows Russian endings (on purpose, ST_PARITY section 5).
+ST_STRATEGIES = {0: "evenly", 1: "character_first", 2: "global_first"}
+ST_NUMBERS = {"world_info_depth": "scan_messages", "world_info_min_activations": "min_activations",
+              "world_info_min_activations_depth_max": "min_depth_max", "world_info_budget": "budget_percent",
+              "world_info_budget_cap": "budget_cap"}
+ST_FLAGS = {"world_info_include_names": "include_names", "world_info_use_group_scoring": "group_scoring"}
+UNLIMITED_RECURSION = SETTING_LIMITS["recursion"][1]
+
+
+def settings_from_st(obj: Any) -> tuple[dict[str, Any], list[str]] | None:
+    """(our lorebook settings, names of the globally selected books) from SillyTavern's settings.json, or None when
+    the file has no world info settings."""
+    found = obj.get("world_info_settings") if isinstance(obj, dict) else None
+    if not isinstance(found, dict):
+        return None
+    out: dict[str, Any] = {}
+    for st_key, key in ST_NUMBERS.items():
+        value = found.get(st_key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            low, high = SETTING_LIMITS[key]
+            out[key] = min(high, max(low, int(value)))
+    for st_key, key in ST_FLAGS.items():
+        if isinstance(found.get(st_key), bool):
+            out[key] = found[st_key]
+    if isinstance(found.get("world_info_recursive"), bool):
+        steps = found.get("world_info_max_recursion_steps")
+        steps = int(steps) if isinstance(steps, (int, float)) and not isinstance(steps, bool) else 0
+        # recursion off -> 0; on with «0 = no limit» -> our most steps; on with a limit -> that many (within ours)
+        out["recursion"] = (min(UNLIMITED_RECURSION, steps) if steps > 0 else UNLIMITED_RECURSION) \
+            if found["world_info_recursive"] else 0
+    strategy = ST_STRATEGIES.get(found.get("world_info_character_strategy"))
+    if strategy:
+        out["strategy"] = strategy
+    books = found.get("world_info") if isinstance(found.get("world_info"), dict) else {}
+    names = [n for n in books.get("globalSelect") or [] if isinstance(n, str) and n.strip()]
+    return out, names
+
+
+async def apply_st_settings(ctx: AppContext, obj: Any) -> dict[str, Any] | None:
+    """SillyTavern's settings.json: its world info settings become ours, and its globally selected books (by name,
+    those we have) are switched on everywhere. Returns what changed, or None when the file has none."""
+    parsed = settings_from_st(obj)
+    if parsed is None:
+        return None
+    changes, names = parsed
+    stored = dict(ctx.settings.get("lorebooks") or {})
+    ctx.settings.set("lorebooks", {**stored, **clean_settings(changes)})
+    by_name = {b["name"].strip().casefold(): b["id"] for b in ctx.lorebooks.list()}
+    on = [by_name[n.strip().casefold()] for n in names if n.strip().casefold() in by_name]
+    if on:
+        current = list(ctx.lorebooks.uses("global"))
+        await set_uses(ctx, "global", None, current + [b for b in on if b not in current])
+    return {"settings": changes, "books_on": [n for n in names if n.strip().casefold() in by_name],
+            "books_missing": [n for n in names if n.strip().casefold() not in by_name]}
+
+
 async def set_uses(ctx: AppContext, scope: str, target: str | None, book_ids: Any) -> list[str]:
     """Switch on exactly these books (in this order) for one place."""
     target = _check_place(ctx, scope, target)

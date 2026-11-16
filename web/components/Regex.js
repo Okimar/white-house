@@ -288,10 +288,17 @@ function RuleList({ scope, owner, name, rules, pending, chatId, onError, changed
     try { scripts = JSON.parse(await file.text()); } catch (err) { throw new Error("Файл — не JSON"); }
     // SillyTavern's settings.json is big: only its global scripts are sent (the server reads the whole file too).
     const ext = scripts && !Array.isArray(scripts) && scripts.extension_settings;
-    if (ext && typeof ext === "object" && !("findRegex" in scripts)) scripts = { extension_settings: { regex: ext.regex || [] } };
+    // ...and its world info settings (lorebook search, budget, recursion, global books) come along, global import only
+    if (ext && typeof ext === "object" && !("findRegex" in scripts)) {
+      scripts = { extension_settings: { regex: ext.regex || [] },
+        ...(scope === "global" && scripts.world_info_settings ? { world_info_settings: scripts.world_info_settings } : {}) };
+    }
     const done = await api.post("/regex/import", { scope, owner, scripts });
-    notify(`Добавлено правил: ${done.imported.length}` + (done.problems.length ? `. Не заработают: ${done.problems.map((p) => p.name).join(", ")} (выключены, причина в строке правила)` : ""),
-      done.problems.length ? "info" : "ok");
+    const lore = done.lorebooks;
+    notify(`Добавлено правил: ${done.imported.length}` + (done.problems.length ? `. Не заработают: ${done.problems.map((p) => p.name).join(", ")} (выключены, причина в строке правила)` : "")
+      + (lore ? `. Настройки лорбуков взяты из SillyTavern` + (lore.books_on.length ? `, включены везде: ${lore.books_on.join(", ")}` : "")
+        + (lore.books_missing.length ? `. Нет у нас (импортируйте их): ${lore.books_missing.join(", ")}` : "") : ""),
+      done.problems.length || (lore && lore.books_missing.length) ? "info" : "ok");
   });
   const exportHref = `/api/regex/export?scope=${scope}&owner=${encodeURIComponent(owner || "")}`;
 
