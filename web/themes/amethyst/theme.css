@@ -1,0 +1,29 @@
+:root {
+  --bg: #100e17;
+  --panel: #171422;
+  --fg: #f0edf6;
+  --muted: #9189a6;
+  --line: #2d2740;
+  --accent: #ba7bf7;
+  --accent-fg: #170d28;
+  --accent-hover: #c992fa;
+  --accent-active: #a865eb;
+  --danger: #e25b6a;
+  --danger-fg: #1c0a0d;
+  --success: #45be84;
+  --warning: #e5a855;
+  --user: color-mix(in srgb, var(--fg) 7%, var(--bg));
+  --raised: color-mix(in srgb, var(--fg) 6%, var(--panel));
+  --text2: color-mix(in srgb, var(--fg) 78%, var(--panel));
+  --app-bg: var(--bg);
+  --sidebar-bg: var(--panel);
+  --topbar-bg: var(--panel);
+  --composer-bg: var(--panel);
+  --msg-user-bg: var(--user);
+  --msg-bot-bg: var(--panel);
+  --line-height-reading: 1.65;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .4);
+  --menu-shadow: 0 12px 30px rgba(0, 0, 0, .6);
+  --focus-ring: 2px solid var(--accent);
+  --focus-ring-offset: 2px;
+}

@@ -216,7 +216,8 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
   const [models, setModels] = useState([]);
   const [probeable, setProbeable] = useState([]);
   const [log, setLog] = useState([]);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(""); // "" | "inspect" | "probe"
+  const [savingParams, setSavingParams] = useState(false);
 
   const say = (text, kind = "") => setLog((l) => [...l.slice(-7), { text, kind, at: new Date().toLocaleTimeString() }]);
 
@@ -255,7 +256,7 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
   };
 
   const inspect = async () => {
-    setBusy(true);
+    setBusy("inspect");
     say("Спрашиваю у сервиса список моделей…");
     try {
       const d = await api.post(`/connections/${conn.id}/inspect`, {});
@@ -263,12 +264,12 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
       setProbeable(d.probeable);
       say(`Готово: моделей ${d.models.length}`, "ok");
     } catch (err) { say(err.message, "err"); }
-    setBusy(false);
+    setBusy("");
   };
 
   const probe = async () => {
     if (!head.model) { say("Сначала выберите модель", "err"); return; }
-    setBusy(true);
+    setBusy("probe");
     say(`Пробные запросы к ${head.model}: ${probeable.length} настроек, по одному токену…`);
     try {
       const d = await api.post(`/connections/${conn.id}/probe`, { model: head.model });
@@ -279,10 +280,12 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
       const fresh = await api.get(`/connections/${conn.id}/model-info`);
       setModels(fresh.models);
     } catch (err) { say(err.message, "err"); }
-    setBusy(false);
+    setBusy("");
   };
 
   const saveParams = async () => {
+    if (savingParams) return;
+    setSavingParams(true);
     try {
       await api.put(`/connections/${conn.id}`, { params });
       setDirty(false);
@@ -290,6 +293,7 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
       notify("Сохранено", "ok");
       onSaved();
     } catch (err) { say(err.message, "err"); }
+    finally { setSavingParams(false); }
   };
 
   const remove = async () => {
@@ -325,8 +329,12 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
           <${Suggest} value=${head.model} options=${models}
             onInput=${(e) => setHead({ ...head, model: e.target.value })}
             onChange=${(e) => saveHead({ model: e.target.value })} /></label>
-        <button disabled=${busy} onClick=${inspect} title="Бесплатно: спросить у сервиса модели и их возможности">Проверить</button>
-        <button disabled=${busy} onClick=${probe} title="По одному крошечному запросу на каждую настройку">Пробные запросы</button>
+        <button disabled=${Boolean(busy)} onClick=${inspect} title="Бесплатно: спросить у сервиса модели и их возможности">
+          ${busy === "inspect" ? "Проверяю…" : "Проверить"}
+        </button>
+        <button disabled=${Boolean(busy)} onClick=${probe} title="По одному крошечному запросу на каждую настройку">
+          ${busy === "probe" ? "Запросы…" : "Пробные запросы"}
+        </button>
       </div>
       <p class="hint">«Проверить» бесплатно: спросит у сервиса список моделей и их возможности.
         «Пробные запросы» платные: по одному крошечному запросу на каждую настройку.</p>
@@ -346,8 +354,10 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
         onSteps=${(steps) => (steps.length ? setParam("fallbacks", steps) : dropParam("fallbacks"))}
         onPhrases=${(list) => (list.length ? setParam("refusal_phrases", list) : dropParam("refusal_phrases"))} />
       <div class="row">
-        <button class="primary" disabled=${!dirty} onClick=${saveParams}>Сохранить настройки</button>
-        ${dirty && html`<span class="muted">Есть несохранённые изменения</span>`}
+        <button class="primary" disabled=${!dirty || savingParams} onClick=${saveParams}>
+          ${savingParams ? "Сохраняю…" : "Сохранить настройки"}
+        </button>
+        ${dirty && !savingParams && html`<span class="muted">Есть несохранённые изменения</span>`}
       </div>
     </section>`;
 }
@@ -364,6 +374,7 @@ function ModelFacts({ info }) {
 function Keys({ conn, onSaved, onError }) {
   const [editing, setEditing] = useState(null); // key id or "new"
   const [form, setForm] = useState({ label: "", key: "", proxy: "" });
+  const [savingKey, setSavingKey] = useState(false);
 
   const start = (k) => {
     setEditing(k ? k.id : "new");
@@ -373,6 +384,8 @@ function Keys({ conn, onSaved, onError }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (savingKey) return;
+    setSavingKey(true);
     try {
       if (editing === "new") await api.post(`/connections/${conn.id}/keys`, form);
       else {
@@ -383,7 +396,7 @@ function Keys({ conn, onSaved, onError }) {
       setEditing(null);
       notify("Сохранено", "ok");
       onSaved();
-    } catch (err) { onError(err.message); }
+    } catch (err) { onError(err.message); } finally { setSavingKey(false); }
   };
 
   const del = async (k) => {
@@ -439,7 +452,7 @@ function Keys({ conn, onSaved, onError }) {
         <span class="hint">${isNew ? "Например, http://… или socks5://…" : "Пусто — оставить прежний."}</span>
         ${!isNew && html`<label><input type="checkbox" checked=${Boolean(form.clearProxy)}
           onChange=${(e) => setForm({ ...form, clearProxy: e.target.checked })} /> Убрать прокси</label>`}
-        <div class="row"><button type="submit">Сохранить</button>
+        <div class="row"><button type="submit" disabled=${savingKey}>${savingKey ? "Сохраняю…" : "Сохранить"}</button>
           <button type="button" onClick=${() => setEditing(null)}>Отмена</button></div>
       </form>`}`;
 }

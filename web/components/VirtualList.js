@@ -76,7 +76,19 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
   layout.current = { items, offsets, heightOf };
   const captureAnchor = (top) => {
     const { items: list, offsets: offs, heightOf: h } = layout.current;
-    const first = list.findIndex((item, i) => offs[i] + h(keyOf(item)) > top);
+    if (!list.length) return null;
+    let low = 0;
+    let high = list.length - 1;
+    let first = -1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (offs[mid] + h(keyOf(list[mid])) > top) {
+        first = mid;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
     return first >= 0 ? { id: keyOf(list[first]), offset: offs[first] - top } : null;
   };
 
@@ -131,7 +143,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
     const el = box.current;
     if (!el) return;
     if (jump.current && Date.now() > jump.current.until) jump.current = null;
-    if (userScrolling() && !jump.current) return; // onScroll keeps the anchor fresh meanwhile
+    const isScrolling = userScrolling();
     const jumpIndex = jump.current ? items.findIndex((i) => i.id === jump.current.id) : -1;
     if (jumpIndex >= 0) {
       stuck.current = false;
@@ -140,8 +152,14 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
       el.scrollTop = el.scrollHeight;
     } else if (anchor.current) {
       const idx = items.findIndex((i) => keyOf(i) === anchor.current.id);
-      if (idx > 0 && Math.abs(offsets[idx] - anchor.current.offset - el.scrollTop) > 1) {
-        el.scrollTop = offsets[idx] - anchor.current.offset;
+      // Prepending older items (idx > 0) must adjust el.scrollTop even if the user was recently scrolling,
+      // so the loaded content does not cause the viewport to jump to the top.
+      const prepended = idx > 0;
+      if (idx >= 0 && (prepended || !isScrolling)) {
+        const targetScroll = offsets[idx] - anchor.current.offset;
+        if (Math.abs(targetScroll - el.scrollTop) > 1) {
+          el.scrollTop = targetScroll;
+        }
       }
     }
     anchor.current = captureAnchor(el.scrollTop);
@@ -171,7 +189,20 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
     return () => resize.disconnect();
   }, []);
 
-  const from = Math.max(0, items.findIndex((_, i) => offsets[i] + heightOf(keyOf(items[i])) > viewport.top - OVERSCAN_PX));
+  // Binary search for the first item intersecting viewport - OVERSCAN_PX (O(log N) instead of O(N) scan)
+  const targetTop = viewport.top - OVERSCAN_PX;
+  let low = 0;
+  let high = items.length - 1;
+  let from = 0;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (offsets[mid] + heightOf(keyOf(items[mid])) > targetTop) {
+      from = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
   let to = from;
   while (to < items.length && offsets[to] < viewport.top + viewport.height + OVERSCAN_PX) to++;
   const start = items.length ? offsets[from] : 0;

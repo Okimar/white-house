@@ -5,8 +5,11 @@ export default function setup(t) {
     icon: "🎲",
     title: "Бросить кубики (/roll 2d6+1)",
     onClick: async () => {
-      const formula = prompt("Какие кубики бросить? Например 2d6+1", last || t.settings.default || "1d20");
-      if (formula === null) return;
+      const defaultValue = last || t.settings.default || "1d20";
+      const formula = t.askText
+        ? await t.askText("Какие кубики бросить? Например 2d6+1", { value: defaultValue })
+        : prompt("Какие кубики бросить? Например 2d6+1", defaultValue);
+      if (formula === null || !formula.trim()) return;
       last = formula.trim();
       await t.command(`/roll ${last}`);
     },

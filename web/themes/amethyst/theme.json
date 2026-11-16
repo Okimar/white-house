@@ -1,0 +1,12 @@
+{
+  "format": "tavern-theme",
+  "format_version": 1,
+  "id": "amethyst",
+  "name": "Сумерки",
+  "author": "White House",
+  "version": "1",
+  "description": "Ночная атмосфера сумерек: глубокие бархатные чернила, приглушённый аметистовый акцент и книжная чёткость текста.",
+  "license": "CC0",
+  "base": "dark",
+  "preview": "preview.svg"
+}

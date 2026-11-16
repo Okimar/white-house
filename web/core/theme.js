@@ -68,8 +68,13 @@ function setLook(id, base, hasCss) {
   if (base === "light" || base === "dark") root.dataset.base = base; else delete root.dataset.base;
   const link = stylesheet();
   const href = hasCss ? `/themes/${id}/theme.css` + (cssRev ? `?v=${cssRev}` : "") : "";
-  if (!href) link.removeAttribute("href");
-  else if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+  if (!href) {
+    link.disabled = true;
+    link.removeAttribute("href");
+  } else if (link.getAttribute("href") !== href) {
+    link.disabled = false;
+    link.setAttribute("href", href);
+  }
 }
 
 // Before the first API answer: reuse the last theme's look so the page does not flash.
@@ -139,7 +144,11 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
     if (active.controller !== controller) return;
     console.error("Theme script failed", error);
     stopScript();
-    onScriptError(`Скрипт темы «${theme.name}» завершился с ошибкой и был отключён: ${error && error.message || error}`);
+    const rawMsg = error && (typeof error === "string" ? error : error.message) || "";
+    const shortMsg = rawMsg ? String(rawMsg).split("\n")[0].slice(0, 150) : "Непредвиденный сбой";
+    if (typeof onScriptError === "function") {
+      onScriptError(`Скрипт темы «${theme.name}» завершился с ошибкой и был отключён: ${shortMsg}`);
+    }
   };
   const scene = document.querySelector(".scene");
   const overlay = document.querySelector(".overlay-layer");
@@ -201,9 +210,9 @@ export async function applyTheme(theme, { runScript, onScriptError }) {
 
 const BAR = "display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;"
   + "background:var(--panel,#1f1f24);color:var(--fg,#eee);border-bottom:2px solid var(--warning,#e0a030);"
-  + "font:14px/1.4 system-ui,sans-serif;";
+  + "font:14px/1.4 system-ui,sans-serif;overflow-wrap:anywhere;word-break:break-word;";
 const BTN = "padding:8px 14px;min-height:44px;border-radius:6px;border:1px solid currentColor;"
-  + "background:transparent;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;";
+  + "background:transparent;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;touch-action:manipulation;";
 
 function el(tag, style, text, children = []) {
   const node = document.createElement(tag);
@@ -296,11 +305,12 @@ function parkedBar() {
 function dropParked() {
   if (parkedNode) parkedNode.remove();
   parkedNode = null;
-  if (noticeBox && !noticeBox.children.length) {
+  const remainingHeight = (noticeBox && noticeBox.isConnected && noticeBox.children.length) ? noticeBox.offsetHeight : 0;
+  if (!remainingHeight && noticeBox) {
     noticeBox.remove();
     noticeBox = null;
-    document.documentElement.style.setProperty("--notice-h", "0px");
   }
+  document.documentElement.style.setProperty("--notice-h", remainingHeight + "px");
 }
 
 // The page's theme choice changed (picked in «Оформление», by the assistant, an undo): ask the server again,
@@ -331,7 +341,10 @@ function mountNotices() {
   for (const bar of bars) box.appendChild(bar);
   document.body.appendChild(box);
   // The bar must not cover the menu: the page is pushed down by its height (styles.css uses --notice-h).
-  const sync = () => document.documentElement.style.setProperty("--notice-h", box.offsetHeight + "px");
+  const sync = () => {
+    const h = (box && box.isConnected) ? box.offsetHeight : 0;
+    document.documentElement.style.setProperty("--notice-h", h + "px");
+  };
   sync();
   if (window.ResizeObserver) new ResizeObserver(sync).observe(box);
 }

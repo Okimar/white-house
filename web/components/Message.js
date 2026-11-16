@@ -229,7 +229,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
         <${IconButton} icon=${role.icon} class="role-icon" disabled=${busy || pending} aria-haspopup="menu"
           label=${"Роль для модели: " + role.label + ". Нажмите, чтобы сменить"}
           onClick=${(e) => pickRole(e.currentTarget)} />
-        <strong class="msg-name" data-slot="message-name">${message.name || fallbackName}</strong>
+        <strong class="msg-name" data-slot="message-name" title=${message.name || fallbackName}>${message.name || fallbackName}</strong>
         ${message.swipe_count > 1 && html`
           <span class="swipes" data-slot="message-swipes" role="group"
             tabindex="0" aria-label=${`Варианты ответа: вариант ${message.active_swipe + 1} из ${message.swipe_count}`}

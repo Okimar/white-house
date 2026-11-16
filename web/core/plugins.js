@@ -138,6 +138,8 @@ async function load(p) {
     command: (text) => env.command(text),
     chatId: () => env.chatId(),
     toast: (text) => env.toast(text),
+    ask: (text, opts) => ask(text, opts),
+    askText: (text, opts) => askText(text, opts),
     refresh: changed,
     reloadChat: () => env.reloadChat(),
     // bring a message of the open chat's branch into view and mark it for a moment ({id, depth}: depth = number - 1)

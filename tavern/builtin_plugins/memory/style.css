@@ -17,7 +17,7 @@
 .memory-row-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-state { flex: none; font-size: var(--text-sm); color: var(--accent); font-weight: 500; font-variant-numeric: tabular-nums; }
 .memory-sheet { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 8px; font-size: var(--text-sm); line-height: 1.45; }
-.memory-sheet p { margin: 0; }
+.memory-sheet p { margin: 0; overflow-wrap: anywhere; word-break: break-word; }
 .memory-preview { color: var(--text2); overflow-wrap: anywhere; line-height: 1.45; text-wrap: pretty; }
 .memory-field { display: flex; gap: 8px; align-items: center; }
 .memory-field input { flex: 1; min-width: 0; min-height: var(--tap); font-size: 16px; }

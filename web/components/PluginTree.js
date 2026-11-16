@@ -10,28 +10,33 @@ const MARK = { wait: "loader-circle", done: "check", error: "triangle-alert" };
 const STATE_LABEL = { wait: "Выполняется…", done: "Готово", error: "Ошибка" };
 
 function Item({ item }) {
-  const children = item.children || [];
+  if (!item) return null;
+  const children = Array.isArray(item.children) ? item.children : [];
   const stateLabel = STATE_LABEL[item.state] || item.state;
   return html`<li class="ptree-item" data-state=${item.state || ""}>
     <div class="ptree-head">${MARK[item.state] && html`<span class="ptree-mark" title=${stateLabel} aria-label=${stateLabel}><${Icon} name=${MARK[item.state]} /></span>`}
       <strong>${item.title}</strong></div>
     ${item.text && html`<div class="ptree-text">${item.text}</div>`}
-    ${children.length > 0 && html`<ul class="ptree-list">${children.map((c, i) => html`<${Item} key=${i} item=${c} />`)}</ul>`}
+    ${children.length > 0 && html`<ul class="ptree-list">${children.map((c, i) => html`<${Item} key=${c?.id || c?.title || i} item=${c} />`)}</ul>`}
   </li>`;
 }
 
 export function Tree({ tree }) {
-  return html`<ul class="ptree-list">${(tree.items || []).map((item, i) => html`<${Item} key=${i} item=${item} />`)}</ul>`;
+  const items = Array.isArray(tree?.items) ? tree.items : [];
+  return html`<ul class="ptree-list">${items.map((item, i) => html`<${Item} key=${item?.id || item?.title || i} item=${item} />`)}</ul>`;
 }
 
 export function MessageTree({ owner, tree }) {
+  if (!tree) return null;
   return html`<details class="ptree msg-tree" data-slot="message-plugin-tree" data-plugin=${owner} open=${!!tree.open}>
     <summary>${tree.title}</summary><${Tree} tree=${tree} /></details>`;
 }
 
 // Buttons for the top bar: one per panel that has something to show.
 export function PanelButtons({ panels }) {
-  return panels.filter((p) => p.render()).map((p) => html`<button key=${p.key} type="button" data-slot="plugin-panel-button"
+  return panels.filter((p) => {
+    try { return Boolean(p.render()); } catch { return false; }
+  }).map((p) => html`<button key=${p.key} type="button" data-slot="plugin-panel-button"
     data-plugin=${p.owner} aria-pressed=${p.shown} title=${p.title} aria-label=${p.title}
     onClick=${() => togglePanel(p.key, !p.shown)}>${p.icon}</button>`);
 }
@@ -40,16 +45,22 @@ export function PanelButtons({ panels }) {
 function Panel({ panel: p }) {
   useLayout(); // re-render when the fold choice changes
   const folded = panelFolded(p.key);
-  const tree = p.render();
+  let tree = null;
+  try {
+    tree = p.render();
+  } catch (err) {
+    tree = { title: p.title, items: [{ title: "Ошибка", text: err.message, state: "error" }] };
+  }
   const title = (tree && tree.title) || p.title;
+  const hasItems = Array.isArray(tree?.items) && tree.items.length > 0;
   return html`<aside class=${"plugin-panel" + (folded ? " folded" : "")} data-slot="plugin-panel" data-plugin=${p.owner}
     data-folded=${folded ? "true" : "false"}>
     <header><${IconButton} icon=${folded ? "chevron-left" : "chevron-right"} class="fold-panel" data-slot="fold-panel"
         label=${folded ? "Развернуть панель" : "Свернуть панель"} aria-expanded=${!folded}
         onClick=${() => setPanelFolded(p.key, !folded)} />
-      <strong>${p.icon} ${title}</strong><span class="spacer"></span>
+      <strong>${p.icon} <span class="plugin-panel-title">${title}</span></strong><span class="spacer"></span>
       <${IconButton} icon="x" label="Закрыть" class="close-panel" onClick=${() => togglePanel(p.key, false)} /></header>
-    ${!folded && (tree ? html`<${Tree} tree=${tree} />` : html`<div class="plugin-panel-empty muted" role="status"><p>В этой панели пока нет данных.</p></div>`)}
+    ${!folded && (hasItems ? html`<${Tree} tree=${tree} />` : html`<div class="plugin-panel-empty muted" role="status"><p>В этой панели пока нет данных.</p></div>`)}
   </aside>`;
 }
 

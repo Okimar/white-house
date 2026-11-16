@@ -7,7 +7,14 @@ import { IconButton } from "./Icon.js";
 import { backdrop, useEscape } from "../core/keys.js";
 
 function Body({ win, close }) {
-  return win.render({ ...win.ui, close });
+  try {
+    return win.render({ ...win.ui, close });
+  } catch (err) {
+    return html`<div class="warn" role="alert" style="padding: 16px; margin: 8px;">
+      <p><strong>Не удалось отобразить окно дополнения</strong></p>
+      <p class="hint">${err.message}</p>
+    </div>`;
+  }
 }
 
 function PluginWindow({ win }) {
@@ -16,7 +23,7 @@ function PluginWindow({ win }) {
   return html`<div class="overlay plugin-overlay" ...${backdrop(close)}>
     <div class="dialog plugin-window" data-slot="plugin-window" data-plugin=${win.owner} role="dialog" aria-modal="true"
       aria-label=${win.title}>
-      <div class="side-head"><strong>${win.icon} ${win.title}</strong><span class="spacer"></span>
+      <div class="side-head"><strong>${win.icon} <span class="dialog-name">${win.title}</span></strong><span class="spacer"></span>
         <${IconButton} icon="x" label="Закрыть" onClick=${close} /></div>
       <${Body} win=${win} close=${close} />
     </div>
@@ -36,7 +43,7 @@ export function WindowButtons({ windows }) {
 
 // Status chips in the top bar (progress of a plugin's work).
 export function StatusChips({ chips }) {
-  return chips.map((c, i) => html`<button key=${c.owner + i} type="button" class=${"plugin-chip " + (c.state || "")}
+  return chips.map((c, i) => html`<button key=${c.owner + (c.key || i)} type="button" class=${"plugin-chip " + (c.state || "")}
     data-slot="plugin-status" data-plugin=${c.owner} data-state=${c.state || ""} title=${c.title || c.text}
     aria-label=${c.title || c.text} role="status"
     onClick=${c.onClick || null}>${c.text}</button>`);

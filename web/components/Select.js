@@ -4,7 +4,7 @@
 // onChange gets { target: { value }, currentTarget: { value } } (a string, as with a native select).
 // The list lives at the end of <body> (like Menu.js), opens under the field or above it, and is a
 // listbox with options. Long lists (more than FILTER_FROM options) get a filter field.
-import { html, render, useEffect, useLayoutEffect, useRef, useState } from "../vendor/preact-htm.mjs";
+import { html, render, useEffect, useLayoutEffect, useMemo, useRef, useState } from "../vendor/preact-htm.mjs";
 import { Icon } from "./Icon.js";
 import { holdTouch, keepRowInList, placeList, visibleArea } from "../core/popup.js";
 
@@ -43,22 +43,29 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
   const panel = useRef(null);
   const list = useRef(null);
   const [query, setQuery] = useState("");
-  const options = rows.filter((r) => r.group === undefined);
+  const options = useMemo(() => rows.filter((r) => r.group === undefined), [rows]);
   const filtering = options.length > FILTER_FROM;
   const q = query.trim().toLowerCase();
-  const shown = rows.filter((r, i) => {
-    if (!q) return true;
-    if (r.group !== undefined) return rows.slice(i + 1).some((n) => n.group === undefined && n.text.toLowerCase().includes(q)
-      && !rows.slice(i + 1, rows.indexOf(n)).some((x) => x.group !== undefined));
-    return r.text.toLowerCase().includes(q);
-  });
-  const enabled = shown.filter((r) => r.group === undefined && !r.disabled);
-  const selectedAt = enabled.findIndex((r) => r.value === value);
+  const shown = useMemo(() => {
+    if (!q) return rows;
+    let currentGroup = null;
+    const groupMatches = new Set();
+    for (const r of rows) {
+      if (r.group !== undefined) currentGroup = r.group;
+      else if (currentGroup && r.text.toLowerCase().includes(q)) groupMatches.add(currentGroup);
+    }
+    return rows.filter((r) => {
+      if (r.group !== undefined) return groupMatches.has(r.group);
+      return r.text.toLowerCase().includes(q);
+    });
+  }, [rows, q]);
+  const enabled = useMemo(() => shown.filter((r) => r.group === undefined && !r.disabled), [shown]);
+  const selectedAt = useMemo(() => enabled.findIndex((r) => r.value === value), [enabled, value]);
   const [active, setActive] = useState(selectedAt);
   const state = useRef({});
   state.current = { enabled, active, onPick, onClose };
 
-  useEffect(() => { setActive(q ? 0 : Math.max(0, selectedAt)); }, [q]);
+  useEffect(() => { setActive(q ? 0 : Math.max(0, selectedAt)); }, [q, selectedAt]);
 
   const side = useRef(null); // "down" / "up": chosen once, kept while it has room
   const touching = useRef(false); // a finger is on the list: nothing moves under it
@@ -212,7 +219,7 @@ export function Select({ value, onChange, disabled, children, class: cls, classN
     aria-haspopup="listbox" aria-expanded=${open ? "true" : "false"} disabled=${disabled} ...${rest}
     onKeyDown=${(e) => { if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !open) { e.preventDefault(); setOpen(true); } }}
     onClick=${() => setOpen(!open)}>
-    <span class="select-value">${chosen ? chosen.label : (options.length ? "—" : "")}</span>
+    <span class="select-value">${chosen ? chosen.label : (current ? current : (options.length ? "—" : ""))}</span>
     <${Icon} name="chevron-down" />
   </button>`;
 }

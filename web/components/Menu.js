@@ -18,13 +18,22 @@ function Panel({ anchor, items, onClose }) {
   useLayoutEffect(() => {
     const box = anchor.getBoundingClientRect();
     const el = panel.current;
+    if (!el) return;
     const gap = 4;
     const margin = 8;
-    const left = Math.min(box.right - el.offsetWidth, window.innerWidth - el.offsetWidth - margin);
-    const below = box.bottom + gap + el.offsetHeight <= window.innerHeight - margin;
-    const top = below ? box.bottom + gap : Math.max(margin, box.top - gap - el.offsetHeight);
+    const winH = window.innerHeight;
+    const winW = window.innerWidth;
+    const spaceBelow = winH - box.bottom - gap - margin;
+    const spaceAbove = box.top - gap - margin;
+    const fitsBelow = el.offsetHeight <= spaceBelow;
+    const below = fitsBelow || spaceBelow >= spaceAbove;
+    const maxH = Math.max(88, Math.floor(below ? spaceBelow : spaceAbove));
+    el.style.maxHeight = `${maxH}px`;
+    const h = Math.min(el.offsetHeight, maxH);
+    const top = below ? box.bottom + gap : Math.max(margin, box.top - gap - h);
+    const left = Math.min(box.right - el.offsetWidth, winW - el.offsetWidth - margin);
     el.style.left = `${Math.max(margin, left)}px`;
-    el.style.top = `${top}px`;
+    el.style.top = `${Math.max(margin, top)}px`;
     el.dataset.side = below ? "down" : "up";
     el.focus({ preventScroll: true }); // arrows then walk the items; no ring on an item after a tap
   }, []);

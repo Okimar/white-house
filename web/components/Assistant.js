@@ -217,8 +217,8 @@ function AssistantSettings({ overview, onSaved, onMemory, onOpenSkills, onError 
       <label>Лимит в день, ${cur}<br /><input type="number" min="0" step="any" value=${s.day} onChange=${number("day")} /></label>
       <label>Лимит в месяц, ${cur}<br /><input type="number" min="0" step="any" value=${s.month} onChange=${number("month")} /></label>
     </div>
-    <p class="hint">${`Потрачено сегодня: ${money(overview.spent.day.cost, overview.money)} (запросов: ${overview.spent.day.requests}), ` +
-      `за месяц: ${money(overview.spent.month.cost, overview.money)}. 0 — без лимита; общие лимиты тоже действуют.`}</p>
+    <p class="hint">${`Потрачено сегодня: ${money(overview.spent?.day?.cost || 0, overview.money)} (запросов: ${overview.spent?.day?.requests || 0}), ` +
+      `за месяц: ${money(overview.spent?.month?.cost || 0, overview.money)}. 0 — без лимита; общие лимиты тоже действуют.`}</p>
     <${Memory} memory=${overview.memory || []} onChange=${onMemory} onError=${onError} />
     <button class="link" onClick=${() => onOpenSkills(null)}><${Icon} name="book-open" /> Инструкции помощника</button>
   </div>`;
@@ -237,7 +237,7 @@ function ActionLine({ action, onUndo }) {
 // Questions before big work: ready options and a field for your own. Nothing is chosen until you pick it
 // (the suggested one is only marked): what you leave alone, the assistant decides itself.
 function QuestionsCard({ message, active, onAnswer }) {
-  const questions = message.data.questions || [];
+  const questions = Array.isArray(message.data?.questions) ? message.data.questions : [];
   const [picks, setPicks] = useState({});
   const [own, setOwn] = useState({});
   const value = (q) => own[q.id]?.trim() || picks[q.id] || "";
@@ -248,7 +248,7 @@ function QuestionsCard({ message, active, onAnswer }) {
     ${questions.map((q) => html`<fieldset key=${q.id} disabled=${!active}>
       <legend>${q.text}</legend>
       <div class="assistant-options" role="group" aria-label=${"Варианты: " + q.text}>
-        ${q.options.map((option, n) => {
+        ${(q.options || []).map((option, n) => {
           const isDefault = n === (q.default || 0);
           const chosen = picks[q.id] === option && !own[q.id]?.trim();
           return html`<button type="button" key=${option} class=${(chosen ? "chosen " : "") + (isDefault ? "suggested" : "")} aria-pressed=${chosen}
@@ -275,13 +275,14 @@ const ITEM_STATUS_RU = { done: "выполнено", partial: "частично"
 // The plan: goal, decisions (folded) and items; the live one ticks items off as they are done.
 function PlanCard({ message, task, active, running, onGo, onDrop }) {
   const live = task && task.no === message.data.task && Array.isArray(task.items); // the card may come before the task
-  const items = live ? task.items : message.data.items;
+  const items = (live ? task.items : message.data.items) || [];
   const now = live && running && task.phase === "work" ? items.find((i) => i.status === "todo")?.id : null;
+  const decisions = Array.isArray(message.data.decisions) ? message.data.decisions : [];
   return html`<div class="assistant-card plan" data-slot="assistant-plan" role="region" aria-label="План работы">
     <p>${message.text}</p>
     ${message.data.goal && html`<p><strong>${message.data.goal}</strong></p>`}
-    ${message.data.decisions?.length > 0 && html`<details><summary>Решения (${message.data.decisions.length})</summary>
-      <ul>${message.data.decisions.map((d, i) => html`<li key=${i}>${d}</li>`)}</ul></details>`}
+    ${decisions.length > 0 && html`<details><summary>Решения (${decisions.length})</summary>
+      <ul>${decisions.map((d, i) => html`<li key=${i}>${d}</li>`)}</ul></details>`}
     <ol class="assistant-items" aria-label="Пункты плана" role="list">
       ${items.map((item) => {
         const isNow = item.id === now;
@@ -388,8 +389,13 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     const timer = setInterval(() => { loadOverview(); }, 4000);
     return () => clearInterval(timer);
   }, [anyRunning]);
-  useEffect(() => { store(CHAT_KEY, convId); setRunId(null); loadChat(convId); }, [convId]);
-  useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [data, thinking]);
+  useEffect(() => { store(CHAT_KEY, convId); setRunId(null); setData(null); loadChat(convId); }, [convId]);
+  useEffect(() => {
+    if (box.current) {
+      const el = box.current.querySelector(".assistant-body");
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [data, thinking]);
   // Opened from the search at a message: scroll to it once its conversation is shown (it is marked for a moment).
   const foundBox = useRef(null);
   const scrolledTo = useRef(null);
@@ -622,6 +628,8 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
   const currentRunning = Boolean(currentChat?.running);
   const currentTitle = convId ? (currentChat?.title || data?.chat?.title || "Без названия") : "Новая беседа";
   const items = data ? timeline(data.messages, data.actions) : [];
+  const isLoading = Boolean(convId && !data && !loadError);
+  const isEmpty = !isLoading && items.length === 0 && !loadError;
   return html`<section class=${"assistant" + (folded ? " folded" : "")} ref=${box} style=${style}
       data-slot="assistant" role="dialog" aria-label="Помощник">
     <div class="assistant-head" data-slot="assistant-head" onPointerDown=${drag}>
@@ -657,7 +665,10 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
         onChange=${(e) => { const list = e.target.files; if (list.length) attachFiles(list); e.target.value = ""; }} />
       <div class="assistant-body" data-slot="assistant-body" hidden=${listOpen}>
         ${loadError && html`<${Pending} error=${loadError} onRetry=${() => loadChat(convId)} />`}
-        ${items.length === 0 && !loadError && html`<div class="assistant-empty-state" data-slot="assistant-empty">
+        ${isLoading && html`<div class="assistant-loading-box muted" role="status" aria-live="polite">
+          <span class="assistant-pulse-dot" aria-hidden="true"></span> Загрузка беседы…
+        </div>`}
+        ${isEmpty && html`<div class="assistant-empty-state" data-slot="assistant-empty">
           <${EmptyNote} title="Чем помочь?" icon="wand"
             hint="Помощник умеет настраивать приложение, создавать персонажей и лорбуки, читать чат и искать в сети. Любое изменение можно будет отменить." />
           <div class="assistant-suggestions" role="group" aria-label="Быстрый старт">
@@ -703,7 +714,7 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
         onClose=${() => setLibrary(false)} onError=${onError} />`}
       ${(files.length > 0 || uploading) && html`<div class="assistant-attached" data-slot="assistant-attached">
         ${files.map((f, n) => html`<span key=${n} class="assistant-file" title=${f.name}>
-          <${Icon} name="paperclip" /> ${f.name}
+          <${Icon} name="paperclip" /> <span class="assistant-file-name">${f.name}</span>
           ${f.kind === "binary" && html`<small class="muted"> · прочитать не смогу</small>`}
           <button type="button" aria-label=${"Убрать " + f.name} onClick=${() => setFiles(files.filter((_, i) => i !== n))}><${Icon} name="x" /></button></span>`)}
         ${uploading && html`<span class="muted">Загрузка…</span>`}

@@ -124,7 +124,7 @@ export function Suggest({ value, options, onInput, onChange, disabled, ...rest }
   const all = (options || []).map((o) => (typeof o === "string" ? { id: o, name: "" } : { id: String(o.id), name: o.name && o.name !== o.id ? String(o.name) : "" }));
   const q = dirty ? text.trim().toLowerCase() : "";
   const rows = all.filter((r) => !q || r.id.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)).slice(0, MAX_ROWS);
-  const visible = open && !disabled && rows.length > 0 && !(rows.length === 1 && rows[0].id === text);
+  const visible = open && !disabled && (rows.length > 0 ? !(rows.length === 1 && rows[0].id === text) : (dirty && Boolean(q)));
 
   const close = useRef(() => setOpen(false)).current; // stable: the shared host compares it
   const pick = (v) => {

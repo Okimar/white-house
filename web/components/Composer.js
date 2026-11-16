@@ -197,7 +197,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
       setText((current) => current || value);
       setImages((current) => (current.length ? current : pictures));
     }
-    if (box.current) box.current.focus();
+    if (box.current) box.current.focus({ preventScroll: true });
   };
 
   const attach = async (files) => {

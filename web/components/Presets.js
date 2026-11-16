@@ -61,7 +61,7 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
           onChange=${(e) => set({ enabled: e.target.checked })} />
         <button class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}
           aria-label=${"Настройки блока «" + block.name + "»"}>
-          <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> ${block.name} <span class="muted">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
+          <${Icon} name=${open ? "chevron-down" : "chevron-right"} /> <span class="block-name">${block.name}</span> <span class="muted">· ${block.when ? "по условию" : KIND_HINTS[block.kind]}
           ${block.position === "depth" ? ` · глубина ${block.depth}` : ""}</span>
           ${block.group && html`<span class="tag" title="Из блоков группы включён только один"><${Icon} name="arrow-left-right" /> ${block.group}</span>`}</button>
         ${!readOnly && html`
@@ -275,6 +275,7 @@ export function Presets({ settings, onChanged, onError }) {
   const [active, setActive] = useState(settings.active_preset || "default");
   const [current, setCurrent] = useState(null); // {id, name, builtin, data} being viewed/edited
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false); // the first list and preset are here: until then an empty box keeps the place (no jump)
   const [exporting, setExporting] = useState(null); // preset whose file format is being chosen
   const fileInput = useRef(null);
@@ -358,6 +359,8 @@ export function Presets({ settings, onChanged, onError }) {
     onChanged();
   };
   const save = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
       const saved = await api.put(`/presets/${current.id}`, { name: current.name, data: current.data });
       setCurrent({ ...saved, builtin: false });
@@ -365,7 +368,7 @@ export function Presets({ settings, onChanged, onError }) {
       await reload();
       notify("Сохранено", "ok");
       onChanged();
-    } catch (e) { onError(e.message); }
+    } catch (e) { onError(e.message); } finally { setSaving(false); }
   };
 
   const edit = (data) => { setCurrent({ ...current, data }); setDirty(true); };

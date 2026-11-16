@@ -148,7 +148,11 @@ export function useChat(chatId, onError) {
       try {
         const page = await api.get(
           `/chats/${chatId}/messages?limit=${PAGE}&before_depth=${s.messages[0].depth}`);
-        setState((cur) => ({ ...cur, hasMore: page.has_more, messages: [...page.messages, ...cur.messages] }));
+        setState((cur) => {
+          const existingIds = new Set(cur.messages.map((m) => m.id));
+          const fresh = page.messages.filter((m) => !existingIds.has(m.id));
+          return { ...cur, hasMore: page.has_more, messages: [...fresh, ...cur.messages] };
+        });
       } catch (e) {
         onError(e.message);
       } finally {
@@ -214,7 +218,11 @@ export function useChat(chatId, onError) {
       }
       if (oldest !== undefined && message.depth < oldest) {
         const page = await api.get(`/chats/${chatId}/messages?limit=${oldest - message.depth + 5}&before_depth=${oldest}`);
-        setState((s) => ({ ...s, hasMore: page.has_more, messages: [...page.messages, ...s.messages] }));
+        setState((s) => {
+          const existingIds = new Set(s.messages.map((m) => m.id));
+          const fresh = page.messages.filter((m) => !existingIds.has(m.id));
+          return { ...s, hasMore: page.has_more, messages: [...fresh, ...s.messages] };
+        });
       }
     })()),
     remove: (id) => guard(api.del(`/messages/${id}`).then(reload)),

@@ -21,14 +21,19 @@ const write = (key, value) => { try { localStorage.setItem(key, value); } catch 
 
 // The piece of text with the found words marked (positions come from the server in the page's own units).
 function Snippet({ snippet }) {
+  if (!snippet || !snippet.text) return null;
+  const text = String(snippet.text);
+  const marks = Array.isArray(snippet.marks) ? snippet.marks : [];
   const parts = [];
   let at = 0;
-  snippet.marks.forEach(([from, to], n) => {
-    if (from > at) parts.push(snippet.text.slice(at, from));
-    parts.push(html`<mark key=${n}>${snippet.text.slice(from, to)}</mark>`);
+  marks.forEach(([rawFrom, rawTo], n) => {
+    const from = Math.max(at, Math.min(text.length, Math.max(0, rawFrom)));
+    const to = Math.max(from, Math.min(text.length, Math.max(0, rawTo)));
+    if (from > at) parts.push(text.slice(at, from));
+    if (to > from) parts.push(html`<mark key=${n}>${text.slice(from, to)}</mark>`);
     at = to;
   });
-  parts.push(snippet.text.slice(at));
+  if (at < text.length) parts.push(text.slice(at));
   return html`<span class="search-snippet" data-slot="search-snippet">${snippet.before ? "… " : ""}${parts}${snippet.after ? " …" : ""}</span>`;
 }
 
@@ -39,7 +44,7 @@ function dateText(iso) {
 
 function Hit({ hit, onPick }) {
   const chats = hit.scope === "chats";
-  const who = chats ? (hit.name || roleOf(hit.role).label) : (HELPER_ROLES[hit.role] || hit.role);
+  const who = chats ? (hit.name || roleOf(hit.role)?.label || hit.role || "Сообщение") : (HELPER_ROLES[hit.role] || hit.role || "Помощник");
   const onKeyDown = (e) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
@@ -52,12 +57,13 @@ function Hit({ hit, onPick }) {
       }
     }
   };
+  const title = (hit.title || "").trim() || (chats ? "Чат без названия" : "Разговор с помощником");
   return html`<button class="search-hit" data-slot="search-hit" onClick=${() => onPick(hit)}
     onKeyDown=${onKeyDown}
     title=${chats && !hit.on_path ? "Сообщение в другой ветке чата: откроется она" : "Открыть на этом сообщении"}>
     <span class="search-hit-head">
       <${Icon} name=${chats ? "message-square" : "wand"} />
-      <strong class="search-hit-title">${hit.title || "Без названия"}</strong>
+      <strong class="search-hit-title">${title}</strong>
       <span class="search-hit-date muted">${dateText(hit.date)}</span>
     </span>
     <span class="search-hit-meta muted">
@@ -207,7 +213,13 @@ export function Search({ characters, onOpen, onClose, onError }) {
             <${Icon} name=${plain.loading ? "loader-circle" : "search"} class=${plain.loading ? "state-spinner" : ""} />
             <input type="search" value=${query} autofocus enterkeyhint="search" aria-label="Что искать"
               placeholder=${scope === "chats" ? "Слова из сообщений, «точная фраза» в кавычках" : "Слова из разговоров с помощником"}
-              onInput=${(e) => setQuery(e.target.value)} />
+              onInput=${(e) => setQuery(e.target.value)}
+              onKeyDown=${(e) => {
+                if (e.key === "ArrowDown") {
+                  const firstHit = document.querySelector(".search-results-list .search-hit");
+                  if (firstHit) { e.preventDefault(); firstHit.focus(); }
+                }
+              }} />
           </form>
           <div class="search-results-list" data-slot="search-results-list" aria-live="polite">
             ${plain.error && html`<p class="state-error" role="alert">${plain.error}</p>`}

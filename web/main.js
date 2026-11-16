@@ -218,8 +218,8 @@ function App() {
   }, [chatId]);
   // A chat that no longer exists (deleted, other data dir): fall back to the empty screen.
   useEffect(() => {
-    if (chatId && chats.length && !chats.some((c) => c.id === chatId)) setChatId(null);
-  }, [chats]);
+    if (loaded && chatId && !chats.some((c) => c.id === chatId)) setChatId(null);
+  }, [loaded, chats, chatId]);
   // Refresh the chat list (titles, order) after each finished generation.
   useEffect(() => { if (!chat.running) refresh(); }, [chat.running]);
   // Notes on messages: after opening a chat and after each reply (it may have placed notes).
@@ -586,7 +586,7 @@ function App() {
           </span>`}
           ${shown && html`<${IconButton} icon="chevron-left" label="На главную (чат останется в списке)" class="home-back"
             data-slot="home-back" onClick=${goHome} />`}
-          <strong class="title" data-slot="title" title=${shown ? chat.chat.title : ""}>${shown ? chat.chat.title : "White House"}</strong>
+          <strong class="title" data-slot="title" title=${shown ? ((chat.chat.title || "").trim() || "Без названия") : ""}>${shown ? ((chat.chat.title || "").trim() || "Без названия") : "White House"}</strong>
           <span class="spacer"></span>
           <nav class="phone-nav only-mobile" data-slot="phone-nav" aria-label="Разделы">
             <${IconButton} icon="chevron-down" label="Свернуть верхнюю панель" class="fold-top" data-slot="phone-fold"
