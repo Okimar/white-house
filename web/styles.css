@@ -37,7 +37,7 @@
   --duration-fast: 120ms; --duration-base: 180ms; --duration-slow: 250ms;
   --tap: 32px; /* minimum height of anything you can press */
 }
-@media (pointer: coarse) { :where(:root) { --tap: 44px; } }
+@media (pointer: coarse) { :where(:root) { --tap: 44px; --bar-h: 53px; } }
 /* Dark colours: from the system setting unless a theme forces a base (data-base on <html>). */
 @media (prefers-color-scheme: dark) {
   :where(:root):not([data-base="light"]) {
@@ -903,7 +903,7 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
   .search.open { display: flex; }
   .search input { width: 100%; }
   .profile-switch { order: 10; }
-  .sidebar { position: fixed; inset: calc(var(--bar-h) + env(safe-area-inset-top)) 0 0 0; width: auto; z-index: 10; display: none; border-right: 0; }
+  .sidebar { position: fixed; inset: calc(var(--notice-h, 0px) + var(--bar-h) + env(safe-area-inset-top)) 0 0 0; width: auto; z-index: 10; display: none; border-right: 0; }
   .sidebar[data-section="chats"], .sidebar[data-section="characters"], .sidebar[data-section="lorebooks"] { display: block; }
   .side-section { display: none; }
   .sidebar[data-section="chats"] [data-name="chats"], .sidebar[data-section="characters"] [data-name="characters"],
