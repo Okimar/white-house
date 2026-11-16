@@ -1736,9 +1736,10 @@ div.assistant-line { display: flex; gap: 6px; align-items: center; }
 .settings-section label.check, .settings-body label.check {
   font-size: var(--text-sm); min-height: var(--tap); display: inline-flex;
   align-items: center; gap: 8px; cursor: pointer; color: var(--fg);
+  flex-wrap: nowrap; /* a long caption wraps beside its box, never drops under it (.dialog label wraps) */
 }
 .settings-section label.check input, .settings-body label.check input {
-  min-height: 0; margin: 0;
+  min-height: 0; margin: 0; flex-shrink: 0;
 }
 
 /* Settings disclosures (<details>): custom rotating chevrons and smooth expansion */

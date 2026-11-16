@@ -16,6 +16,11 @@ const FIELDS = [
   ["system_prefix", "Система: перед"], ["system_suffix", "Система: после"],
   ["user_prefix", "Пользователь: перед"], ["user_suffix", "Пользователь: после"],
   ["assistant_prefix", "Модель: перед"], ["assistant_suffix", "Модель: после"],
+  // SillyTavern's first / last sequences (empty = the normal one)
+  ["first_user_prefix", "Первое сообщение пользователя: перед"],
+  ["first_assistant_prefix", "Первое сообщение модели: перед"],
+  ["last_user_prefix", "Последнее сообщение пользователя: перед"],
+  ["last_assistant_prefix", "Начало ответа модели: перед"],
 ];
 
 export function Templates({ onError }) {
@@ -36,7 +41,7 @@ export function Templates({ onError }) {
 
   const asTemplate = (d) => {
     const out = { name: d.name, models: d.models, system_as_user: Boolean(d.system_as_user),
-      stop: d.stopText.split("\n").filter((s) => s) };
+      sequences_as_stops: d.sequences_as_stops !== false, stop: d.stopText.split("\n").filter((s) => s) };
     FIELDS.forEach(([k]) => { out[k] = d[k] || ""; });
     return out;
   };
@@ -151,9 +156,14 @@ export function Templates({ onError }) {
           <label class="stack">Стоп-строки (по одной на строку)
             <textarea rows="2" class="mono" value=${draft.stopText} disabled=${readOnly} onInput=${set("stopText")} /></label>
         </div>
-        <label><input type="checkbox" checked=${Boolean(draft.system_as_user)} disabled=${readOnly}
+        <label class="check"><input type="checkbox" checked=${Boolean(draft.system_as_user)} disabled=${readOnly}
           onChange=${(e) => setDraft({ ...draft, system_as_user: e.target.checked })} />
           у модели нет роли «система» — отправлять системный текст как сообщение пользователя</label>
+        <label class="check" data-slot="template-sequences-stops"><input type="checkbox" checked=${draft.sequences_as_stops !== false}
+          disabled=${readOnly} onChange=${(e) => setDraft({ ...draft, sequences_as_stops: e.target.checked })} />
+          метки тоже обрывают ответ</label>
+        <p class="hint">Пустые поля «первое / последнее сообщение» — как обычные. В метках можно писать {{user}}, {{char}}
+          и {{name}} (имя того, чья реплика).</p>
         <div class="row">
           ${readOnly
             ? html`<button type="button" class="primary" onClick=${copy} aria-label=${"Дублировать шаблон «" + draft.name + "» для правки"}>Дублировать для правки</button>`

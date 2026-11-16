@@ -192,16 +192,31 @@ class _Injection:
     entry: Entry
     note: NoteInput | None = None
     order: int = DEFAULT_DEPTH_ORDER  # a preset block's in-chat order (SillyTavern's injection_order)
-    cat: int = 0  # inside one message: CAT_PRESET, CAT_EXTRA, CAT_NOTE, CAT_CARD, CAT_LORE
+    cat: int = 0  # inside one message: CAT_PRESET, CAT_EXTRA, CAT_NOTE, CAT_CHAR_NOTE, CAT_CARD, CAT_LORE
     sub: int = 0  # inside one kind: the entry's «Order» (lore), or above / below the author's note
 
 
 # Texts at one depth, the way SillyTavern builds them: one message per (order, role); messages by order (lower
 # first), then assistant, user, system (system nearest the chat message that follows); inside one message the
 # preset's texts, then a plugin's memory, then the author's note (with the lore put above / below it), then a
-# card, then lorebook entries and bubbles by their order (lower first). Joined with one line break.
-CAT_PRESET, CAT_EXTRA, CAT_NOTE, CAT_CARD, CAT_LORE = range(5)
+# character's note (card depth_prompt), then a card, then lorebook entries and bubbles by their order (lower first).
+# Joined with one line break.
+CAT_PRESET, CAT_EXTRA, CAT_NOTE, CAT_CHAR_NOTE, CAT_CARD, CAT_LORE = range(6)
 ROLE_RANK = {"assistant": 0, "user": 1, "system": 2}
+
+
+def character_note(card: dict[str, Any]) -> tuple[str, int, str] | None:
+    """A card's «Character's Note» (`extensions.depth_prompt`: prompt, depth — 4 by default — and role — system by
+    default) as (text, depth, role), or None when it has no text."""
+    extensions = card.get("extensions") if isinstance(card.get("extensions"), dict) else {}
+    note = extensions.get("depth_prompt") if isinstance(extensions.get("depth_prompt"), dict) else {}
+    text = note.get("prompt") if isinstance(note.get("prompt"), str) else ""
+    if not text.strip():
+        return None
+    depth = note.get("depth")
+    depth = depth if isinstance(depth, int) and not isinstance(depth, bool) and 0 <= depth <= 1000 else 4
+    role = note.get("role") if note.get("role") in ("system", "user", "assistant") else "system"
+    return text, depth, role
 
 
 def card_parts(card: dict[str, Any], prompts: dict[str, Any] | None = None, *, bare: bool = False) -> list[str]:
@@ -651,6 +666,16 @@ def assemble(data: PromptInput) -> Prompt:
     for entry in an_bottom:
         entry.role = note_role
         injections.append(_Injection(note_depth, entry, cat=CAT_NOTE, sub=1))
+    # The speaking character's «Character's Note» (card extensions.depth_prompt), every reply, at its depth and role,
+    # after the author's note in one message (SillyTavern's behaviour; wave 6).
+    if primary is not None:
+        found_note = character_note(primary.card)
+        if found_note is not None:
+            text, depth, role = found_note
+            entry = Entry(role, sub(text).strip(), f"character:{primary.character_id}:depth_prompt",
+                          f"Заметка персонажа: {primary.name}", "note", owner=primary.character_id)
+            if entry.text:
+                injections.append(_Injection(depth, entry, cat=CAT_CHAR_NOTE))
 
     # send_if_empty: the chat ends with the model's message (another character spoke last, «пусть поговорят»): a user
     # turn with this text closes the chat. It counts as a chat message for depths, as in SillyTavern.
@@ -676,10 +701,13 @@ def assemble(data: PromptInput) -> Prompt:
     tail: list[Entry] = []
     if me is not None and not me.model_may_write and not data.impersonate:
         behaviour("no_write_for_me", f"Запрет: не писать за «{me.name}»", tail)
-    if data.impersonate:
+    # In the text mode SillyTavern sends no instruction for «написать за меня»: the text simply opens the user's turn
+    # (core/templates.render turn="user"), so neither the instruction nor a prefill goes there.
+    text_impersonation = data.impersonate and data.provider_kind == "text"
+    if data.impersonate and not text_impersonation:
         behaviour("impersonate", "Написать за меня", tail)
     prefill = (prompts.get("impersonation_prefill" if data.impersonate else "prefill") or "").rstrip()
-    if prefill.strip() and data.provider_kind in PREFILL_KINDS and not data.continue_id:
+    if prefill.strip() and data.provider_kind in PREFILL_KINDS and not data.continue_id and not text_impersonation:
         tail.append(Entry("assistant", sub(prefill).rstrip(), "prompt:prefill",
                           "Начало ответа (prefill)", "prompt"))
 

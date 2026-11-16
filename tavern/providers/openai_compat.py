@@ -76,7 +76,10 @@ class OpenAICompatProvider(Provider):
 
     def build_body(self, request: GenerationRequest, *, stream: bool) -> dict[str, Any]:
         if self.template is not None:
-            prompt, stops = render(self.template, request.messages)
+            names = request.extra.get("text_names")
+            prompt, stops = render(self.template, request.messages,
+                                   names=names if isinstance(names, dict) else None,
+                                   turn="user" if request.extra.get("text_turn") == "user" else "assistant")
             body: dict[str, Any] = {"prompt": prompt, "stream": stream}
             request = replace(request, stop=[*request.stop, *(s for s in stops if s not in request.stop)])
         else:
@@ -101,7 +104,7 @@ class OpenAICompatProvider(Provider):
         raw = extra.pop("extra_body", None)
         include = loose_mapping(extra.pop("include_body", None))
         exclude = loose_keys(extra.pop("exclude_body", None))
-        for name in (*P.PRESET_EXTRAS, "include_thoughts", "n"):
+        for name in (*P.PRESET_EXTRAS, "include_thoughts", "n", "text_names", "text_turn"):
             extra.pop(name, None)  # ours, or (n) more answers than the one that is read
         seed = extra.get("seed")
         if "seed" in extra and (isinstance(seed, bool) or not isinstance(seed, (int, float)) or seed < 0):

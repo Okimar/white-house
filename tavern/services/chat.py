@@ -756,6 +756,10 @@ def _writer(
                                 prompt_input=prompt_input, message_id=reply["id"])
             job.meaning = found_meaning
             job.params["split_thinking"] = True  # <thinking> written in the reply goes to «Размышление»
+            if prompt_kind(connection) == "text":  # the template's {{user}} / {{char}} / {{name}} and "\nName:" stops
+                job.params["text_names"] = {"user": me, "char": character["name"] if character else DEFAULT_CHAR_NAME}
+                if reply["role"] == "user" and not continuing:  # «Написать за меня»: the user's turn is opened
+                    job.params["text_turn"] = "user"
             job.on_reasoning = lambda text: run.emit("reasoning", id=reply["id"], text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
             if continuing:  # the page shows the stream instead of the text: it starts from the old text

@@ -28,7 +28,7 @@
 | 3 | Длинные чаты: что выпадает из окна и точный подсчёт текста как в ST (на чистом Python, с запоминанием по сообщению) | сделано 2026-11-16 |
 | 4 | Прямые подключения Gemini и Claude | сделано 2026-11-16 |
 | 5 | Чего нет: «продолжить это сообщение», когда срабатывает блок пресета, режимы карточек в группе | сделано 2026-11-17 (режимы карточек — наши, нарочно) |
-| 6 | Текстовый режим | не начато |
+| 6 | Текстовый режим | сделано 2026-11-17 (story string из полей карточки и позиции персоны — дальше) |
 
 **Правила.**
 - Наши функции не выкидываем. Где у нас лучше, остаётся наше; где хуже, делаем как в ST.
@@ -49,9 +49,11 @@
 | 3г | Макросы, регексы, размышление | частично (регексы и размышление сделаны, макросы нет) |
 | 3д | Обрезка окна: запас под ответ, порядок выбрасывания, примеры | не начато |
 | 3е | Заметка автора, персона, Character's Note, группы | не начато |
-| 3ж | Текстовый режим | не начато |
+| 3ж | Текстовый режим | частично (шаблоны, имена, остановки, «написать за меня» — сделано) |
 
 **Журнал** (что сделано, словами пользователя; всё ниже «не проверено на экране»).
+
+- 2026-11-17, волна 6: заметка персонажа из карточки (Character's Note, `depth_prompt`) теперь уходит модели в каждом ответе на своей глубине — раньше она терялась. Текстовый режим: шаблон из ST импортируется правильно (перенос строки только после метки, без лишнего переноса перед концом реплики), есть отдельные метки для первого и последнего сообщения, внутри меток работают {{user}}, {{char}} и {{name}}, ответ обрывается на «Имя:» пользователя и на метках, во встроенных шаблонах нет лишнего BOS (его добавляет сервер), «Написать за меня» просто открывает вашу реплику без текста-инструкции. Оставлено на потом: story string из полей карточки (у нас карточку собирает пресет) и позиции персоны.
 
 - 2026-11-17, волна 5: в меню последнего сообщения есть «Дописать» — модель продолжает это же сообщение, текст растёт на месте, новой версии нет. Как в ST: сообщение уходит в конец запроса, за ним строка «[Continue your last message…]»; в пресете можно поменять эту строку, выбрать, чем соединять старый и новый текст (пробел, ничего, перенос, пустая строка), и включить «сообщение как начало ответа». У каждого блока пресета есть «Только для»: обычный ответ, «Дописать», «Написать за меня», другой вариант (в ST — «триггеры»). Всё это переносится при импорте и экспорте пресетов ST. Режимы карточек в группе (swap / join) не повторяли: у нас для этого настройка «что модель знает о других» в «Участниках». Проверено на экране (телефон и ПК).
 
@@ -135,7 +137,7 @@ into the connection (the page asks; the test answers yes).
 |---|---|---|---|---|
 | Description sent raw (macros expanded). Personality through `personality_format`, scenario through `scenario_format` (default just the field); format used only when the field is non-empty. | Preset from ST: each part bare, its own system message (wave 1a). Our own presets keep "Description:\n…" headers with empty formats. | done 2026-11-16 for ST presets; ours **отличается нарочно** (headers help weak models) | A `card_text` | `personality_format: ""`: bare text, no header. |
 | Persona: one bare system text at the persona marker. Other positions (per persona): top / bottom of AN, in chat at depth with role, none. | Preset from ST: the bare persona description (wave 1a); ours keeps "{user} (played by the user):". Marker position only. | done for the text 2026-11-16; positions partly | A | Persona "Tall man." → exactly "Tall man.". Persona at depth 2 role user. |
-| Character's Note (card `extensions.depth_prompt`: prompt, depth default 4, role default system) injected in chat every reply. | Not read. | missing | cards.py, A, C | Card with depth_prompt, depth 1: before the last message. |
+| Character's Note (card `extensions.depth_prompt`: prompt, depth default 4, role default system) injected in chat every reply. | The speaking character's, every reply, macros, joined after the author's note at its depth (`assembly.character_note`, `CAT_CHAR_NOTE`). | done 2026-11-17 | cards.py, A, C | Card with depth_prompt, depth 1: before the last message. |
 | Example dialogues: `mes_example` split by `<START>`; each block preceded by a system separator `new_example_chat_prompt` (default "[Example Chat]"); each line group is its own system message named example_user / example_assistant, leading "Name:" removed. | Preset from ST: the same structure (`example_dialogues`, `new_example_chat` text, `example_user` / `example_assistant` names, never squashed). Ours keeps one "Example dialogue of X:" text. | done 2026-11-16 for ST presets | A `examples`, `example_dialogues` | `<START>\n{{user}}: hi\n{{char}}: yo` → [sys "[Example Chat]", sys(name example_user) "hi", sys(name example_assistant) "yo"]. |
 | Named example messages reach each API differently: Claude / Gemini / merge modes put "Name: " back in front and drop the name; plain OpenAI-compatible sends the `name` field. Named system messages never squashed. | `ChatMessage.name` / `speaker`: OpenAI-compatible sends `name`; Gemini, Claude and text templates put "Name: " in front (`spoken()`). | done 2026-11-16 | providers, A | `test_named_lines_reach_each_service` |
 | Example behaviour (settings.json): normal = only if room after history; always keep; never = stripped. Whole blocks dropped together. | Per preset: the examples block's «Когда отправлять примеры» (room / always / never); a member's examples dropped whole. | done 2026-11-16 | A, P | `tests/unit/test_long_chats.py` |
@@ -309,7 +311,7 @@ The first findings (Gemini behind an OpenAI-compatible proxy) put the regex tric
 10. **Names behaviour.** ST prefixes every character line in groups (including the speaker).
 11. **Past reasoning sent** after import (done: last one, in the model's own tag).
 12. **Different history kept.** Done 2026-11-16: response reserve, counting by script with the learned ratio, examples only while room is left; our min 6 messages stays.
-13. **Character's Note (card depth prompt) missing**, AN before / after main missing, interval counted differently.
+13. **Character's Note, AN positions.** Done 2026-11-16 / 17; the interval stays ours on purpose.
 14. **Sampling values.** With an empty connection no temperature, penalties or max_tokens are sent, so the proxy's defaults decide (fits "answers badly" more than refusals); Claude limited-sampling rules, custom exclude-body / headers and post-processing missing.
 
 ## To confirm on the owner's device (not seen)

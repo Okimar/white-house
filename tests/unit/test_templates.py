@@ -16,18 +16,19 @@ def test_chatml_render_opens_the_reply():
     assert text == ("<|im_start|>system\nBe Ann.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n"
                     "<|im_start|>assistant\nHello<|im_end|>\n<|im_start|>user\nHow are you?<|im_end|>\n"
                     "<|im_start|>assistant\n")
-    assert stops == ["<|im_end|>", "<|im_start|>user"]
+    # the markers of the user and the system end the reply too (SillyTavern's «sequences as stop strings»)
+    assert stops == ["<|im_end|>", "<|im_start|>user", "<|im_start|>system"]
 
 
 def test_continue_leaves_the_last_reply_open():
     text, _ = T.render(T.BUILTIN["llama3"], [*TALK, ChatMessage("assistant", "I am")])
     assert text.endswith("<|start_header_id|>assistant<|end_header_id|>\n\nI am")
-    assert text.startswith("<|begin_of_text|><|start_header_id|>system")
+    assert text.startswith("<|start_header_id|>system")  # no BOS text: the backend adds it, as in ST
 
 
 def test_model_without_system_role_gets_it_as_user_turn():
     text, _ = T.render(T.BUILTIN["gemma"], TALK)
-    assert text.startswith("<bos><start_of_turn>user\nBe Ann.<end_of_turn>\n<start_of_turn>user\nHi")
+    assert text.startswith("<start_of_turn>user\nBe Ann.<end_of_turn>\n<start_of_turn>user\nHi")
 
 
 def test_story_string_keeps_only_the_system_part():
@@ -61,10 +62,11 @@ def test_sillytavern_files_both_ways():
                "story_string": "{{#if system}}{{system}}\n{{/if}}{{#if wiBefore}}{{wiBefore}}{{/if}}"}
     ours = T.from_st(context, T.from_st(instruct))
     assert ours["name"] == "My ChatML" and ours["models"] == "qwen"
-    assert ours["user_prefix"] == "<|im_start|>user\n" and ours["user_suffix"] == "\n<|im_end|>"
+    # wrap: a line break between the marker and the text only; the suffix follows the text directly
+    assert ours["user_prefix"] == "<|im_start|>user\n" and ours["user_suffix"] == "<|im_end|>"
     assert ours["chat_start"] == "***\n" and ours["stop"] == ["<|im_end|>"]
     text, _ = T.render(ours, TALK[:2])
-    assert text == ("<|im_start|>system\nBe Ann.\n<|im_end|>***\n<|im_start|>user\nHi\n<|im_end|>"
+    assert text == ("<|im_start|>system\nBe Ann.<|im_end|>***\n<|im_start|>user\nHi<|im_end|>"
                     "<|im_start|>assistant\n")
     back = T.to_st(ours)
     assert back["instruct"]["input_sequence"] == "<|im_start|>user\n" and back["instruct"]["activation_regex"] == "qwen"

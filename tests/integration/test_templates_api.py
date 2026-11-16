@@ -30,7 +30,7 @@ async def test_import_st_pair_merge_and_export(client):
     exported = await client.get(f"/api/templates/{made['id']}/export?format=st-instruct")
     assert exported.json()["input_sequence"] == "### I:\n" and "attachment" in exported.headers["content-disposition"]
     ours = (await client.get("/api/templates/llama3/export")).json()
-    assert ours["bos"] == "<|begin_of_text|>" and "id" not in ours
+    assert ours["bos"] == "" and "id" not in ours  # no BOS text: the backend adds it
     again = (await client.post("/api/templates/import", json=ours)).json()
     assert again["name"] == "Llama 3" and again["builtin"] is False
     assert (await client.post("/api/templates/import", json={"nonsense": 1})).status_code == 400
@@ -38,7 +38,7 @@ async def test_import_st_pair_merge_and_export(client):
 
 async def test_preview(client):
     shown = (await client.post("/api/templates/preview", json={"id": "auto", "model": "gemma-2-9b"})).json()
-    assert shown["name"].startswith("Gemma") and shown["text"].startswith("<bos><start_of_turn>user")
+    assert shown["name"].startswith("Gemma") and shown["text"].startswith("<start_of_turn>user")
     draft = (await client.post("/api/templates/preview",
                                json={"template": {"name": "d", "user_prefix": "U:", "assistant_prefix": "A:"}})).json()
     assert draft["text"].endswith("A:")
@@ -58,5 +58,7 @@ async def test_chat_in_text_mode_uses_the_template(client, ctx, fake_llm):
     sent = fake_llm.text_requests[-1]
     assert sent["prompt"].startswith("<|im_start|>system\n") and "Ann is kind." in sent["prompt"]
     assert sent["prompt"].endswith("How are you?<|im_end|>\n<|im_start|>assistant\n")
-    assert sent["stop"] == ["\nMe:", "<|im_end|>", "<|im_start|>user"] and "messages" not in sent
+    # the template's stops, the user's and system markers, and the user's name (wave 6, as in SillyTavern)
+    assert sent["stop"] == ["\nMe:", "<|im_end|>", "<|im_start|>user", "<|im_start|>system", "\nUser:"]
+    assert "messages" not in sent and "text_names" not in sent and "text_turn" not in sent
     assert "api_mode" not in sent and "template" not in sent
