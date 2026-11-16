@@ -696,9 +696,6 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
             <span class="muted">или напишите, что поменять</span>
           </div>
         </div>`}
-            <span class="muted">или напишите, что поменять</span>
-          </div>
-        </div>`}
         ${runId && !data?.ask && html`<p class="muted assistant-thinking" role="status" aria-live="polite">${thinkingText()}</p>`}
         <div ref=${bottom}></div>
       </div>

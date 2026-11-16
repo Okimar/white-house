@@ -324,7 +324,7 @@ function mountNotices() {
   const hideOld = document.createElement("style");
   hideOld.textContent = ".safe-banner{display:none!important}"; // this bar replaces the page's own safe-mode line
   document.head.appendChild(hideOld);
-  const box = el("aside", "position:fixed;top:0;left:0;right:0;z-index:100000");
+  const box = el("aside", "position:fixed;top:0;left:0;right:0;z-index:15");
   box.setAttribute("aria-label", "Системные уведомления оформления");
   box.dataset.slot = "look-notices";
   noticeBox = box;
