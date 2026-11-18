@@ -82,7 +82,7 @@ def test_claude_empty_text_is_a_zero_width_space_and_an_empty_chat_gets_started(
     body = claude(messages=[M("user", ""), M("assistant", "x")], model="claude-sonnet-4-5")
     assert body["messages"][0]["content"] == [{"type": "text", "text": "​"}]
     only_system = claude(messages=[M("system", "rules")], model="claude-sonnet-4-5")
-    assert only_system["messages"][0]["content"] == [{"type": "text", "text": "Let's get started."}]
+    assert only_system["messages"][0]["content"] == [{"type": "text", "text": "[Start a new chat]"}]
 
 
 def test_claude_pictures_of_the_model_go_to_the_next_user_turn():
@@ -199,3 +199,54 @@ def test_claude_cache_settings_are_not_sent_as_fields():
     body = claude(messages=CONVERSATION, model="claude-sonnet-4-5",
                   extra={"cache_system": True, "cache_depth": 0, "cache_long": True})
     assert not {"cache_system", "cache_depth", "cache_long"} & set(body)
+
+
+# Post-processing, checked against SillyTavern's own /process route (2026-11-19): same input, same output.
+
+from tavern.providers.openai_compat import post_process  # noqa: E402
+
+ST_NAMES = {"user": "User", "char": "Ann", "group": []}
+
+
+def process(rows, mode):
+    messages = [M(role, text, name=name, speaker={"example_user": "User", "example_assistant": "Ann"}.get(name, ""))
+                for role, text, name in rows]
+    return [(m.role, m.content) for m in post_process(messages, mode, ST_NAMES)]
+
+
+EXAMPLES = [("system", "S", ""), ("system", "Ex1", "example_user"), ("system", "Ex2", "example_assistant"),
+            ("user", "u", ""), ("assistant", "a", ""), ("user", "u2", "")]
+
+
+def test_semi_and_strict_join_the_leading_system_texts_before_turning_later_ones_into_user():
+    rows = [("system", "S1", ""), ("system", "S2", ""), ("user", "u", ""), ("assistant", "a", "")]
+    expected = [("system", "S1\n\nS2"), ("user", "u"), ("assistant", "a")]
+    assert process(rows, "semi") == process(rows, "strict") == expected
+    mid = [("system", "S1", ""), ("user", "u1", ""), ("assistant", "a1", ""), ("system", "Mid", ""), ("user", "u2", "")]
+    assert process(mid, "semi") == [("system", "S1"), ("user", "u1"), ("assistant", "a1"), ("user", "Mid\n\nu2")]
+
+
+def test_named_example_lines_carry_the_speaker_in_every_mode():
+    expected = [("system", "S\n\nUser: Ex1\n\nAnn: Ex2"), ("user", "u"), ("assistant", "a"), ("user", "u2")]
+    for mode in ("merge", "semi", "strict"):
+        assert process(EXAMPLES, mode) == expected
+
+
+def test_single_is_one_user_message_with_the_names_in_front():
+    assert process(EXAMPLES, "single") == [("user", "S\n\nUser: Ex1\n\nAnn: Ex2\n\nUser: u\n\nAnn: a\n\nUser: u2")]
+    assert process([("assistant", "Greeting", ""), ("user", "u1", "")], "single") == [
+        ("user", "Ann: Greeting\n\nUser: u1")]
+
+
+def test_strict_puts_a_user_turn_after_a_lone_system_message_or_at_the_start():
+    assert process([("system", "S1", "")], "strict") == [("system", "S1"), ("user", "[Start a new chat]")]
+    assert process([("assistant", "Hi", ""), ("user", "u", "")], "strict")[0] == ("user", "[Start a new chat]")
+    assert process([], "merge") == [("user", "[Start a new chat]")]
+
+
+def test_prompt_names_never_reach_the_request_body_of_any_provider():
+    extra = {"prompt_names": {"user": "User", "char": "Ann", "group": []}}
+    for body in (openai(messages=TWO_SYSTEM, model="m", extra=extra),
+                 claude(messages=TWO_SYSTEM, model="claude-sonnet-4-5", extra=extra),
+                 gemini(messages=TWO_SYSTEM, model="gemini-2.5-pro", extra=extra)):
+        assert "prompt_names" not in str(body)

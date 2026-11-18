@@ -184,6 +184,8 @@ class Prompt:
     dropped: dict[str, Any] = field(default_factory=dict)
     # Fired notes: {note_id, mode, message_id (None = before the first message), text, role, title}
     placed: list[dict[str, Any]] = field(default_factory=list)
+    # Who speaks: {user, char, group}, for the services' post-processing that writes names in front of lines.
+    names: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -899,4 +901,5 @@ def assemble(data: PromptInput) -> Prompt:
         entry.msg = len(sent) - 1
         previous = entry
     return Prompt(entries=entries, messages=sent, tokens=_tokens(entries), dropped=dropped,
-                  placed=placed)
+                  placed=placed,
+                  names={"user": user, "char": primary.name if primary else "", "group": [m.name for m in others]})

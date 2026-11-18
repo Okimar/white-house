@@ -1,4 +1,4 @@
-"""Anthropic (Claude) through its own Messages API, or a proxy that speaks the same protocol.
+﻿"""Anthropic (Claude) through its own Messages API, or a proxy that speaks the same protocol.
 
 `base_url` is the API root with the version, e.g. https://api.anthropic.com/v1. The key goes in
 the `x-api-key` header. The body follows SillyTavern's (docs/ST_PARITY.md §11c): with `use_sysprompt` on
@@ -6,7 +6,7 @@ the `x-api-key` header. The body follows SillyTavern's (docs/ST_PARITY.md §11c)
 each; off (an imported SillyTavern preset's default) every system message is a user turn. Later system
 messages are user turns; a named example line gets "Speaker: " in front; turns of the same role are
 merged; pictures of assistant turns move to the next user turn; an empty text is a zero-width space; the
-conversation starts with a user turn ("Let's get started." when there is none). The last assistant turn
+conversation starts with a user turn (PROMPT_PLACEHOLDER when there is none). The last assistant turn
 (a prefill) loses its trailing spaces and becomes a user turn when thinking is on or on models from 4.6,
 which take no prefill. Thinking blocks stream as "reasoning" events.
 
@@ -41,6 +41,7 @@ from tavern.providers import params as P
 from tavern.providers.base import (
     ChatMessage,
     GenerationRequest,
+    PROMPT_PLACEHOLDER,
     ModelInfo,
     Provider,
     ProviderError,
@@ -59,7 +60,7 @@ MIN_THINKING = 1024  # the API's smallest thinking budget
 WEB_SEARCH_TOOL = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
 ANSWER_TOOL = "answer"
 WRAPPED_TOOL = "answer_value"  # the schema's root was not an object: the answer is input["value"]
-PLACEHOLDER = "Let's get started."  # the user turn when the conversation has none first (as SillyTavern)
+PLACEHOLDER = PROMPT_PLACEHOLDER  # the user turn when the conversation has none first (as SillyTavern)
 EMPTY_TEXT = "​"  # the API rejects empty text blocks
 MAX_THINKING_NO_STREAM = 21333  # a bigger budget needs streaming
 # Old models (budget thinking): the share of max_tokens each effort thinks; "minimal" = MIN_THINKING.

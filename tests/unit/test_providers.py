@@ -1,4 +1,4 @@
-"""Providers of stage 6а: settings table, Gemini wire format, several keys with proxies and retries."""
+﻿"""Providers of stage 6а: settings table, Gemini wire format, several keys with proxies and retries."""
 
 from __future__ import annotations
 
@@ -238,7 +238,7 @@ def test_anthropic_body():
     ))
     assert body["system"] == [{"type": "text", "text": "Be kind."}]
     assert body["max_tokens"] == 4096 and body["stream"] is True
-    assert body["messages"][0] == {"role": "user", "content": [{"type": "text", "text": "Let's get started."}]}
+    assert body["messages"][0] == {"role": "user", "content": [{"type": "text", "text": "[Start a new chat]"}]}
     assert body["messages"][1]["role"] == "assistant"
     assert body["messages"][2]["content"] == [
         {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}},

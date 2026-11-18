@@ -1,4 +1,4 @@
-"""OpenAI-compatible chat completions: OpenAI, OpenRouter, llama.cpp server, Ollama /v1, LM Studio,
+﻿"""OpenAI-compatible chat completions: OpenAI, OpenRouter, llama.cpp server, Ollama /v1, LM Studio,
 KoboldCpp /v1, text-generation-webui and anything else that speaks `/chat/completions`.
 
 `base_url` is the API root including `/v1` (e.g. https://api.openai.com/v1).
@@ -34,6 +34,7 @@ from tavern.providers import params as P
 from tavern.providers.base import (
     ChatMessage,
     GenerationRequest,
+    PROMPT_PLACEHOLDER,
     ModelInfo,
     Provider,
     ProviderError,
@@ -84,7 +85,7 @@ class OpenAICompatProvider(Provider):
             request = replace(request, stop=[*request.stop, *(s for s in stops if s not in request.stop)])
         else:
             mode = request.extra.get("prompt_post_processing")
-            body = {"messages": [_message(m) for m in post_process(request.messages, mode)], "stream": stream}
+            body = {"messages": [_message(m) for m in post_process(request.messages, mode, request.extra.get("prompt_names"))], "stream": stream}
         if request.model:
             body["model"] = request.model
         if request.max_tokens:
@@ -277,42 +278,74 @@ def _message(message: Any) -> dict[str, Any]:
     return {"role": message.role, "content": parts, **named}
 
 
-PLACEHOLDER = "Let's get started."  # the user turn strict mode puts first (as SillyTavern)
 POST_PROCESSING = {"merge": "merge", "semi": "semi", "semi-strict": "semi", "semi_strict": "semi",
                    "strict": "strict", "single": "single", "single_user": "single", "single-user": "single"}
 
 
-def post_process(messages: list[ChatMessage], mode: Any) -> list[ChatMessage]:
+def post_process(messages: list[ChatMessage], mode: Any, names: Any = None) -> list[ChatMessage]:
     """SillyTavern's prompt post-processing (preset `custom_prompt_post_processing`), for servers that want
-    simple conversations. merge: names into the text, neighbours of the same role joined with a blank line;
-    semi: also every system message after the first one becomes user; strict: also a user turn
-    ("Let's get started.") right after a leading system message or at the start; single: everything in one
-    user message. The tool variants ("merge_tools" …) are the same here: no tools are sent. Anything else:
-    the messages as they are."""
+    simple conversations (checked against its own /process route, 2026-11-19).
+
+    Every line first gets its speaker in front when it is a named line (examples; never twice). Then neighbours of
+    the same role are joined with a blank line (a line with no text is dropped). merge stops there. semi / strict
+    then turn every system message after the first one into a user message, and join again (so a run of leading
+    system texts stays one system message). strict also puts a user turn (PROMPT_PLACEHOLDER) after a lone system
+    message or at the start when the conversation does not begin with a user. single: every line becomes user,
+    assistant lines start with the character's name and user lines with the user's (`names`: user, char, group),
+    all joined into one message. The "_tools" variants are the same here: no tools are sent."""
     key = str(mode or "").strip().lower().removesuffix("_tools").removesuffix("-tools")
     mode = POST_PROCESSING.get(key, "")
     if not mode:
         return messages
-    plain = [replace(m, content=spoken(m), name="", speaker="") for m in messages]
-    if mode == "single":
-        return [ChatMessage("user", "\n\n".join(m.content for m in plain if m.content),
-                            images=tuple(i for m in plain for i in m.images))]
-    if mode in ("semi", "strict"):
-        plain = [replace(m, role="user") if i and m.role == "system" else m for i, m in enumerate(plain)]
-    merged: list[ChatMessage] = []
-    for message in plain:
-        if merged and merged[-1].role == message.role:
-            before = merged[-1]
-            text = "\n\n".join(t for t in (before.content, message.content) if t)
-            merged[-1] = replace(before, content=text, images=before.images + message.images)
-        else:
-            merged.append(message)
-    if mode == "strict":
-        at = 1 if merged and merged[0].role == "system" else 0
-        if at >= len(merged) or merged[at].role != "user":
-            merged.insert(at, ChatMessage("user", PLACEHOLDER))
-    return merged
+    names = names if isinstance(names, dict) else {}
+    user, char = str(names.get("user") or ""), str(names.get("char") or "")
+    group = [str(g) for g in names.get("group") or ()]
 
+    def start(text: str, who: str) -> str:
+        """`text` with "who: " in front unless it already has it (or a group member's name)."""
+        if not who or text.startswith(f"{who}: ") or any(text.startswith(f"{g}: ") for g in group):
+            return text
+        return f"{who}: {text}"
+
+    lines: list[ChatMessage] = []
+    for m in messages:
+        text = spoken(m)
+        if m.role == "system" and m.name == "example_assistant":
+            text = start(text, char)
+        elif m.role == "system" and m.name == "example_user" and user and not text.startswith(f"{user}: "):
+            text = f"{user}: {text}"
+        role = m.role
+        if mode == "single":
+            if role == "assistant":
+                text = start(text, char)
+            elif role == "user" and user and not text.startswith(f"{user}: "):
+                text = f"{user}: {text}"
+            role = "user"
+        if text or m.images:
+            lines.append(replace(m, role=role, content=text, name="", speaker=""))
+
+    def join(items: list[ChatMessage]) -> list[ChatMessage]:
+        joined: list[ChatMessage] = []
+        for item in items:
+            if joined and joined[-1].role == item.role:
+                before = joined[-1]
+                text = "\n\n".join(t for t in (before.content, item.content) if t)
+                joined[-1] = replace(before, content=text, images=before.images + item.images)
+            else:
+                joined.append(item)
+        return joined
+
+    merged = join(lines) or [ChatMessage("user", PROMPT_PLACEHOLDER)]
+    if mode == "merge":
+        return merged
+    merged = join([replace(m, role="user") if i and m.role == "system" else m for i, m in enumerate(merged)])
+    if mode == "strict":
+        if merged[0].role == "system" and (len(merged) == 1 or merged[1].role != "user"):
+            merged.insert(1, ChatMessage("user", PROMPT_PLACEHOLDER))
+        elif merged[0].role not in ("system", "user"):
+            merged.insert(0, ChatMessage("user", PROMPT_PLACEHOLDER))
+        merged = join(merged)
+    return merged
 
 def loose_mapping(raw: Any) -> dict[str, Any]:
     """An object from a preset field: a dict, JSON text, or flat YAML ("key: value" lines, values read as

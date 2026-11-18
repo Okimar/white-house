@@ -261,7 +261,7 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 |---|---|---|---|
 | Body: messages, model, temperature, max_tokens, stream, presence / frequency penalty, top_p always sent (even 0 / 1); top_k not sent; stop only when non-empty (max 4); logit_bias; seed ≥ 0; n > 1. | Only set connection params sent; preset sampling moved to the connection on import (asked); `stream_options.include_usage` added. With an empty connection temperature 1 and length 1024 are sent (2026-11-18, `params.with_basics`; the window reserve still counts only a length the connection sets). | partly | openai_compat.py, SP, params.py |
 | `custom_include_body`, `custom_exclude_body`, `custom_include_headers`. | Same, from an ST preset (`core.presets.provider_extras` → `request.extra`); headers never auth / key / cookie / host / length. `seed` ≥ 0 only, `n` never. | done 2026-11-16 | openai_compat.py, params.py, presets.py, chat.py |
-| Prompt post-processing: merge, semi-strict, strict, single user message (+ tool variants). | Same (`post_process`). | done 2026-11-16 | openai_compat.py |
+| Prompt post-processing: merge, semi-strict, strict, single user message (+ tool variants). | Same (`post_process`), checked 2026-11-19 against ST's own `/api/backends/chat-completions/process`: 45 of 50 cases and the final bodies of every mode are identical. Fixed: semi / strict now join the leading system texts first (were: second one became user), `single` writes the user's and character's names in front (`Prompt.names` -> `prompt_names` extra), the strict placeholder is `[Start a new chat]` (ST's shipped `promptPlaceholder`; the code fallback `Let's get started.`). Differs on purpose: a line with no text is dropped (ST sends an empty user message). | done 2026-11-19 | openai_compat.py, base.py, assembly.py |
 | Messages carry `name` for named example lines. | Same. | done 2026-11-16 | openai_compat.py, A |
 
 ### 11b. Google AI Studio (Gemini)
@@ -278,7 +278,7 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 
 | ST | Ours | Status | Files |
 |---|---|---|---|
-| `use_sysprompt` (default off): off → all system messages become user turns, no `system`; on → `system` as text blocks. Empty conversation → user "Let's get started.". | Same for a preset from ST (off when absent); our presets: on. "Let's get started." placeholder, zero-width space for empty text. | done 2026-11-16 | anthropic.py, presets.py |
+| `use_sysprompt` (default off): off → all system messages become user turns, no `system`; on → `system` as text blocks. Empty conversation → user placeholder. | Same for a preset from ST (off when absent); our presets: on. The placeholder ``[Start a new chat]`` (ST config), also in front of an assistant-first conversation (ST sends it as is; we add it, the API wants a user first); zero-width space for empty text; ST also sends ``stop_sequences: []`` and ``top_k: 0``, we leave them out. | done 2026-11-16 | anthropic.py, presets.py |
 | Same; names into text; pictures of the model go to the next user turn. | done 2026-11-16 | anthropic.py |
 | Same (trimmed; a user turn with thinking or from 4.6 on). | done 2026-11-16 | anthropic.py, A |
 | Same rules for limited / newest / thinking models; effort → budget share before 4.6, adaptive + `output_config.effort` from 4.6. | done 2026-11-16 | anthropic.py |

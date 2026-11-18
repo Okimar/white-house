@@ -1,4 +1,4 @@
-"""Provider interface. Every backend (OpenAI-compatible, Anthropic, Gemini, local, plugin) implements it.
+﻿"""Provider interface. Every backend (OpenAI-compatible, Anthropic, Gemini, local, plugin) implements it.
 
 A provider turns a `GenerationRequest` into a stream of `StreamEvent`s. It must:
 - honour cancellation (it runs inside an anyio cancel scope; do not swallow CancelledError),
@@ -59,6 +59,11 @@ class ChatMessage:
     # ("example_user"); services without names get `speaker` ("Анна") in front of the text instead (`spoken`).
     name: str = ""
     speaker: str = ""
+
+
+# The user turn a conversation gets when it has none first. SillyTavern reads it from config.yaml `promptPlaceholder`:
+# its shipped file says this, its code's own fallback is "Let's get started.".
+PROMPT_PLACEHOLDER = "[Start a new chat]"
 
 
 def spoken(message: ChatMessage) -> str:

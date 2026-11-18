@@ -72,6 +72,7 @@ class GenerationJob:
         if self.prompt_input is not None:
             self.prompt = assemble(self.prompt_input)
             messages = list(self.prompt.messages)
+            self.params.setdefault("prompt_names", self.prompt.names)
         else:
             messages = build_prompt(
                 self.card,

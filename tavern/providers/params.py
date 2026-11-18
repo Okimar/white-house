@@ -1,4 +1,4 @@
-"""Connection settings: every knob the settings window can show, and which provider kinds take it.
+﻿"""Connection settings: every knob the settings window can show, and which provider kinds take it.
 
 A connection keeps its settings in `params` under the names below. A setting that is absent is not
 sent, so the backend uses its own default. Kinds map the names to their wire format (OpenAI-style
@@ -116,6 +116,7 @@ PRESET_EXTRAS = frozenset({
     "include_body",  # OpenAI-compatible: fields added to the body (object, or JSON / simple YAML text)
     "exclude_body",  # OpenAI-compatible: fields removed from the body (list / object keys, or text)
     "include_headers",  # OpenAI-compatible: extra headers (never auth, host or length headers)
+    "prompt_names",  # {user, char, group}: names the "single" post-processing puts in front of lines (from the assembly)
 })
 
 # Thinking effort names, SillyTavern's included: "min" = our "minimal", "auto" = let the model decide.
