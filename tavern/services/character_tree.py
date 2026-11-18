@@ -29,7 +29,8 @@ from tavern.context import AppContext
 from tavern.core.llm import LLMClient
 from tavern.core.prompt import estimate_tokens
 from tavern.core.retrieval import (
-    LOGICS, PATH_SEPARATOR, SOURCES, TRIGGERS, FoundBlock, cosine, select_blocks, stem, with_latin_whole,
+    DEFAULT_ORDER, LOGICS, PATH_SEPARATOR, SOURCES, TRIGGERS, FoundBlock, block_order, cosine, select_blocks, stem,
+    with_latin_whole,
 )
 from tavern.errors import AppError, NotFound
 from tavern.formats.st_lorebook import LOGIC_FROM_ST, LOGIC_TO_ST, SOURCE_KEYS, card_rules
@@ -299,6 +300,11 @@ async def create_block(ctx: AppContext, owner_id: str, fields: dict[str, Any]) -
     owner_of(ctx, owner_id)
     clean = _clean(fields, creating=True)
     _check_parent(ctx, owner_id, None, clean.get("parent_id"))
+    if ctx.lorebooks.exists(owner_id) and "order" not in (clean.get("rules") or {}):
+        # A new lorebook entry gets the number after the book's last one: it goes last and never ties with another
+        # (the text order inside one spot of the prompt is by these numbers, «Очерёдность лора»).
+        last = max((block_order(b) for b in ctx.blocks.list(owner_id)), default=DEFAULT_ORDER - 1)
+        clean["rules"] = {**(clean.get("rules") or {}), "order": last + 1}
     block = ctx.blocks.create(owner_id, clean)
     history.record(ctx, owner_id, f"Новый пузырь «{block['title']}»",
                    [{"t": "block", "id": block["id"], "row": None}])

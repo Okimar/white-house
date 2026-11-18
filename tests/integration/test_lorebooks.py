@@ -93,7 +93,7 @@ async def test_books_are_made_listed_renamed_and_checked(client, ctx):
     assert [(b["name"], b["blocks"], b["global"]) for b in listed["lorebooks"]] == [("Мир", 1, False)]
     assert listed["settings"] == {  # SillyTavern's defaults: 25 %, 2 messages with names, recursion off
         "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
-        "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
+        "include_names": True, "strategy": "evenly", "min_activations": 0, "min_depth_max": 0,
         "group_scoring": False, "scan_notes": False, "whole_words": False}
     renamed = await client.put(f"/api/lorebooks/{world}", json={"name": "Мир Эйры", "description": "Север."})
     assert renamed.json()["name"] == "Мир Эйры"
@@ -173,8 +173,9 @@ async def test_budget_drops_the_last_entries_and_says_so(client, ctx, fake_llm):
     await client.put("/api/settings", json={"lorebooks": {"budget_tokens": estimate_tokens(one) * 2 + 1}})
     await send(client, ctx, chat_id, "hi")
     text = sent(fake_llm)
-    assert "#0" in text and "#1" in text and "#2" not in text and "#3" not in text
-    assert (await seen(client, chat_id))["meta"]["dropped"]["lore"] == ["T2", "T3"]
+    # new entries got the numbers 100..103; as in SillyTavern the budget keeps the highest numbers first
+    assert "#3" in text and "#2" in text and "#1" not in text and "#0" not in text
+    assert (await seen(client, chat_id))["meta"]["dropped"]["lore"] == ["T1", "T0"]
 
 
 async def test_chains_start_from_the_chat_and_from_character_bubbles(client, ctx, fake_llm):
@@ -249,7 +250,7 @@ async def test_our_export_brings_back_nesting_and_links(client, ctx):
     out = (await client.get(f"/api/lorebooks/{world}/export.json")).content
     again = (await client.post("/api/lorebooks/import", content=out)).json()["id"]
     blocks = {b["title"]: b for b in ctx.blocks.list(again)}
-    assert blocks["Улица"]["parent_id"] == blocks["Город"]["id"] and blocks["Улица"]["rules"] == {"groups": ["g"]}
+    assert blocks["Улица"]["parent_id"] == blocks["Город"]["id"] and blocks["Улица"]["rules"] == {"groups": ["g"], "order": 101}
     assert ctx.blocks.links([again]) == [tuple(sorted((blocks["Город"]["id"], blocks["Улица"]["id"])))]
 
 
@@ -270,3 +271,31 @@ async def test_import_names_the_book_by_the_file_inside_name_not_the_file_name(c
     assert padded.json()["name"] == "Sad"
     blank = await client.post("/api/lorebooks/import?name=true.json", content=json.dumps({"name": "   ", "entries": {}}).encode())
     assert blank.json()["name"] == "true"
+
+
+async def test_lore_order_shows_each_spot_in_text_order_and_arrows_deal_the_numbers_out_again(client, ctx, fake_llm):
+    ann, chat_id = await setup(client)
+    a = await book(client, "A", {"title": "A1", "content": "TEXT-A", "mode": "always", "depth": 1},
+                   {"title": "A2", "content": "SECOND", "mode": "always", "depth": 1, "role": "user"})
+    b = await book(client, "B", {"title": "B1", "content": "TEXT-B", "mode": "always", "depth": 1},
+                   {"title": "Off", "content": "OFF", "mode": "off", "depth": 1})
+    await use(client, "chat", [a, b], target=chat_id)
+    blocks = {x["title"]: x for x in ctx.blocks.list(a) + ctx.blocks.list(b)}
+    # a new entry gets the number after its book's last one
+    assert [blocks[t]["rules"]["order"] for t in ("A1", "A2", "B1")] == [100, 101, 100]
+
+    groups = (await client.get(f"/api/chats/{chat_id}/lore-order")).json()["groups"]
+    assert [(g["label"], [e["title"] for e in g["entries"]]) for g in groups] == [
+        ("Глубина 1 · Система", ["A1", "B1"]), ("Глубина 1 · Пользователь", ["A2"])]
+    await send(client, ctx, chat_id, "hi")
+    text = sent(fake_llm)
+    assert text.index("TEXT-A") < text.index("TEXT-B")
+
+    moved = await client.post(f"/api/chats/{chat_id}/lore-order", json={"block_id": blocks["B1"]["id"], "step": -1})
+    system = moved.json()["groups"][0]["entries"]
+    assert [(e["title"], e["number"]) for e in system] == [("B1", 100), ("A1", 101)]  # same numbers, now all different
+    await send(client, ctx, chat_id, "again")
+    text = sent(fake_llm)
+    assert text.index("TEXT-B") < text.index("TEXT-A")
+    bad = await client.post(f"/api/chats/{chat_id}/lore-order", json={"block_id": blocks["Off"]["id"], "step": 1})
+    assert bad.status_code == 404

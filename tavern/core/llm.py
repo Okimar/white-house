@@ -138,6 +138,18 @@ class LLMClient:
         request = self._request(messages, opts)
         parts: list[str] = []
         done = False
+
+        def flush() -> list[StreamEvent]:
+            """What the splitter still holds when the stream ends, cut off or not: its tail, and a thinking the model
+            never closed as the reply itself when nothing else was shown (better a raw reply than an empty one)."""
+            if splitter is None:
+                return []
+            out = [StreamEvent(kind, text=piece) for kind, piece in splitter.finish()]
+            if splitter.unclosed and not splitter.shown:
+                out.append(StreamEvent("text", text=splitter.unclosed.strip()))
+                splitter.unclosed = ""
+            return out
+
         try:
             async for event in self.provider.stream(request):
                 if event.kind == "text":
@@ -153,12 +165,8 @@ class LLMClient:
                 elif event.kind == "reasoning":
                     yield event
                 elif event.kind == "done":
-                    if splitter is not None:
-                        for kind, piece in splitter.finish():
-                            yield StreamEvent(kind, text=piece)
-                        if splitter.unclosed and not splitter.shown:
-                            # The model never closed its thinking: better a raw reply than an empty one.
-                            yield StreamEvent("text", text=splitter.unclosed.strip())
+                    for piece in flush():
+                        yield piece
                     done = True
                     usage = self._charge(event.usage or Usage(), messages, "".join(parts), request.model)
                     yield StreamEvent("done", usage=usage, finish_reason=event.finish_reason)
@@ -167,6 +175,20 @@ class LLMClient:
             if not done:
                 self._charge(Usage(), messages, "".join(parts), request.model, estimated=True)
             raise
+        except Exception:
+            # The stream broke off midway (the service dropped it): what came so far still reaches the reply, as
+            # SillyTavern keeps a cut-off streamed message; then the error goes on to the caller.
+            if not done:
+                for piece in flush():
+                    yield piece
+                if parts:
+                    self._charge(Usage(), messages, "".join(parts), request.model, estimated=True)
+            raise
+        if not done:  # the stream just stopped without its end mark: same, keep what came
+            for piece in flush():
+                yield piece
+            if parts:
+                self._charge(Usage(), messages, "".join(parts), request.model, estimated=True)
 
     async def generate(self, messages: list[ChatMessage], **opts: Any) -> GenerationResult:
         await self._begin()

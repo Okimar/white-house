@@ -125,3 +125,47 @@ def test_st_export_sends_the_thinking_block_as_framed_text():
     data = preset_with({"id": "thinking", "kind": "thinking", "text": "Plan: [..]", "group": "Мысли"})
     prompt = next(p for p in to_st(data)["prompts"] if p["identifier"] == "thinking")
     assert prompt["marker"] is False and "<thinking>\nPlan: [..]\n</thinking>" in prompt["content"]
+
+
+class _CutProvider:
+    """A service that sends some text and then breaks off: with an error, or by just stopping (no end mark)."""
+    kind = "openai"
+
+    def __init__(self, pieces, *, error: bool):
+        self.pieces, self.error = pieces, error
+
+    async def stream(self, request):
+        from tavern.providers.base import ProviderError, StreamEvent
+        for piece in self.pieces:
+            yield StreamEvent("text", text=piece)
+        if self.error:
+            raise ProviderError("connection dropped", reason="network")
+
+    async def aclose(self):
+        pass
+
+
+async def _cut(pieces, *, error: bool):
+    llm = LLMClient(_CutProvider(pieces, error=error), model="m", budget=RunBudget())
+    events, failed = [], None
+    try:
+        async for event in llm.stream([ChatMessage("user", "hi")], split_thinking=True):
+            events.append(event)
+    except Exception as exc:  # noqa: BLE001
+        failed = exc
+    text = "".join(e.text for e in events if e.kind == "text")
+    reasoning = "".join(e.text for e in events if e.kind == "reasoning")
+    return text, reasoning, failed
+
+
+async def test_a_reply_cut_off_inside_its_thinking_still_comes_out_as_text_then_the_error():
+    # SillyTavern keeps a cut-off streamed reply; ours lost it when the model was still in <thinking>.
+    text, reasoning, failed = await _cut(["<thinking>plan: she", " hides the key"], error=True)
+    assert text == "plan: she hides the key" and failed is not None
+
+
+async def test_a_cut_off_reply_keeps_its_held_tail_with_an_error_or_without_an_end_mark():
+    for error in (True, False):
+        text, reasoning, failed = await _cut(["<thinking>p</thinking>He steps in. <", "thi"], error=error)
+        assert (text, reasoning) == ("He steps in. <thi", "p")
+        assert (failed is not None) is error

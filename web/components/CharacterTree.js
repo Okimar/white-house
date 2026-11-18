@@ -210,7 +210,7 @@ const PLACES = [["", "по полю «Глубина»"], ["card_before", "до 
 const listOf = (text) => text.split(",").map((w) => w.trim()).filter(Boolean);
 
 // «Ещё»: the finer options of a bubble (core/retrieval.py lists them). Folded: most bubbles need none.
-function MoreRules({ rules, onRules }) {
+function MoreRules({ rules, onRules, book = false }) {
   const [people, setPeople] = useState(null); // characters, loaded when the filter is first opened
   const [peopleError, setPeopleError] = useState("");
   const [open, setOpen] = useState(() => Object.keys(rules).some((k) => k !== "title_key"));
@@ -257,6 +257,10 @@ function MoreRules({ rules, onRules }) {
         ${number("weight", "Вес", "Приоритет в группе относительно других пузырей (по умолчанию 100)", 1000, "100")}
         ${flag("main", "главный в группе", "Главный побеждает в своей группе при равных условиях")}</div>
       <span class="hint">Из нескольких пузырей одной группы отправляется только один. Вес задаёт приоритет, а главный пузырь выигрывает при равенстве.</span>
+      ${book && html`<div class="row" data-slot="tree-order">
+        ${number("order", "Номер", "Меньший номер — выше в промпте", 999999, "100")}</div>
+      <span class="hint">Номер: если несколько записей попадают в одно место, меньший номер стоит выше.
+        Весь порядок видно в чате: «Участники» → «Очерёдность лора».</span>`}
       <label>Куда в промпте
         <${Select} value=${rules.place || ""} onChange=${(e) => onRules({ place: e.target.value || null })}>
           ${PLACES.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
@@ -282,7 +286,7 @@ function MoreRules({ rules, onRules }) {
 
 // Every change saves itself: typing after a short pause (and when the panel closes or another
 // bubble is picked), buttons and switches at once. There is no "Сохранить" button.
-function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCount = 0, order, onSave, onDelete, onAddChild, onMove,
+function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCount = 0, order, book = false, onSave, onDelete, onAddChild, onMove,
   onOrder, onDetach, onStartLink, onUnlink, onChanceBelow, onOpen, onClose, onError, onNotice }) {
   const { folded, button: foldButton } = useFoldPanel();
   const [below, setBelow] = useState(null); // chance for every sub-bubble, before "Применить"
@@ -418,7 +422,7 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
       <span class="hint">Глубина: за сколько сообщений до конца чата вставить пузырь; пусто — рядом с карточкой.${draft.mode === "search"
         ? " Держится: сколько ответов пузырь остаётся после того, как тема всплыла. Шанс: с какой вероятностью найденный пузырь уйдёт модели."
         : ""}${draft.mode === "always" ? " Через: сколько ответов пропускать между отправками, 0 — на каждый ответ." : ""}</span>
-      <${MoreRules} key=${block.id} rules=${draft.rules || {}}
+      <${MoreRules} key=${block.id} rules=${draft.rules || {}} book=${book}
         onRules=${(patch, now = true) => {
           const next = { ...(draft.rules || {}), ...patch };
           for (const k of Object.keys(next)) if (next[k] === null) delete next[k];
@@ -450,7 +454,8 @@ function BlockPanel({ block, path, vectorized, askDelete, links, hasKids, kidsCo
         ${state === "failed" && html`<button type="button" class="panel-retry-btn" onClick=${flush}>Повторить</button>`}
       </div>
       <div class="row panel-subactions" data-slot="panel-subactions">
-        ${order && html`<label title=${"Номер среди соседей (1–" + order.of + "): модель читает их по порядку. Занятый номер — остальные сдвинутся"}>Порядок
+        ${order && html`<label title=${"Место среди соседей в списке (1–" + order.of + "). Занятое место — остальные сдвинутся"
+          + (book ? ". Порядок в промпте задаёт «Номер» в «Ещё»" : "")}>Место в списке
           <input class="num" inputmode="numeric" pattern="[0-9]*" aria-label="Порядковый номер"
             value=${place === null ? String(order.n) : place}
             onInput=${(e) => setPlace(e.target.value.replace(/\D/g, "").slice(0, 5))}
@@ -1422,7 +1427,7 @@ export function CharacterTree({ character, settings, revision = 0, onError }) {
           : html`<${TreeList} kids=${kids} selected=${selected} vectorized=${vectorized} open=${openIds}
               loaded=${loaded} error=${loadError} onRetry=${reload}
               onToggle=${toggleRow} onSelect=${setSelected} onCreate=${() => create(null)} />`}
-        ${selectedBlock && html`<${BlockPanel} block=${selectedBlock} path=${pathOf(selectedBlock)}
+        ${selectedBlock && html`<${BlockPanel} block=${selectedBlock} path=${pathOf(selectedBlock)} book=${Boolean(character.book)}
           vectorized=${vectorized.has(selectedBlock.id)} askDelete=${!settings.skip_delete_confirm}
           hasKids=${(kids.get(selectedBlock.id) || []).length > 0} kidsCount=${(kids.get(selectedBlock.id) || []).length}
           links=${links.filter((l) => l.includes(selectedBlock.id)).map((l) => l[0] === selectedBlock.id ? l[1] : l[0])

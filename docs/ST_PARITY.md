@@ -185,7 +185,7 @@ into the connection (the page asks; the test answers yes).
 | Extra scan sources per entry: persona, character description, personality, character note, scenario, creator notes. | Rule `match` (imported from both world files and card books). | done 2026-11-16 | SL, R, L | Entry with "match scenario". |
 | Key match: case-insensitive substring by default; whole-words option (global, per entry override); `/regex/flags` keys; macros in keys expanded. | Word-stem matching (Russian / English endings), regex keys; macros in keys expanded (bubble stays as written). | Russian stems **отличается нарочно** (owner, 2026-11-14); a Latin one-word key of an ST entry is a whole word when ST's «Match whole words» is on (setting `whole_words`, 2026-11-18); macros done 2026-11-16 | R `keyword_pattern`, `with_latin_whole`, L | Key "{{char}}". |
 | Secondary keys: AND ANY, NOT ALL, NOT ANY, AND ALL. | Same four. | same | SL, R | — |
-| Book order: chat book, persona book, then (strategy, default character first) character books then global; inside each by `order` highest first (budget priority). Final text order: lowest order first. | Same: tiers chat 0, persona 1, characters / global by `strategy` (character_first, global_first, evenly), inside a tier by «Order»; found list lowest order first. | done 2026-11-16 | L `book_tiers`, R | `test_lore_parity.py`, `test_lorebooks.py` |
+| Book order: chat book, persona book, then (strategy, default character first) character books then global; inside each by `order` highest first (budget priority). Final text order: lowest order first. | Same: tiers chat 0, persona 1, characters / global by `strategy` (character_first, global_first, evenly), inside a tier by «Order»; found list lowest order first. Our default strategy is **evenly** (a book has no weight, owner 2026-11-19; an import of ST's settings brings ST's choice). A new entry gets the number after its book's last one (never ties); the field «Номер» in «Ещё»; the chat window «Участники чата» → «Очерёдность лора» shows every spot (place, or depth + role) top to bottom with ↑ / ↓, which deal the spot's numbers out again all different (`lorebooks.order_groups`, `move_in_order`). | done 2026-11-16; numbers and the window 2026-11-19 | L `book_tiers`, R | `test_lore_parity.py`, `test_lorebooks.py` |
 | Budget: `world_info_budget` % (default 25) of the context, optional cap; rest dropped except "ignore budget" entries. | Same, `budget_cap` setting, but a blue (constant) entry is **never** cut: its cost is set aside first and found entries share the rest (**отличается нарочно**, owner 2026-11-18). Meaning search brings at most `meaning_max` (7) entries above the threshold (Cohere 0.40). | done 2026-11-18 | L, R, SL | Big book + constant jailbreak: the constant survives. |
 | Recursion (default **off**): per entry exclude / prevent / delay-until-recursion; max steps. | Same default (off; the setting turns chains on); exclude / prevent / `after_chain` (delay until level N). | done 2026-11-16 | L, SL, R | A mentions B's key, recursion off: only A. |
 | Min activations + max depth. | `min_activations`, `min_depth_max`. | done 2026-11-16 | R, L | Min 1, key only in an older message. |
@@ -197,6 +197,7 @@ into the connection (the page asks; the test answers yes).
 | Before / after texts: all joined with one "\n" into one text, wrapped by `wi_format` (default "{0}"), one system message at the marker. Entry text bare. Depth entries bare too (no wrapper). | Entries bare (no «[Книга › Запись]»), for depth and ST-file entries. For an ST preset the entries before / after the card are one text (one line break), wrapped by its `wi_format` (2026-11-18, `assembly.place_lore`); our own presets keep one message each. | done 2026-11-18 | A, SP | Two before-entries: ST "e1\ne2" in one message. |
 | Role matters only for depth entries; non-depth lore is always system. | Role imported for every entry. | partly | SL | — |
 | Card-embedded book at position 4 with broken depth gets 4. | Becomes "next to card". | partly | character_tree | — |
+| The card's embedded book is never sent by itself: only the linked world (import makes it one). | Card bubbles are ours and stay, but a bubble whose text is word for word a lorebook entry chosen for the same reply is left out: the text goes once, as the entry (`lorebooks.drop_repeated_bubbles`; live check 2026-11-19 found Celia sent twice). | done 2026-11-19 | L, services/chat.py | `test_lore_parity.py` |
 | Entry content gets regex (placement world info; depth only for @D) and macros. | `lore_rewritten`, macros. | same | RX | — |
 
 ## 6. Author's note
@@ -254,6 +255,11 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 | History newest → oldest until the budget ends (separator, nudges, continue reserved first); depth items counted on the kept part. Examples after history in priority unless "always keep". | Examples block `examples_mode`: room (default, ST normal: a member's examples go whole before any message), always, never. Then oldest messages, min 6 kept, then cards, then more history. | done 2026-11-16 for examples; min 6 kept **отличается нарочно** | A, P |
 
 ## 11. Request body per service
+
+**A streamed reply cut off midway** (the service drops the stream, or it stops without its end mark): ST keeps what
+came. Ours too since 2026-11-19: `LLMClient.stream` lets out the thinking splitter's held tail, and a `<thinking>`
+never closed becomes the reply when nothing else was shown, then the error goes on; `services/chat.py` saves the part
+(`tests/unit/test_thinking.py`). Before, a reply cut inside `<thinking>` was lost whole.
 
 ### 11a. Custom OpenAI-compatible
 

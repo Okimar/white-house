@@ -731,6 +731,7 @@ def _writer(
                 seed_text="\n".join(f.block["content"] for found in chosen.values() for f in found),
                 meaning=meaning, kind=kind,
                 notes_text="\n".join(n.text for n in fired_notes))
+            lorebooks.drop_repeated_bubbles(members, lore.found)
             # Rules "for the model" (stage 11): in a thread, because the worker is waited for.
             rewritten, lore_rewritten, thoughts_rewritten, skipped = await asyncio.to_thread(
                 regex_service.prompt_texts, ctx, chat, history, lore.found,

@@ -48,6 +48,48 @@ export function BookPicker({ scope, target = null, title, hint, onError }) {
   </fieldset>`;
 }
 
+// «Очерёдность лора» of one chat: the entries of the books on here, by the place they go to in the prompt, top to
+// bottom as the text goes; arrows swap an entry with its neighbour (the server deals the numbers out again).
+// Loads when opened; folded by default (a chat can have hundreds of entries).
+export function LoreOrder({ chatId, onError }) {
+  const [open, setOpen] = useState(false);
+  const [groups, setGroups] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const load = () => {
+    setError("");
+    api.get(`/chats/${chatId}/lore-order`).then((d) => setGroups(d.groups)).catch((e) => setError(e.message));
+  };
+  useEffect(() => { if (open) load(); }, [open, chatId]);
+  const move = async (id, step) => {
+    setBusy(id);
+    try {
+      setGroups((await api.post(`/chats/${chatId}/lore-order`, { block_id: id, step })).groups);
+    } catch (e) { onError(e.message); } finally { setBusy(""); }
+  };
+  return html`<details class="lore-order" data-slot="lore-order" open=${open} onToggle=${(e) => setOpen(e.target.open)}>
+    <summary>Очерёдность лора</summary>
+    <span class="hint">Записи, которые попадают в одно место промпта, идут сверху вниз. Стрелками поменяйте порядок.
+      Из какого лорбука запись — неважно.</span>
+    ${open && groups === null && html`<${Pending} error=${error} onRetry=${load} />`}
+    ${groups && groups.length === 0 && html`<p class="muted">В этом чате нет записей лорбуков.</p>`}
+    ${groups && groups.map((g) => html`<details key=${g.key} class="lore-order-group" data-slot="lore-order-group"
+        open=${g.entries.length > 1 && g.entries.length <= 12}>
+      <summary><span class="lore-order-place">${g.label}</span> <span class="muted">${g.entries.length}</span></summary>
+      <ol class="lore-order-list">
+        ${g.entries.map((e, i) => html`<li key=${e.id} class="lore-order-row">
+          <span class="lore-order-text"><span class="lore-order-title">${e.title}</span>
+            <span class="muted">${e.book} · №${e.number}${e.mode === "search" ? " · по теме" : ""}</span></span>
+          <${IconButton} icon="arrow-up" label=${"Выше: «" + e.title + "»"} disabled=${i === 0 || busy !== ""}
+            onClick=${() => move(e.id, -1)} />
+          <${IconButton} icon="arrow-down" label=${"Ниже: «" + e.title + "»"}
+            disabled=${i === g.entries.length - 1 || busy !== ""} onClick=${() => move(e.id, 1)} />
+        </li>`)}
+      </ol>
+    </details>`)}
+  </details>`;
+}
+
 export function LorebookEditor({ bookId, settings, connected = "", onClose, onChanged, onError }) {
   const [book, setBook] = useState(null);
   const [revision, setRevision] = useState(0); // bumps after undo / restore: everything reloads

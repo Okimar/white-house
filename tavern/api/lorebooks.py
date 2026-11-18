@@ -82,7 +82,26 @@ async def put_uses(request: Request) -> JSONResponse:
     return JSONResponse({"lorebook_ids": ids})
 
 
+async def get_order(request: Request) -> JSONResponse:
+    """The lore of a chat by where it lands, in the order the text goes there («Очерёдность лора»)."""
+    ctx = ctx_of(request)
+    ctx.chats.get_chat(request.path_params["id"])
+    return JSONResponse({"groups": lorebooks.order_groups(ctx, request.path_params["id"])})
+
+
+async def move_order(request: Request) -> JSONResponse:
+    """Body: {block_id, step: -1 (up) | 1 (down)}."""
+    ctx = ctx_of(request)
+    ctx.chats.get_chat(request.path_params["id"])
+    body = await json_body(request)
+    groups = await lorebooks.move_in_order(ctx, request.path_params["id"], field(body, "block_id", str),
+                                           field(body, "step", int))
+    return JSONResponse({"groups": groups})
+
+
 routes = [
+    Route("/chats/{id}/lore-order", get_order, methods=["GET"]),
+    Route("/chats/{id}/lore-order", move_order, methods=["POST"]),
     Route("/lorebooks", list_books, methods=["GET"]),
     Route("/lorebooks", create_book, methods=["POST"]),
     Route("/lorebooks/import", import_book, methods=["POST"]),

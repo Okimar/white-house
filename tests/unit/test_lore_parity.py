@@ -141,8 +141,10 @@ def test_equal_order_entries_go_in_reverse_of_the_book_like_sillytavern():
 
 
 def test_settings_default_to_sillytaverns_and_are_checked():
+    # the book strategy is ours: «evenly», a book has no weight, only the entries' numbers (owner, 2026-11-19);
+    # an import of SillyTavern's settings still brings its own choice (test_st_settings_lore)
     assert (DEFAULT_SETTINGS["recursion"], DEFAULT_SETTINGS["scan_messages"], DEFAULT_SETTINGS["include_names"],
-            DEFAULT_SETTINGS["strategy"]) == (0, 2, True, "character_first")
+            DEFAULT_SETTINGS["strategy"]) == (0, 2, True, "evenly")
     assert clean_settings({"strategy": "evenly", "include_names": False}) == {"strategy": "evenly",
                                                                             "include_names": False}
     for bad in ({"strategy": "random"}, {"include_names": 1}, {"scan_messages": -1}):
@@ -191,3 +193,18 @@ def test_whole_words_is_a_lorebook_setting():
     assert clean_settings({"whole_words": True}) == {"whole_words": True}
     with pytest.raises(LorebookError):
         clean_settings({"whole_words": "yes"})
+
+
+def test_a_card_bubble_that_repeats_a_chosen_lorebook_entry_word_for_word_is_left_out():
+    from types import SimpleNamespace as NS
+
+    from tavern.services.lorebooks import drop_repeated_bubbles
+
+    def hit(id_, text):
+        return NS(block={"id": id_, "content": text}, path=f"Card › {id_}")
+
+    celia, own_only = hit("card-celia", "## Celia\nReceptionist.\n"), hit("card-own", "Only on the card.")
+    member = NS(blocks=[celia, own_only])
+    assert drop_repeated_bubbles([member], [hit("book-celia", "## Celia\nReceptionist.")]) == ["Card › card-celia"]
+    assert member.blocks == [own_only]
+    assert drop_repeated_bubbles([member], []) == [] and member.blocks == [own_only]

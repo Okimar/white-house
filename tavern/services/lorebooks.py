@@ -27,7 +27,7 @@ from typing import Any
 
 from tavern.context import AppContext
 from tavern.core.prompt import substitute
-from tavern.core.retrieval import PATH_SEPARATOR, Selection, select_blocks, with_latin_whole
+from tavern.core.retrieval import PATH_SEPARATOR, Selection, block_order, select_blocks, with_latin_whole
 from tavern.core.retrieval import from_st as is_from_st
 from tavern.errors import AppError, NotFound
 from tavern.formats import st_lorebook
@@ -37,7 +37,8 @@ from tavern.services import cast, character_tree, history
 # before global ones, no minimum activations, no group scoring, no absolute cap.
 DEFAULT_SETTINGS: dict[str, Any] = {
     "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
-    "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
+    # «evenly»: a book has no weight of its own, only the entries' numbers decide (owner, 2026-11-19)
+    "include_names": True, "strategy": "evenly", "min_activations": 0, "min_depth_max": 0,
     "group_scoring": False, "scan_notes": False, "whole_words": False,
 }
 SETTING_LIMITS = {"budget_tokens": (0, 1_000_000), "budget_percent": (0, 100), "budget_cap": (0, 1_000_000),
@@ -401,6 +402,109 @@ async def select_for_chat(
     record(selection.fresh_hits)
     record(selection.misses, True)
     return selection
+
+
+# --- the order of entries in a chat's prompt («Очерёдность лора») ---------------------------------------------
+
+
+PLACE_LABELS = {"card_before": "Перед карточкой", "card_after": "После карточки",
+                "an_top": "У заметки автора, сверху", "an_bottom": "У заметки автора, снизу",
+                "examples_top": "Перед примерами диалога", "examples_bottom": "После примеров диалога"}
+ROLE_LABELS = {"system": "Система", "user": "Пользователь", "assistant": "Персонаж"}
+ROLE_SORT = {"system": 0, "user": 1, "assistant": 2}
+PLACE_ORDER = ["card_before", "card_after", "an_top", "an_bottom", "examples_top", "examples_bottom"]
+
+
+def _spot(block: dict[str, Any]) -> tuple[str, int, str]:
+    """Where an entry lands: (place, depth, role). At a depth the role counts (another role = another message)."""
+    if block.get("depth") is not None:
+        return "depth", int(block["depth"]), block.get("role") or "system"
+    return (block.get("rules") or {}).get("place") or "card_before", -1, ""
+
+
+def _spot_label(place: str, depth: int, role: str) -> str:
+    if place == "depth":
+        return f"Глубина {depth} · {ROLE_LABELS.get(role, role)}"
+    return PLACE_LABELS.get(place, place)
+
+
+def order_groups(ctx: AppContext, chat_id: str) -> list[dict[str, Any]]:
+    """Every working entry of the books on in a chat, grouped by where it lands, in the order the text goes there:
+    the entry's number («Order», smaller first); equal numbers by the books' list (SillyTavern's entries reversed,
+    as retrieval does). Only entries that can be sent: not switched off, not free, not an outlet."""
+    member_ids = [m["character_id"] for m in ctx.members.list(chat_id)]
+    book_ids = active_books(ctx, chat_id, member_ids)
+    pool = ctx.blocks.for_owners(book_ids)
+    names = {book_id: ctx.lorebooks.get(book_id)["name"] for book_id in book_ids}
+    groups: dict[tuple[str, int, str], list[tuple[tuple[int, int], dict[str, Any]]]] = {}
+    rank = 0
+    for book_id in book_ids:
+        for block in pool[book_id]:
+            rank += 1
+            if block["mode"] == "off" or block.get("detached") or not block["content"].strip():
+                continue
+            spot = _spot(block)
+            if spot[0] == "outlet":
+                continue
+            order = block_order(block)
+            groups.setdefault(spot, []).append(((order, -rank if is_from_st(block) else rank), {
+                "id": block["id"], "title": block["title"] or block["content"][:40], "book": names[book_id],
+                "book_id": book_id, "number": order, "mode": block["mode"]}))
+
+    def group_key(spot: tuple[str, int, str]) -> tuple[int, int, str]:
+        place, depth, role = spot
+        return (len(PLACE_ORDER), -depth, ROLE_SORT.get(role, 9)) if place == "depth" else (PLACE_ORDER.index(place)
+                                                                           if place in PLACE_ORDER else 99, 0, "")
+    out = []
+    for spot in sorted(groups, key=group_key):
+        entries = [e for _, e in sorted(groups[spot], key=lambda pair: pair[0])]
+        out.append({"key": "|".join(map(str, spot)), "label": _spot_label(*spot), "entries": entries})
+    return out
+
+
+async def move_in_order(ctx: AppContext, chat_id: str, block_id: str, step: int) -> list[dict[str, Any]]:
+    """Move an entry one up (-1) or down (+1) among the entries landing in the same spot in this chat. The spot's
+    numbers are dealt out again in the new order: the same numbers as before, sorted, made all different (so no
+    two entries share a number there any more). Only entries whose number changes are saved."""
+    if step not in (-1, 1):
+        raise LorebookError("step must be -1 or 1")
+    group = next((g for g in order_groups(ctx, chat_id) if any(e["id"] == block_id for e in g["entries"])), None)
+    if group is None:
+        raise NotFound("This entry is not sent in this chat")
+    entries = group["entries"]
+    i = next(k for k, e in enumerate(entries) if e["id"] == block_id)
+    j = i + step
+    if 0 <= j < len(entries):
+        entries[i], entries[j] = entries[j], entries[i]
+    numbers = sorted(e["number"] for e in entries)
+    for k in range(1, len(numbers)):
+        numbers[k] = max(numbers[k], numbers[k - 1] + 1)
+    for entry, number in zip(entries, numbers):
+        if entry["number"] != number:
+            block = ctx.blocks.get(entry["id"])
+            await character_tree.update_block(ctx, entry["id"], {"rules": {**(block.get("rules") or {}),
+                                                                          "order": number}})
+    return order_groups(ctx, chat_id)
+
+
+def drop_repeated_bubbles(members: list[Any], lore_found: list[Any]) -> list[str]:
+    """A card bubble whose text is word for word a lorebook entry chosen for the same reply is not sent: the entry
+    goes alone. This happens when a card's own book was imported as bubbles and also lives as the linked lorebook;
+    SillyTavern never sends a card's embedded book itself, only the linked world, so the text goes once there too.
+    Changes `member.blocks` in place; returns the paths of the bubbles left out."""
+    texts = {found.block["content"].strip() for found in lore_found if found.block.get("content", "").strip()}
+    dropped: list[str] = []
+    if not texts:
+        return dropped
+    for member in members:
+        kept = []
+        for found in member.blocks or []:
+            if found.block.get("content", "").strip() in texts:
+                dropped.append(found.path)
+            else:
+                kept.append(found)
+        member.blocks = kept
+    return dropped
 
 
 # --- SillyTavern world files ------------------------------------------------------------------

@@ -700,6 +700,21 @@ input.num { width: 4.5em; }
 .book-picker { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line);
   border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0 0; }
 .book-picker label { min-height: 32px; display: flex; align-items: center; gap: 8px; }
+/* «Очерёдность лора» in a chat's members window: places folded, rows with up / down */
+.lore-order { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 12px; margin: 8px 0 0;
+  display: flex; flex-direction: column; gap: 8px; }
+.lore-order > summary, .lore-order-group > summary { min-height: var(--tap); display: flex; align-items: center;
+  gap: 8px; cursor: pointer; font-size: var(--text-sm); }
+.lore-order > summary { font-weight: 600; }
+.lore-order-group { border-top: 1px solid var(--line); }
+.lore-order-place { font-weight: 600; }
+.lore-order-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lore-order-row { display: flex; align-items: center; gap: 4px; min-height: var(--tap);
+  border-radius: var(--radius-xs); padding: 0 0 0 8px; background: var(--panel); }
+.lore-order-text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: var(--text-sm);
+  overflow-wrap: anywhere; padding: 4px 0; }
+.lore-order-text .muted { font-variant-numeric: tabular-nums; }
+.lore-order-row .icon-btn { flex: none; min-width: var(--tap); min-height: var(--tap); }
 .book-head-card { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px;
   background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
 .book-head-sub { align-items: center; gap: 8px; }

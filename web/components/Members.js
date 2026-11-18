@@ -6,7 +6,7 @@
 import { Select } from "./Select.js";
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
-import { BookPicker } from "./Lorebooks.js";
+import { BookPicker, LoreOrder } from "./Lorebooks.js";
 import { IconButton } from "./Icon.js";
 import { ask } from "./Dialogs.js";
 import { Pending } from "./State.js";
@@ -300,6 +300,7 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
 
         <${BookPicker} scope="chat" target=${chat.id} title="Лорбуки этого чата" onError=${onError}
           hint="Вместе с ними работают общие лорбуки (настройки, вкладка «Лорбуки») и лорбуки участников (в их карточках)." />
+        <${LoreOrder} chatId=${chat.id} onError=${onError} />
       </div>
     </div>
   `;
