@@ -10,6 +10,10 @@ conversation starts with a user turn ("Let's get started." when there is none). 
 (a prefill) loses its trailing spaces and becomes a user turn when thinking is on or on models from 4.6,
 which take no prefill. Thinking blocks stream as "reasoning" events.
 
+Prompt cache (off by default, as in SillyTavern): `cache_system` marks the last system block and the last tool,
+`cache_depth` N marks the turn N turns from the end and the one two further back (`cache_long`: one hour, not
+five minutes); at most four marks, the API's limit.
+
 The API requires `max_tokens`; DEFAULT_MAX_TOKENS is used when the connection does not set it.
 Thinking: models from 4.6 think "adaptive" with `output_config.effort` from the reasoning effort (5.x
 think anyway: the summary of their thinking is asked for unless `include_thoughts` is false); older ones
@@ -114,6 +118,13 @@ class AnthropicProvider(Provider):
         }
         if system:
             body["system"] = [{"type": "text", "text": text} for text in system]
+        mark = _cache_mark(extra.pop("cache_long", False))
+        cache_system = extra.pop("cache_system", False)
+        cache_depth = extra.pop("cache_depth", -1)
+        if cache_system and system:
+            body["system"][-1]["cache_control"] = dict(mark)
+        if isinstance(cache_depth, int) and not isinstance(cache_depth, bool) and cache_depth >= 0:
+            _cache_at_depth(messages, cache_depth, mark)
         budget = extra.pop("thinking_budget", 0)
         include = extra.pop("include_thoughts", None)
         self._thinking(body, version, int(budget) if isinstance(budget, (int, float)) else 0,
@@ -139,6 +150,8 @@ class AnthropicProvider(Provider):
             tool = _answer_tool(request.response_format)
             body["tools"] = [tool]
             body["tool_choice"] = {"type": "tool", "name": tool["name"]}
+        if cache_system and body.get("tools"):
+            body["tools"][-1]["cache_control"] = dict(mark)
         for name in P.PRESET_EXTRAS:
             extra.pop(name, None)
         raw = extra.pop("extra_body", None)
@@ -295,6 +308,24 @@ def _messages(messages: list[ChatMessage], *, use_system: bool = True) -> tuple[
     if not out or out[0]["role"] != "user":
         out.insert(0, {"role": "user", "content": [{"type": "text", "text": PLACEHOLDER}]})
     return system, out
+
+
+def _cache_mark(long: Any) -> dict[str, Any]:
+    """The `cache_control` value: five minutes (the API's default) or an hour."""
+    return {"type": "ephemeral", "ttl": "1h"} if long is True else {"type": "ephemeral"}
+
+
+def _cache_at_depth(turns: list[dict[str, Any]], depth: int, mark: dict[str, Any]) -> None:
+    """Mark the last block of the turn `depth` turns from the end, and of the one two turns further back.
+
+    Turns are already one per role change. A closing assistant turn (a prefill) is not counted: it is not
+    part of what the next request repeats. Two marks make the second request hit the first one's cache."""
+    end = len(turns)
+    while end and turns[end - 1]["role"] == "assistant":
+        end -= 1
+    for index in (end - 1 - depth, end - 3 - depth):
+        if 0 <= index < end and turns[index]["content"]:
+            turns[index]["content"][-1]["cache_control"] = dict(mark)
 
 
 def _last_turn(turns: list[dict[str, Any]], *, flip: bool) -> None:

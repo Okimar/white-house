@@ -45,7 +45,7 @@
 | 2 | Эталоны: записанные запросы ST в `tests/fixtures/st_goldens/`, по ним тесты «наш запрос = эталон» | сделано (12 случаев, `tests/integration/test_st_goldens.py`) |
 | 3а | Пресет и сборка: порядок блоков, карточка тремя частями, примеры, разделители «[Start a new Chat]», имена, подсказка группе, impersonate, continue, префилл только Claude | частично (глубина, склейка и «Склеивать соседние системные» сделаны) |
 | 3б | Лорбук: без заголовков, склейка на одной глубине, бюджет 25 %, порядок «Order», рекурсия, глубина скана, позиции | частично (сделано главное, остальное в таблице) |
-| 3в | Поля запроса по источникам: OpenAI-совместимый, Gemini, Claude (system-роль, safety, семплинг, имена, постобработка) | сделано 2026-11-16 (волна 4, раздел 11); семплинг при пустом подключении сделан 2026-11-18; осталось: кэш промпта Claude (пункт 14 ниже) |
+| 3в | Поля запроса по источникам: OpenAI-совместимый, Gemini, Claude (system-роль, safety, семплинг, имена, постобработка) | сделано 2026-11-16 (волна 4, раздел 11); семплинг при пустом подключении сделан 2026-11-18; кэш промпта Claude сделан 2026-11-18 (настройки подключения «Кэш») |
 | 3г | Макросы, регексы, размышление | частично (регексы и размышление сделаны, макросы нет) |
 | 3д | Обрезка окна: запас под ответ, порядок выбрасывания, примеры | сделано 2026-11-16 (волна 3, раздел 10) |
 | 3е | Заметка автора, персона, Character's Note, группы | не начато |
@@ -282,7 +282,7 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 | Same; names into text; pictures of the model go to the next user turn. | done 2026-11-16 | anthropic.py |
 | Same (trimmed; a user turn with thinking or from 4.6 on). | done 2026-11-16 | anthropic.py, A |
 | Same rules for limited / newest / thinking models; effort → budget share before 4.6, adaptive + `output_config.effort` from 4.6. | done 2026-11-16 | anthropic.py |
-| Prompt caching (server config). | Missing (cost only). | missing | anthropic.py |
+| Prompt caching (server config, off by default): the last system block and the last tool; the turn at depth N and N+2 from the end (a closing prefill not counted); 5 minutes or an hour. | Connection settings (group «Кэш»): `cache_system`, `cache_depth` (-1 off), `cache_long`; the same marks, off by default. No beta headers (caching is generally available); OpenRouter's Claude caching is not done. | done 2026-11-18 | anthropic.py, params.py |
 
 ## 12. Groups
 
@@ -321,7 +321,7 @@ The first findings (Gemini behind an OpenAI-compatible proxy) put the regex tric
 11. **Past reasoning sent** after import (done: last one, in the model's own tag).
 12. **Different history kept.** Done 2026-11-16: response reserve, counting by script with the learned ratio, examples only while room is left; our min 6 messages stays.
 13. **Character's Note, AN positions.** Done 2026-11-16 / 17; the interval stays ours on purpose.
-14. **Sampling values.** Temperature 1 and max_tokens 1024 now go even with an empty connection (done 2026-11-18); other penalties stay unset, so the proxy's defaults decide them. Still missing: Claude limited-sampling rules, custom exclude-body / headers and post-processing missing.
+14. **Sampling values.** Temperature 1 and max_tokens 1024 now go even with an empty connection (done 2026-11-18); other penalties stay unset, so the proxy's defaults decide them. The Claude limited-sampling rules, custom exclude-body / headers and post-processing are done (§11).
 
 ## To confirm on the owner's device (not seen)
 

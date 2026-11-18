@@ -1,4 +1,4 @@
-"""Wave 4 of the SillyTavern parity plan: request bodies of the direct Gemini and Claude kinds and the
+﻿"""Wave 4 of the SillyTavern parity plan: request bodies of the direct Gemini and Claude kinds and the
 OpenAI-compatible extras (docs/ST_PARITY.md §9, §11). Every expected body is written by hand from the plain-words
 rule; the preset's SillyTavern keys reach the providers through core.presets.provider_extras."""
 
@@ -156,3 +156,46 @@ def test_provider_extras_come_only_from_a_sillytavern_preset():
                 "custom_exclude_body": "top_p", "custom_include_headers": "X-A: 1"}
     assert provider_extras(st) == {"use_sysprompt": True, "prompt_post_processing": "strict",
                                    "exclude_body": "top_p", "include_headers": "X-A: 1"}
+
+
+# Claude prompt cache
+
+
+CONVERSATION = [M("system", "S1"), M("system", "S2"), M("user", "u1"), M("assistant", "a1"), M("user", "u2"),
+                M("assistant", "a2"), M("user", "u3")]
+MARK = {"type": "ephemeral"}
+
+
+def marked(body):
+    return [(turn["role"], i) for i, turn in enumerate(body["messages"]) if "cache_control" in turn["content"][-1]]
+
+
+def test_claude_sends_no_cache_marks_unless_asked():
+    body = claude(messages=CONVERSATION, model="claude-sonnet-4-5")
+    assert marked(body) == [] and "cache_control" not in body["system"][-1]
+
+
+def test_claude_cache_system_marks_the_last_system_block_and_the_last_tool():
+    body = claude(messages=CONVERSATION, model="claude-sonnet-4-5", extra={"cache_system": True, "web_search": True})
+    assert "cache_control" not in body["system"][0] and body["system"][-1]["cache_control"] == MARK
+    assert body["tools"][-1]["cache_control"] == MARK
+
+
+def test_claude_cache_depth_marks_that_turn_and_the_one_two_further_back():
+    body = claude(messages=CONVERSATION, model="claude-sonnet-4-5", extra={"cache_depth": 0})
+    assert marked(body) == [("user", 2), ("user", 4)]  # turns u1 a1 u2 a2 u3: the last and two back
+    body = claude(messages=CONVERSATION, model="claude-sonnet-4-5", extra={"cache_depth": 1})
+    assert marked(body) == [("assistant", 1), ("assistant", 3)]
+
+
+def test_claude_cache_depth_skips_a_closing_prefill_and_long_means_an_hour():
+    body = claude(messages=[*CONVERSATION, M("assistant", "Pre")], model="claude-sonnet-4-5",
+                  extra={"cache_depth": 0, "cache_long": True})
+    assert body["messages"][4]["content"][-1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert [i for _, i in marked(body)] == [2, 4]
+
+
+def test_claude_cache_settings_are_not_sent_as_fields():
+    body = claude(messages=CONVERSATION, model="claude-sonnet-4-5",
+                  extra={"cache_system": True, "cache_depth": 0, "cache_long": True})
+    assert not {"cache_system", "cache_depth", "cache_long"} & set(body)

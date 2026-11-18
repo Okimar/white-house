@@ -62,6 +62,14 @@ PARAMS: list[dict[str, Any]] = [
     # Tools
     {"id": "web_search", "group": "tools", "label": "Поиск в интернете", "type": "bool", "default": True,
      "kinds": ALL, "hint": "Модель может искать в интернете (где сервис это умеет; бывает платно)"},
+    # Prompt cache (Claude): the service keeps the unchanged start of the request and bills it much cheaper
+    {"id": "cache_system", "group": "cache", "label": "Кэш начала запроса", "type": "bool", "default": False,
+     "kinds": (ANTHROPIC,), "hint": "Помечать для кэша системные тексты и инструменты (дешевле, если начало не меняется)"},
+    {"id": "cache_depth", "group": "cache", "label": "Кэш по глубине", "type": "int", "min": -1, "max": 100,
+     "step": 1, "default": -1, "kinds": (ANTHROPIC,),
+     "hint": "-1 — выключено; N — помечать реплику, N реплик от конца, и ещё две дальше (0 — последнюю)"},
+    {"id": "cache_long", "group": "cache", "label": "Кэш на час", "type": "bool", "default": False,
+     "kinds": (ANTHROPIC,), "hint": "Держать кэш час, а не 5 минут (запись дороже)"},
     # Safety
     {"id": "safety_off", "group": "safety", "label": "Выключить фильтры", "type": "bool", "default": True,
      "kinds": (GEMINI,), "hint": "Просить сервис не блокировать ответы фильтрами безопасности"},
@@ -95,7 +103,7 @@ PARAMS: list[dict[str, Any]] = [
 
 GROUPS = [
     ("sampling", "Выбор слов"), ("repeat", "Повторы"), ("length", "Длина и форма"),
-    ("thinking", "Размышления"), ("tools", "Инструменты"), ("safety", "Фильтры"), ("raw", "Как есть"), ("tavern", "Таверна"),
+    ("thinking", "Размышления"), ("tools", "Инструменты"), ("cache", "Кэш"), ("safety", "Фильтры"), ("raw", "Как есть"), ("tavern", "Таверна"),
 ]
 
 BY_ID = {p["id"]: p for p in PARAMS}
