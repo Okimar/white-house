@@ -44,6 +44,22 @@ async def test_the_reply_length_is_kept_free_and_the_ratio_is_learned(client, ct
     assert (await seen(client, chat_id))["meta"]["token_ratio"] == learned
 
 
+async def test_the_learned_ratio_does_not_shrink_the_lorebook_budget(client, ctx, fake_llm):
+    # SillyTavern takes its percent of the window in its own tokenizer's units (our estimate): no ratio there
+    connection_id, chat_id = await setup(client, max_context_tokens=40000, max_tokens=500)
+    book = (await client.post("/api/lorebooks", json={"name": "W"})).json()["id"]
+    for i in range(14):  # more than 25 % of the window
+        await client.post(f"/api/lorebooks/{book}/blocks", json={"title": f"E{i}", "content": "word " * 1400 + f"#{i}",
+                                                                  "keywords": ["hi"]})
+    await client.put("/api/lorebook-uses", json={"scope": "chat", "target": chat_id, "lorebook_ids": [book]})
+    dropped = []
+    for ratio in (1.0, 1.5):
+        ctx.settings.set(tokens.RATIO_KEY, {tokens.ratio_key(connection_id, "m"): ratio})
+        await send(client, ctx, chat_id, "hi")
+        dropped.append(len((await seen(client, chat_id))["meta"]["dropped"]["lore"]))
+    assert dropped[0] > 0 and dropped[0] == dropped[1]
+
+
 async def test_without_a_window_nothing_is_reserved(client, ctx, fake_llm):
     _, chat_id = await setup(client, max_tokens=500)
     fake_llm.queue("Hello.")

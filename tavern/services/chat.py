@@ -591,7 +591,11 @@ def _writer(
     # connection sets one). Both go into the estimate's units by what this model really counted before.
     reserve = response_reserve(window, params.get("max_tokens"))
     factor = tokens.ratio(ctx.settings.get(tokens.RATIO_KEY), connection["id"], connection["model"])
-    max_context = tokens.window(window, factor)  # the whole window: the lorebook's percent is of this
+    # The lorebook's percent is of the whole window as SillyTavern counts it: its tokenizer's units, which our estimate
+    # follows (tuned to Gemma, ST's counter for Gemini), without the learned real/estimated ratio. With the ratio the
+    # lore got ~10 % less room than in ST (owner's chat, 2026-11-19). The prompt as a whole still fits the real window
+    # (prompt_budget below keeps the ratio).
+    max_context = window
     prompt_budget = tokens.window(window - reserve, factor) if window else 0
     generator_id = chat["meta"].get("generator") or ctx.settings.get("generator")
     me = user_name(ctx, chat_id)
