@@ -80,7 +80,7 @@ function NoteCard({ note, onHide }) {
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
   streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate, onContinueMessage,
   onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
-  actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, onRegexUndo }) {
+  actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, shownThinking = null, onRegexUndo }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
@@ -89,7 +89,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   const streaming = streamText !== null && streamText !== undefined;
   const text = streaming ? streamText : message.content;
   const meta = message.swipe_meta || {};
-  const thinking = streaming ? streamThinking : meta.reasoning;
+  // the thinking as the regex rules of its place show it (SillyTavern's «reasoning»), else as stored
+  const thinking = shownThinking ?? (streaming ? streamThinking : meta.reasoning);
   const role = roleOf(message.role);
   // On the last reply a new version of it; on the user's own last message a new reply to it (main.js).
   const canRegenerate = isLast && !busy && !pending;

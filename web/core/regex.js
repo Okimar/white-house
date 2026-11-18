@@ -47,6 +47,9 @@ export function useRegexDisplay(chatId, messages, streams) {
   const lastDepth = messages.length ? messages[messages.length - 1].depth : 0;
   const keyOf = (m, text) => `${summary.stamp}|${m.id}|${hash(text)}|${summary.depth_sensitive ? lastDepth - m.depth : 0}`;
   const textOf = (m) => (streams && streams[m.id] ? streams[m.id].text : m.content) || "";
+  // The model's thinking of a reply (SillyTavern's «reasoning» place): its own key, asked with the role "reasoning".
+  const thoughtOf = (m) => (streams && streams[m.id] ? streams[m.id].thinking : (m.swipe_meta || {}).reasoning) || "";
+  const thoughtKey = (m, text) => "r|" + keyOf(m, text);
 
   useEffect(() => {
     if (!on) return undefined;
@@ -57,8 +60,11 @@ export function useRegexDisplay(chatId, messages, streams) {
       const stream = Boolean(streams && streams[m.id]);
       if (!screen && !stream) continue; // only «live» rules: finished messages are shown as stored
       const key = keyOf(m, text);
-      if (done.current.has(key)) continue;
-      wanted.push({ key, id: key, m, text, stream });
+      if (!done.current.has(key)) wanted.push({ key, id: key, m, text, stream, role: m.role });
+      const thought = m.role === "assistant" && screen ? thoughtOf(m) : "";
+      if (thought && !done.current.has(thoughtKey(m, thought))) {
+        wanted.push({ key: thoughtKey(m, thought), m, text: thought, stream, role: "reasoning", thought: true });
+      }
     }
     if (!wanted.length) return undefined;
     const mine = ++token.current;
@@ -68,14 +74,14 @@ export function useRegexDisplay(chatId, messages, streams) {
           const part = wanted.slice(i, i + BATCH);
           const answer = await api.post("/regex/display", {
             chat_id: chatId,
-            items: part.map((w) => ({ id: w.key, text: w.text, role: w.m.role, depth: lastDepth - w.m.depth, stream: w.stream })),
+            items: part.map((w) => ({ id: w.key, text: w.text, role: w.role, depth: lastDepth - w.m.depth, stream: w.stream })),
           });
           if (mine !== token.current) return;
           for (const w of part) {
             const result = answer.results[w.key];
             if (!result) continue;
             done.current.set(w.key, result);
-            last.current.set(w.m.id, result);
+            last.current.set((w.thought ? "r|" : "") + w.m.id, result);
           }
         }
         if (done.current.size > 2000) done.current = new Map([...done.current].slice(-1000));
@@ -98,6 +104,16 @@ export function useRegexDisplay(chatId, messages, streams) {
     const before = last.current.get(message.id);
     if (before && streaming) return before.changed ? before : null;
     return { pending: true };
+  };
+  // The thinking of a reply after the rules: its text, or null = show it as stored (also while the answer is on its way:
+  // a thinking block is folded and secondary, so no «pending» blank for it).
+  shown.thinking = (message, streamThinking) => {
+    if (!screen || failed.current || message.role !== "assistant") return null;
+    const streaming = streamThinking !== null && streamThinking !== undefined;
+    const text = streaming ? streamThinking : (message.swipe_meta || {}).reasoning || "";
+    if (!text) return null;
+    const found = done.current.get(thoughtKey(message, text)) || (streaming ? last.current.get("r|" + message.id) : null);
+    return found && found.changed ? found.text : null;
   };
   // Rules of this chat that are on but wait for «Разрешить» (came with a card or a preset): the top bar says so.
   shown.waiting = (summary && summary.pending) || 0;

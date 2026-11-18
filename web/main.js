@@ -516,6 +516,7 @@ function App() {
     streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
     streamThinking=${chat.streams[m.id] ? chat.streams[m.id].thinking : null}
     shown=${regexShown(m, chat.streams[m.id] ? chat.streams[m.id].text : null)}
+    shownThinking=${regexShown.thinking ? regexShown.thinking(m, chat.streams[m.id] ? chat.streams[m.id].thinking : null) : null}
     onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
