@@ -11,6 +11,15 @@ import { MenuButton, openMenu } from "./Menu.js";
 import { ask, askText } from "./Dialogs.js";
 import { EmptyNote } from "./State.js";
 
+// «19 нояб., 00:06» under a chat's name: chats of one character share the name, the time tells them apart
+function shortDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleString("ru-RU", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }),
+    hour: "2-digit", minute: "2-digit" });
+}
+
 export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat, onRenameChat,
   onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, onSearch, onHome, section,
   settings, onError, mode, onFold }) {
@@ -97,7 +106,9 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
             return html`
             <li key=${c.id} class=${c.id === chatId ? "active" : ""}>
               <button class="item" aria-current=${c.id === chatId ? "true" : null} onClick=${() => onOpenChat(c.id)}
-                title=${chatTitle + (c?.updated_at ? "\nИзменён: " + new Date(c.updated_at).toLocaleString("ru-RU") : "")}>${chatTitle}</button>
+                title=${chatTitle + (c?.updated_at ? "\nИзменён: " + new Date(c.updated_at).toLocaleString("ru-RU") : "")}>
+                <span class="item-title">${chatTitle}</span>
+                ${c?.updated_at && html`<span class="item-sub muted">${shortDate(c.updated_at)}</span>`}</button>
               <${MenuButton} label=${"Действия с чатом " + chatTitle} data-slot="chat-rename" items=${() => chatActions(c, tools)} />
             </li>`;
           }} />

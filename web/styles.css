@@ -159,6 +159,9 @@ p, .hint, .search-snippet, .assistant-detail, .assistant-step { text-wrap: prett
 .list li.active .item { background: var(--raised); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
 .list li.conn { flex-direction: column; align-items: stretch; border-bottom: 1px solid var(--line); padding: 8px 0; }
 .item { display: block; flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: transparent; background: transparent; }
+/* a chat row: its name, and under it when it was last changed (chats of one character share the name) */
+.item .item-title, .item .item-sub { display: block; overflow: hidden; text-overflow: ellipsis; }
+.item .item-sub { font-size: var(--text-sm); font-weight: 400; font-variant-numeric: tabular-nums; line-height: 1.3; }
 
 /* Shell. 100dvh follows the phone's visible area when the keyboard opens. */
 /* --notice-h: height of the bar the page puts on top after an update / in safe mode (core/theme.js); 0 when none. */
@@ -2153,7 +2156,7 @@ a.button.icon-btn:hover { color: var(--fg); }
 .search-window { display: flex; flex-direction: column; gap: 8px; max-height: 100%; }
 .search-window .tabs { margin: 0; }
 .search-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
-.search-filters label { flex-direction: column; align-items: stretch; gap: 4px; font-size: var(--text-xs); color: var(--muted); min-width: 0; }
+.search-filters label { flex-direction: column; align-items: stretch; gap: 4px; font-size: var(--text-sm); color: var(--muted); min-width: 0; }
 .search-filters select, .search-filters .select-btn, .search-filters input { max-width: 100%; min-width: 0; }
 @media (pointer: coarse) {
   .search-filters input, .search-filters select, .search-filters .select-btn, .select-filter { font-size: 16px; }
@@ -2168,8 +2171,8 @@ a.button.icon-btn:hover { color: var(--fg); }
 .search-hit:active { transform: scale(0.99); }
 .search-hit-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .search-hit-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: 600; color: var(--fg); }
-.search-hit-date { flex: none; font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
-.search-hit-meta { font-size: var(--text-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-hit-date { flex: none; font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.search-hit-meta { font-size: var(--text-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-snippet { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: var(--text-sm); line-height: 1.45; color: var(--fg); margin-top: 2px; }
 .search-snippet mark { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--fg); font-weight: 500; border-radius: 2px; padding: 0 2px; }
 .search-reason { font-size: var(--text-xs); color: var(--text2); overflow-wrap: anywhere; }
