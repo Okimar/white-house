@@ -9,6 +9,7 @@ import { scriptAllowed } from "./components/Themes.js";
 import { VirtualList } from "./components/VirtualList.js";
 import { Message } from "./components/Message.js";
 import { useRegexDisplay } from "./core/regex.js";
+import { textColorRules } from "./core/textColors.js";
 import { Composer } from "./components/Composer.js";
 import { ProfileSwitch, PickVariants } from "./components/Profiles.js";
 import { SpendingBar } from "./components/Spending.js";
@@ -506,6 +507,7 @@ function App() {
   const notesOf = {};
   for (const n of attached) (notesOf[n.message_id] ||= []).push(n);
   const lastDepth = chat.messages.length ? chat.messages[chat.messages.length - 1].depth : 0;
+  const textColors = textColorRules(settings); // «Цветной текст»: "quotes" and the person's own marks
   const renderItem = (m) => html`<${Message} message=${m} notes=${notesOf[m.id]} showHidden=${showHidden}
     notesOpen=${notesOpen[m.id]} age=${lastDepth - m.depth}
     onNotesOpen=${(id, open) => setNotesOpen((o) => ({ ...o, [id]: open }))}
@@ -516,6 +518,7 @@ function App() {
     streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
     streamThinking=${chat.streams[m.id] ? chat.streams[m.id].thinking : null}
     shown=${regexShown(m, chat.streams[m.id] ? chat.streams[m.id].text : null)}
+    textColors=${textColors}
     shownThinking=${regexShown.thinking ? regexShown.thinking(m, chat.streams[m.id] ? chat.streams[m.id].thinking : null) : null}
     onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}

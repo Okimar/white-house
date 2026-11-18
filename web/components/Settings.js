@@ -1,6 +1,7 @@
 // Settings dialog, in tabs: your name, API connections (Connections.js; instruct templates live inside, for text mode), spending (Spending.js),
 // prompt, lorebooks, themes, pictures, plugins (Plugins.js), backups and the doctor (Backups.js).
 import { Select } from "./Select.js";
+import { TextColors } from "./TextColors.js";
 import { html, useState, useEffect, useRef } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { Themes } from "./Themes.js";
@@ -186,6 +187,10 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
             </${Select}>
           </label>
           <p id="hint-thinking-display" class="hint">Отправлять ли прошлые размышления модели, настраивается в пресете: блок «История чата».</p>
+
+          <h3 class="settings-sub">Цветной текст</h3>
+          <${TextColors} settings=${settings} saveSetting=${saveSetting} />
+          <p class="hint">Текст между метками красится в выбранный цвет во всех сообщениях. Например, кавычки " " красят прямую речь, звёздочки * * — действия. Модели уходит текст как есть.</p>
 
           <label class="stack">Заметки возле сообщения
             <${Select} value=${settings.notes_display || "few"} aria-label="Сколько заметок показывать возле сообщения"

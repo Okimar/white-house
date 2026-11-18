@@ -108,6 +108,14 @@ async def test_thinking_written_in_the_reply_goes_to_its_reasoning(client, ctx, 
     assert "split_thinking" not in fake_llm.requests[0]
 
 
+async def test_text_colors_setting_takes_marks_with_a_colour(client):
+    good = [{"open": "*", "close": "*", "color": "#c0392b", "on": True}, {"open": "«", "close": "»", "color": ""}]
+    assert (await client.put("/api/settings", json={"text_colors": good})).json()["text_colors"] == good
+    for bad in ([{"open": "", "close": "*"}], [{"open": "*", "close": "*", "color": "red"}], [{"open": "*", "close": "*",
+                                                                                                 "x": 1}]):
+        assert (await client.put("/api/settings", json={"text_colors": bad})).status_code == 400
+
+
 async def test_thinking_display_setting_takes_only_known_values(client):
     assert (await client.put("/api/settings", json={"thinking_display": "open"})).status_code == 200
     assert (await client.put("/api/settings", json={"thinking_display": "sideways"})).status_code == 400

@@ -30,6 +30,7 @@ import { ask } from "./Dialogs.js";
 import { copyText } from "../core/clipboard.js";
 import { notify } from "../core/notify.js";
 import { RegexNodes } from "./Regex.js";
+import { colorize } from "../core/textColors.js";
 
 function usageTitle(u) {
   return `Запрос: ${u.prompt_tokens} токенов, ответ: ${u.completion_tokens}` +
@@ -80,7 +81,7 @@ function NoteCard({ note, onHide }) {
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
   streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate, onContinueMessage,
   onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
-  actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, shownThinking = null, onRegexUndo }) {
+  actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, shownThinking = null, textColors = null, onRegexUndo }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
@@ -254,7 +255,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           </div>`
         : html`${thinking && thinkingDisplay !== "hidden" && html`<details class=${"thinking" + (streaming && !text ? " thinking-streaming" : "")} data-slot="message-thinking"
             open=${thinkingDisplay === "open" || (streaming && !text)}>
-            <summary title="Ход мыслей модели перед ответом"><${Icon} name="brain" class="thinking-brain" /> <span>Размышления${streaming && !text ? "…" : ""}</span><span class="spacer"></span><${Icon} name="chevron-down" class="thinking-chevron" /></summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${thinking}</div>
+            <summary title="Ход мыслей модели перед ответом"><${Icon} name="brain" class="thinking-brain" /> <span>Размышления${streaming && !text ? "…" : ""}</span><span class="spacer"></span><${Icon} name="chevron-down" class="thinking-chevron" /></summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${colorize(thinking, textColors)}</div>
           </details>`}
           ${(pending ? [] : messageTrees(message)).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
@@ -267,7 +268,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
             title="Сообщение исключено из контекста модели, но остаётся в истории чата"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
           <div class=${"body" + (shown && shown.pending ? " regex-pending" : "")} data-slot="message-body"
             aria-live=${streaming ? "polite" : null}>${shown && shown.nodes
-            ? html`<${RegexNodes} nodes=${shown.nodes} />` : shown && !shown.pending ? shown.text : text}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
+            ? html`<${RegexNodes} nodes=${shown.nodes} />` : colorize(shown && !shown.pending ? shown.text : text, textColors)}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
           ${typeof meta.regex_before === "string" && !streaming && !pending && onRegexUndo && html`<div class="msg-regex-note muted" data-slot="message-regex-note">
             Текст изменён регекс-правилом. <button type="button" class="link" onClick=${() => onRegexUndo(message.id)}>Вернуть как было</button></div>`}
           ${!streaming && !pending && messageExtras(message).map((line, i) => html`<div key=${line.owner + i} class="msg-plugin"

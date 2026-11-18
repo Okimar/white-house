@@ -17,6 +17,7 @@
   /* derived from the colours above, so a theme that sets those gets these too */
   --raised: color-mix(in srgb, var(--fg) 6%, var(--panel));
   --text2: color-mix(in srgb, var(--fg) 78%, var(--panel));
+  --text-quote: var(--accent); /* «Цветной текст» without its own colour: "quotes" in messages (themes may change it) */
   /* surfaces: a theme may put a picture or gradient here */
   --app-bg: var(--bg); --sidebar-bg: var(--panel); --topbar-bg: var(--panel); --composer-bg: var(--panel);
   --msg-user-bg: var(--user); --msg-bot-bg: var(--bot); --msg-border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
@@ -2217,6 +2218,16 @@ a.button.icon-btn:hover { color: var(--fg); }
 .rx-html table { border-collapse: collapse; max-width: 100%; }
 .rx-html td, .rx-html th { padding: 2px 6px; }
 .msg .body.regex-pending { visibility: hidden; }
+.text-mark { color: var(--text-quote); }
+/* Settings → «Цветной текст»: one row per mark, fits 375px */
+.text-colors-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.text-colors-row { display: flex; align-items: center; gap: 4px; min-height: var(--tap); }
+.text-colors-row .mark { width: 56px; min-height: var(--tap); text-align: center; font-size: var(--text-md); }
+.text-colors-row input[type="color"] { width: var(--tap); height: var(--tap); padding: 2px; flex: none;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
+.text-colors-on { display: flex; align-items: center; justify-content: center; min-width: var(--tap); min-height: var(--tap); }
+.text-colors-sample { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  font-family: var(--font-reading); font-size: var(--text-md); white-space: pre-wrap; }
 .msg-regex-note { font-size: var(--text-sm); }
 @media (max-width: 720px) {
   .regex-buttons { width: 100%; justify-content: flex-end; }

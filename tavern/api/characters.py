@@ -162,7 +162,11 @@ SETTING_TYPES = {
     "open_new_bubble": bool,  # "+ Пузырь" / "+ Подпузырь" opens the new bubble in the panel; default off
     "character_history": bool,  # keep the history of character changes ("Отменить", versions); default on
     "lorebooks": dict,  # lorebook budget_tokens / budget_percent / recursion (services/lorebooks.py)
+    # coloured text in messages: [{open, close, color ("#rrggbb" or "" = the theme's), on}] (web/core/textColors.js);
+    # text between an opening and its closing mark is drawn in that colour, as SillyTavern does with "quotes"
+    "text_colors": list,
 }
+TEXT_COLOR = re.compile(r"^(#[0-9a-fA-F]{6})?$")
 STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
 SETTING_CHOICES = {
     "notes_display": ("few", "all"),
@@ -201,6 +205,13 @@ async def put_settings(request: Request) -> JSONResponse:
             raise BadRequest(f"Setting {key!r} is a list of names")
         if key == "message_pinned" and not all(isinstance(v, str) and v in MESSAGE_BUTTONS for v in value):
             raise BadRequest(f"Setting {key!r} takes these buttons: {', '.join(sorted(MESSAGE_BUTTONS))}")
+        if key == "text_colors" and not (len(value) <= 30 and all(
+            isinstance(r, dict) and set(r) <= {"open", "close", "color", "on"}
+            and isinstance(r.get("open"), str) and 1 <= len(r["open"]) <= 10
+            and isinstance(r.get("close"), str) and 1 <= len(r["close"]) <= 10
+            and isinstance(r.get("color", ""), str) and TEXT_COLOR.match(r.get("color", ""))
+            and isinstance(r.get("on", True), bool) for r in value)):
+            raise BadRequest(f"Setting {key!r}: up to 30 marks {{open, close (1-10 characters), color #rrggbb or empty, on}}")
         if key == "retrieval" and value:
             value = character_tree.clean_retrieval(value)
         if key == "lorebooks" and value:
