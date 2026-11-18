@@ -32,9 +32,17 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
     if (file) await onImport(file);
   };
 
+  // A tap on a character opens the latest chat with them, as in SillyTavern (a new one when there is none).
+  const latestChat = (c) => chats.filter((x) => x.character_id === c.id)
+    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0))[0];
+  const openCharacter = (c) => {
+    const last = latestChat(c);
+    if (last) onOpenChat(last.id); else onNewChat(c.id);
+  };
   const characterActions = (c, tools) => {
     const charName = (c?.name || "").trim() || "Без имени";
     return [
+      ...(latestChat(c) ? [{ icon: "message-square", label: "Последний чат", onClick: () => openCharacter(c) }] : []),
       { icon: "message-square-plus", label: "Новый чат", onClick: () => onNewChat(c.id) },
       { icon: "pencil", label: "Карточка персонажа", onClick: () => onEditCharacter(c.id) },
       { icon: "download", label: "Скачать (PNG)", onClick: () => onExportCharacter(c.id) },
@@ -135,8 +143,9 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
             const charName = (c?.name || "").trim() || "Без имени";
             return html`
             <li key=${c.id}>
-              <button class="item" aria-haspopup="menu" title=${charName + " — действия с персонажем"}
-                onClick=${(e) => openMenu(e.currentTarget, characterActions(c, tools))}>${charName}</button>
+              <button class="item" title=${charName + (latestChat(c) ? " — открыть последний чат" : " — начать чат")}
+                onClick=${() => openCharacter(c)}>${charName}</button>
+              <${MenuButton} label=${"Действия с персонажем " + charName} items=${() => characterActions(c, tools)} />
             </li>`;
           }} />
       </section>
