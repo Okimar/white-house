@@ -234,8 +234,11 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
   };
 
   const onKeyDown = (e) => {
-    // isComposing: do not send while an IME (phone keyboards, CJK) is still confirming a word
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    // isComposing: do not send while an IME (phone keyboards, CJK) is still confirming a word.
+    // On a touch screen without a mouse (a phone, a tablet) Enter is a new line, as in SillyTavern: the Send button
+    // sends; Ctrl+Enter sends everywhere.
+    const touchOnly = matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (!touchOnly || e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       submit();
     }

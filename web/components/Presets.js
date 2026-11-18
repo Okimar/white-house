@@ -65,8 +65,8 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
     <li class=${"preset-block" + (block.enabled ? "" : " off")} data-slot="preset-block">
       <div class="row preset-block-row">
         ${!readOnly && html`<span class="block-grip" title="Порядок блоков настраивается стрелками" aria-hidden="true"><${Icon} name="grip-vertical" /></span>`}
-        <input type="checkbox" checked=${block.enabled} disabled=${readOnly} aria-label=${"Включить блок: " + block.name}
-          onChange=${(e) => set({ enabled: e.target.checked })} />
+        <label class="check-tap"><input type="checkbox" checked=${block.enabled} disabled=${readOnly} aria-label=${"Включить блок: " + block.name}
+          onChange=${(e) => set({ enabled: e.target.checked })} /></label>
         <button type="button" class="item" onClick=${() => setOpen(!open)} aria-expanded=${open}
           aria-controls=${"block-edit-" + block.id}
           aria-label=${"Настройки блока «" + block.name + "»"}>

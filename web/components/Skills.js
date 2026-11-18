@@ -122,8 +122,8 @@ export function Skills({ onError }) {
   const filteredList = list.filter((s) => !q || s.title.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q)));
 
   const item = (s) => html`<div key=${s.id} class=${"skills-item" + (s.id === openId ? " open" : "") + (s.used ? "" : " off")}>
-    <input type="checkbox" checked=${s.enabled} aria-label=${"Включить: " + s.title}
-      onChange=${() => toggle(s)} />
+    <label class="check-tap"><input type="checkbox" checked=${s.enabled} aria-label=${"Включить: " + s.title}
+      onChange=${() => toggle(s)} /></label>
     <button class="link" aria-current=${s.id === openId ? "true" : undefined}
       aria-label=${"Выбрать инструкцию " + s.title}
       onClick=${() => pick(s.id)}>${s.title}</button>

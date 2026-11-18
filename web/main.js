@@ -70,6 +70,9 @@ function App() {
   const [backupStatus, setBackupStatus] = useState(null);
   const [backupWarningHidden, setBackupWarningHidden] = useState(false);
   const [loaded, setLoaded] = useState(false); // the first load of the lists and settings finished
+  const [chatsLoaded, setChatsLoaded] = useState(false); // the chat list really came from the server
+  const chatsLoadedRef = useRef(false);
+  chatsLoadedRef.current = chatsLoaded;
   const [sheet, setSheet] = useState(null); // phone: the section of the left panel shown under the bar
   const [searching, setSearching] = useState(false); // phone: the search line is open
   const [showAssistant, setShowAssistant] = useState(false);
@@ -189,16 +192,22 @@ function App() {
     plugins.commands.some((c) => c.name === text.slice(1).split(/\s/)[0].toLowerCase());
   const { summary: spend, reload: reloadSpending } = useSpending(chatId);
 
+  const retry = useRef(null);
   const refresh = async () => {
+    clearTimeout(retry.current);
     try {
       const [c, l, s, t] = await Promise.all([
         api.get("/characters"), api.get("/chats"), api.get("/settings"), api.get("/themes"),
       ]);
       setCharacters(c.characters);
       setChats(l.chats);
+      setChatsLoaded(true);
       setSettings(s);
       setThemes(t);
     } catch (e) {
+      // The server is starting or the network blinked (a phone waking up): try again by itself, and never take
+      // the remembered chat away because the list did not come.
+      if (!chatsLoadedRef.current) retry.current = setTimeout(refresh, 3000);
       onError(e.message);
     } finally {
       setLoaded(true);
@@ -231,10 +240,11 @@ function App() {
     if (chatId) store.set("tavern.chat", chatId);
     else store.del("tavern.chat");
   }, [chatId]);
-  // A chat that no longer exists (deleted, other data dir): fall back to the empty screen.
+  // A chat that no longer exists (deleted, other data dir): fall back to the empty screen. Only once the list
+  // really came from the server: a failed first load must not forget the chat that was open.
   useEffect(() => {
-    if (loaded && chatId && !chats.some((c) => c.id === chatId)) setChatId(null);
-  }, [loaded, chats, chatId]);
+    if (chatsLoaded && chatId && !chats.some((c) => c.id === chatId)) setChatId(null);
+  }, [chatsLoaded, chats, chatId]);
   // Refresh the chat list (titles, order) after each finished generation.
   useEffect(() => { if (!chat.running) refresh(); }, [chat.running]);
   // Notes on messages: after opening a chat and after each reply (it may have placed notes).

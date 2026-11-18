@@ -30,7 +30,7 @@ import { ask } from "./Dialogs.js";
 import { copyText } from "../core/clipboard.js";
 import { notify } from "../core/notify.js";
 import { RegexNodes } from "./Regex.js";
-import { colorize } from "../core/textColors.js";
+import { renderMarkdown } from "../core/markdown.js";
 
 function usageTitle(u) {
   return `Запрос: ${u.prompt_tokens} токенов, ответ: ${u.completion_tokens}` +
@@ -216,8 +216,14 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
             <${IconButton} icon="chevron-left" label="Предыдущий вариант" disabled=${busy || message.active_swipe === 0}
               onClick=${() => onSwipe(message.id, message.active_swipe - 1)} />
             <span class="swipe-count" aria-live="polite" aria-atomic="true">${message.active_swipe + 1} / ${message.swipe_count}</span>
-            <${IconButton} icon="chevron-right" label="Следующий вариант" disabled=${busy || message.active_swipe >= message.swipe_count - 1}
-              onClick=${() => onSwipe(message.id, message.active_swipe + 1)} />
+            ${(() => {
+              // As in SillyTavern: on the last reply, «next» after its last version asks the model for a new one.
+              const atEnd = message.active_swipe >= message.swipe_count - 1;
+              const makesNew = atEnd && canRegenerate && message.role === "assistant";
+              return html`<${IconButton} icon="chevron-right" label=${makesNew ? "Новый вариант" : "Следующий вариант"}
+                disabled=${busy || (atEnd && !makesNew)}
+                onClick=${() => (makesNew ? onRegenerate(message) : onSwipe(message.id, message.active_swipe + 1))} />`;
+            })()}
           </span>`}
         <span class="spacer"></span>
         ${editing === null && !streaming && html`<span class="msg-actions" data-slot="message-actions"
@@ -255,7 +261,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           </div>`
         : html`${thinking && thinkingDisplay !== "hidden" && html`<details class=${"thinking" + (streaming && !text ? " thinking-streaming" : "")} data-slot="message-thinking"
             open=${thinkingDisplay === "open" || (streaming && !text)}>
-            <summary title="Ход мыслей модели перед ответом"><${Icon} name="brain" class="thinking-brain" /> <span>Размышления${streaming && !text ? "…" : ""}</span><span class="spacer"></span><${Icon} name="chevron-down" class="thinking-chevron" /></summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${colorize(thinking, textColors)}</div>
+            <summary title="Ход мыслей модели перед ответом"><${Icon} name="brain" class="thinking-brain" /> <span>Размышления${streaming && !text ? "…" : ""}</span><span class="spacer"></span><${Icon} name="chevron-down" class="thinking-chevron" /></summary><div class="thinking-text" role="region" aria-label="Текст размышлений">${renderMarkdown(thinking, textColors)}</div>
           </details>`}
           ${(pending ? [] : messageTrees(message)).map((t, i) => html`<${MessageTree} key=${t.owner + i} owner=${t.owner} tree=${t.tree} />`)}
           ${(meta.images || []).length > 0 && html`<div class="msg-images" data-slot="message-images">
@@ -268,7 +274,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
             title="Сообщение исключено из контекста модели, но остаётся в истории чата"><${Icon} name="eye-off" /> Скрыто от модели</div>`}
           <div class=${"body" + (shown && shown.pending ? " regex-pending" : "")} data-slot="message-body"
             aria-live=${streaming ? "polite" : null}>${shown && shown.nodes
-            ? html`<${RegexNodes} nodes=${shown.nodes} />` : colorize(shown && !shown.pending ? shown.text : text, textColors)}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
+            ? html`<${RegexNodes} nodes=${shown.nodes} />` : renderMarkdown(shown && !shown.pending ? shown.text : text, textColors)}${streaming && html`<span class="caret" aria-hidden="true"></span>`}</div>
           ${typeof meta.regex_before === "string" && !streaming && !pending && onRegexUndo && html`<div class="msg-regex-note muted" data-slot="message-regex-note">
             Текст изменён регекс-правилом. <button type="button" class="link" onClick=${() => onRegexUndo(message.id)}>Вернуть как было</button></div>`}
           ${!streaming && !pending && messageExtras(message).map((line, i) => html`<div key=${line.owner + i} class="msg-plugin"

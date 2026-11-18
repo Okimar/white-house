@@ -2222,13 +2222,29 @@ a.button.icon-btn:hover { color: var(--fg); }
 .rx-html td, .rx-html th { padding: 2px 6px; }
 .msg .body.regex-pending { visibility: hidden; }
 .text-mark { color: var(--text-quote); }
+/* markdown in messages (web/core/markdown.js), the way SillyTavern shows a reply */
+.md-p + .md-p, .md-p + .md-h, .md-h + .md-p, .md-quote, .md-list, .md-pre, .md-hr { margin-top: 0.6em; }
+.md-h { font-weight: 700; line-height: 1.3; margin-top: 0.4em; }
+.md-h1 { font-size: 1.4em; } .md-h2 { font-size: 1.25em; } .md-h3 { font-size: 1.12em; }
+.md-quote { margin-left: 0; margin-right: 0; padding: 2px 0 2px 12px; border-left: 3px solid var(--line); color: var(--text2); }
+.md-list { margin-bottom: 0; padding-left: 1.4em; white-space: normal; }
+.md-list li { white-space: pre-wrap; }
+.md-code { font-family: var(--font-mono); font-size: 0.9em; padding: 1px 4px; border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--fg) 8%, transparent); }
+.md-pre { margin-bottom: 0; padding: 8px 10px; overflow-x: auto; border-radius: var(--radius-sm); white-space: pre;
+  background: color-mix(in srgb, var(--fg) 6%, transparent); font-family: var(--font-mono); font-size: 0.85em; }
+.md-hr { border: 0; border-top: 1px solid var(--line); margin-bottom: 0; }
+.md-img { display: block; max-width: 100%; height: auto; margin-top: 0.4em; border-radius: var(--radius-sm); }
+.md-img-link { display: inline-block; padding: 2px 0; }
 /* Settings → «Цветной текст»: one row per mark, fits 375px */
 .text-colors-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .text-colors-row { display: flex; align-items: center; gap: 4px; min-height: var(--tap); }
 .text-colors-row .mark { width: 56px; min-height: var(--tap); text-align: center; font-size: var(--text-md); }
 .text-colors-row input[type="color"] { width: var(--tap); height: var(--tap); padding: 2px; flex: none;
   border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
-.text-colors-on { display: flex; align-items: center; justify-content: center; min-width: var(--tap); min-height: var(--tap); }
+.text-colors-row .text-colors-on, .check-tap { display: flex; align-items: center; justify-content: center; flex: none;
+  min-width: var(--tap); min-height: var(--tap); margin: 0; cursor: pointer; }
+.check-tap input { margin: 0; }
 .text-colors-sample { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
   font-family: var(--font-reading); font-size: var(--text-md); white-space: pre-wrap; }
 .msg-regex-note { font-size: var(--text-sm); }

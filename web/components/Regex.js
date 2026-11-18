@@ -229,8 +229,8 @@ function RuleRow({ rule, index, count, onMove, onEdit, onToggle, onCopy, onDelet
     : rule.slow ? "Работает слишком долго, пропускается. Исправьте шаблон"
       : !rule.approved ? "Ждёт вашего разрешения" : !rule.places.length ? "Не выбрано, где работает" : "";
   return html`<div class=${"regex-rule" + (rule.enabled ? "" : " off")} data-slot="regex-rule">
-    <input type="checkbox" checked=${rule.enabled} aria-label=${"Включить: " + (rule.name || rule.find)}
-      onChange=${() => onToggle(rule)} />
+    <label class="check-tap"><input type="checkbox" checked=${rule.enabled} aria-label=${"Включить: " + (rule.name || rule.find)}
+      onChange=${() => onToggle(rule)} /></label>
     <div class="regex-name">
       <button type="button" class="link regex-title" onClick=${() => onEdit(rule)} title=${rule.name ? `${rule.name} (${rule.find})` : rule.find}>
         ${rule.name ? html`<strong>${rule.name}</strong> <code class="regex-mono-preview">${rule.find}</code>` : html`<code class="regex-mono-preview">${rule.find}</code>`}
