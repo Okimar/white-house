@@ -268,3 +268,37 @@ def test_a_pool_of_books_goes_by_order_and_blue_ones_share_the_budget():
     assert list(ids(selection)) == ["w1", "w2", "t1"]  # the last one by number is left out
     assert selection.dropped == ["Мост"]
     assert next(f.path for f in selection.found if f.block["id"] == "t1") == "Город N › Рынок"
+    # entries from SillyTavern files: equal orders go in reverse of the rank in the text, as SillyTavern puts them
+    for b in pool:
+        b["extra"] = {"st_entry": {"uid": b["id"]}}
+    selection = select_blocks(pool, owner_name="", scan_text="река рынок мост", by_order=True,
+                              budget_tokens=3 * one + 1, owner_names={"world": "Мир", "town": "Город N"})
+    assert list(ids(selection)) == ["t1", "w2", "w1"]
+
+
+def test_a_blue_entry_is_never_cut_by_the_budget_and_green_ones_share_what_is_left():
+    # the owner, 2026-11-18: «синие записи … не должны срезаться никогда»
+    def entry(id, title, size, position, mode="search"):
+        b = block(id, title, "слово " * size, mode=mode, position=position)
+        b["owner_id"] = "world"
+        return b
+
+    one = estimate_tokens("слово " * 40)
+    pool = [entry("g1", "Река", 40, 0), entry("g2", "Рынок", 40, 1),
+            entry("b1", "Закон", 40, 2, mode="always"), entry("b2", "Небо", 40, 3, mode="always")]
+    selection = select_blocks(pool, owner_name="", scan_text="река рынок", by_order=True, budget_tokens=3 * one + 1,
+                              owner_names={"world": "Мир"})
+    assert set(ids(selection)) == {"g1", "b1", "b2"}  # both blue go though they rank last; one green fits
+    assert selection.dropped == ["Рынок"]
+    tiny = select_blocks(pool, owner_name="", scan_text="река рынок", by_order=True, budget_tokens=one // 2,
+                         owner_names={"world": "Мир"})
+    assert set(ids(tiny)) == {"b1", "b2"}  # over the budget already: the blue stay, no green
+
+
+def test_meaning_brings_only_the_best_few_above_the_threshold():
+    from tavern.services.character_tree import best_by_meaning
+    scores = {f"b{i}": 0.30 + i * 0.02 for i in range(12)}  # 0.30 .. 0.52
+    kept = best_by_meaning(scores, 0.4, 7)
+    assert sorted(kept, key=kept.get, reverse=True) == ["b11", "b10", "b9", "b8", "b7", "b6", "b5"]
+    assert set(best_by_meaning(scores, 0.4, 0)) == {f"b{i}" for i in range(5, 12)}  # 0 = no limit, threshold stays
+    assert best_by_meaning({"a": 0.39}, 0.4, 7) == {}

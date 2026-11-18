@@ -170,7 +170,7 @@ function BlockRow({ block, index, count, readOnly, groups, onChange, onMove, onR
 function RetrievalSettings({ settings, onChanged, onError }) {
   const [connections, setConnections] = useState([]);
   const stored = { scan_messages: 3, budget_tokens: 2000, threshold: 0.55, meaning_on: true, meaning_messages: 3,
-    meaning_user: true, meaning_characters: true, ...(settings.retrieval || {}) };
+    meaning_max: 7, meaning_user: true, meaning_characters: true, ...(settings.retrieval || {}) };
   const manual = !!stored.threshold_manual;
   const chosen = connections.find((c) => c.id === settings.embedding_connection);
   const svc = chosen?.meaning_threshold || null; // {service, value}: what suits the chosen vector service
@@ -192,7 +192,7 @@ function RetrievalSettings({ settings, onChanged, onError }) {
     try { await api.put("/settings", patch); notify("Сохранено", "ok"); onChanged(); } catch (e) { onError(e.message); }
   };
   const num = (key, value) => setDraft({ ...draft, [key]: value === "" ? "" : Number(value) });
-  const FIELDS = ["scan_messages", "budget_tokens", "threshold", "meaning_messages"];
+  const FIELDS = ["scan_messages", "budget_tokens", "threshold", "meaning_messages", "meaning_max"];
   const setMeaning = (patch) => save({ retrieval: { ...stored, ...patch } });
   const dirty = FIELDS.some((k) => draft[k] !== current[k]);
   const setServiceThreshold = async () => {
@@ -213,6 +213,7 @@ function RetrievalSettings({ settings, onChanged, onError }) {
       ...stored,
       scan_messages: Math.max(1, Math.round(Number(draft.scan_messages) || 3)),
       meaning_messages: Math.min(20, Math.max(1, Math.round(Number(draft.meaning_messages) || 3))),
+      meaning_max: draft.meaning_max === "" ? 7 : Math.min(100, Math.max(0, Math.round(Number(draft.meaning_max) || 0))),
       budget_tokens: Math.max(0, Math.round(Number(draft.budget_tokens) || 0)),
       threshold: Math.min(1, Math.max(0, Number(draft.threshold) || 0)) };
     next.threshold_manual = manual || next.threshold !== current.threshold;
@@ -245,6 +246,10 @@ function RetrievalSettings({ settings, onChanged, onError }) {
         <input type="number" min="1" max="20" disabled=${stored.meaning_on === false} value=${draft.meaning_messages}
           onInput=${(e) => num("meaning_messages", e.target.value)} />
         <span class="hint">Каждое сообщение ищется отдельно, пузырь берёт лучшее совпадение. Запрос один на весь ответ.</span></label>
+      <label class="stack">Не больше записей по смыслу
+        <input type="number" min="0" max="100" disabled=${stored.meaning_on === false} value=${draft.meaning_max}
+          onInput=${(e) => num("meaning_max", e.target.value)} />
+        <span class="hint">За ответ по смыслу приходят только лучшие совпадения выше порога: пузыри и записи лорбуков вместе. 0 — без ограничения.</span></label>
     </div>
     <label class="check"><input type="checkbox" checked=${stored.meaning_user !== false} disabled=${stored.meaning_on === false}
       onChange=${(e) => setMeaning({ meaning_user: e.target.checked })} />

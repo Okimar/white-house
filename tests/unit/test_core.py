@@ -188,7 +188,7 @@ def test_excluded_messages_never_reach_the_prompt():
 
 
 def test_context_budget_drops_oldest_but_keeps_newest():
-    long = "x" * 400  # ~100 tokens
+    long = "word " * 100  # ~100 tokens (core/tokens.py: an English word is about one)
     history = [msg("user", long), msg("assistant", long), msg("user", "last")]
     kept = build_prompt(None, history, max_context_tokens=120)
     assert [m.content for m in kept] == [long, "last"][1:] or kept[-1].content == "last"

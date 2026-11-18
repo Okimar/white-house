@@ -94,7 +94,7 @@ async def test_books_are_made_listed_renamed_and_checked(client, ctx):
     assert listed["settings"] == {  # SillyTavern's defaults: 25 %, 2 messages with names, recursion off
         "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
         "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
-        "group_scoring": False, "scan_notes": False}
+        "group_scoring": False, "scan_notes": False, "whole_words": False}
     renamed = await client.put(f"/api/lorebooks/{world}", json={"name": "Мир Эйры", "description": "Север."})
     assert renamed.json()["name"] == "Мир Эйры"
     assert (await client.post(f"/api/lorebooks/{world}/undo")).json()["undone"]["what"] == "Книга изменена"
@@ -132,7 +132,8 @@ async def test_all_four_levels_work_together_and_a_book_counts_once(client, ctx,
     assert text.count("Светит всегда.") == 1  # on globally and in the chat: once
     saw = await seen(client, chat_id)
     lore = [e["label"] for e in saw["entries"] if e["kind"] == "lore"]
-    # SillyTavern's pool order: the chat's books (the shared one is on there too), the persona's, the characters'
+    # SillyTavern's pool order: the chat's books (the shared one is on there too), the persona's, the characters'.
+    # Our own books keep it in the text; only entries from SillyTavern files go in reverse (test_retrieval)
     assert lore == ["Чат › Таверна", "Общий › Солнце", "Мой › Меч", "Анин › Сад"]
     assert (await client.get(f"/api/lorebook-uses?scope=chat&target={chat_id}")).json() == \
         {"lorebook_ids": [chatty, shared]}
@@ -164,7 +165,8 @@ async def test_entries_go_to_their_places(client, ctx, fake_llm):
 async def test_budget_drops_the_last_entries_and_says_so(client, ctx, fake_llm):
     _, chat_id = await setup(client)
     long = "слово " * 300
-    world = await book(client, "W", *({"title": f"T{i}", "content": f"{long} #{i}", "mode": "always"}
+    # green entries: a blue one is never cut (test_retrieval)
+    world = await book(client, "W", *({"title": f"T{i}", "content": f"{long} #{i}", "keywords": ["hi"]}
                                       for i in range(4)))
     await use(client, "chat", [world], target=chat_id)
     one = ctx.blocks.list(world)[0]["content"]

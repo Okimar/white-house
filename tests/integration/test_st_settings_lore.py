@@ -22,7 +22,7 @@ OWNER_LIKE = {
 def test_the_settings_map_to_ours():
     settings, names = settings_from_st(OWNER_LIKE)
     assert settings == {"scan_messages": 1, "min_activations": 0, "min_depth_max": 0, "budget_percent": 25,
-                        "budget_cap": 0, "include_names": True, "group_scoring": False,
+                        "budget_cap": 0, "include_names": True, "group_scoring": False, "whole_words": True,
                         "recursion": UNLIMITED_RECURSION, "strategy": "character_first"}
     assert names == ["The Garden 1.5", "Сильваннета", "Missing Book"]
     limited = {"world_info_settings": {"world_info_recursive": True, "world_info_max_recursion_steps": 3}}

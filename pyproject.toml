@@ -12,6 +12,7 @@ testpaths = ["tests", "plugins"]
 addopts = "-q"
 markers = [
     "fast: everyday tier (tests/unit and a few key integration files), run with -m fast",
+    "affected: a test file the current change can break (python -m tavern.devtools.affected)",
     "slow: starts git, a server or a regex worker process; the full run only",
 ]
 

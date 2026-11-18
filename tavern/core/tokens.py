@@ -3,8 +3,8 @@
 Pure Python (Termux: no tiktoken). Two parts:
 
 `count(text)` estimates what a modern tokenizer (OpenAI o200k, Gemini, Claude) makes of a text, by script: a Latin
-word is about one token per 5 letters, a Cyrillic word one per 3.5 (Russian costs more than English in every
-model), each CJK character one, digits in groups of three, each run of punctuation and each line break one. The old
+word is about one token per 7 letters, a Cyrillic word one per 3.5 (Russian costs more than English in every
+model), each CJK character one, digits in groups of three, a run of punctuation ¾ of one, each line break one. The old
 rule «4 characters = 1 token» undercounted Russian by about a third, so long Russian chats overflowed the window.
 Results are remembered per text (an LRU cache): a chat's messages are counted once, not on every trimming step.
 
@@ -32,8 +32,11 @@ _RUNS = re.compile(
     r"|(?P<word>[^\W\d_]+)"
     r"|(?P<sym>[^\w\s]+)"
 )
-LATIN_LETTERS = 5.0  # letters per token in a Latin word
+LATIN_LETTERS = 7.0  # letters per token in a Latin word (most English words are one token)
 CYRILLIC_LETTERS = 3.5
+PUNCTUATION = 0.75  # a run of punctuation often merges with its neighbours
+# Tuned 2026-11-17 on the owner's real prompt (504 pieces, ~150k characters) against the Gemma tokenizer SillyTavern
+# uses for Gemini models: +1.5 % overall, ~5 % per piece (it was +25 % with 5 letters a token for Latin words).
 OTHER_LETTERS = 2.5  # Greek, Arabic, Hebrew, Indic…: costly everywhere
 DIGITS = 3  # numbers are split into groups of up to three digits
 SPACES = 4  # a long run of spaces (indentation): one token per four; a single space rides with the next word
@@ -71,7 +74,7 @@ def count(text: str) -> int:
         elif kind == "word":
             total += math.ceil(size / OTHER_LETTERS)
         else:  # punctuation, symbols, emoji: a run of the same kind is often one token, mixed ones more
-            total += max(1, math.ceil(size / 2))
+            total += PUNCTUATION * max(1, math.ceil(size / 2))
     return max(1, int(total))
 
 

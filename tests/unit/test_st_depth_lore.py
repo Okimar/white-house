@@ -178,21 +178,24 @@ def _block(block_id: str, content: str, *, mode: str = "always", order: int | No
 
 
 def test_the_budget_keeps_a_high_order_constant_entry_even_when_it_stands_last_in_the_book():
-    filler = [_block(f"f{i}", "word " * 200, order=100, position=i) for i in range(10)]
+    filler = [_block(f"f{i}", "word " * 200, mode="search", order=100, position=i) for i in range(10)]
+    for f in filler:
+        f["keywords"] = ["word"]
     jailbreak = _block("jb", JAILBREAK, order=1000, position=99)
-    selection = select_blocks([*filler, jailbreak], owner_name="", scan_text="", budget_tokens=500, by_order=True,
+    selection = select_blocks([*filler, jailbreak], owner_name="", scan_text="word", budget_tokens=500, by_order=True,
                               owner_names={"book": "Gemini"})
     kept = {f.block["id"] for f in selection.found}
     assert "jb" in kept and selection.dropped  # the filler is what is cut
 
 
-def test_a_found_keyword_entry_with_a_higher_order_comes_before_a_constant():
+def test_a_constant_is_never_cut_even_by_a_found_entry_with_a_higher_order():
+    # the owner, 2026-11-18: blue entries are never cut (SillyTavern would keep «g» and cut «c» here)
     constant = _block("c", "word " * 300, order=10, position=0)
     green = _block("g", "word " * 300, mode="search", order=500, position=1)
     green["keywords"] = ["дракон"]
     selection = select_blocks([constant, green], owner_name="", scan_text="дракон", budget_tokens=400,
                               by_order=True, owner_names={"book": "B"})
-    assert [f.block["id"] for f in selection.found] == ["g"] and selection.dropped == ["c"]
+    assert [f.block["id"] for f in selection.found] == ["c"] and selection.dropped == ["g"]
 
 
 def test_an_entry_that_ignores_the_budget_is_never_cut():

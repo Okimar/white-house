@@ -326,7 +326,7 @@ Rules that apply to every block:
    - attached notes go to `entry.follow`.
 3. `history.max_tokens` cap: the newest messages are kept while they fit.
 4. **Budget**, only when `max_context_tokens > 0`. Cost = `estimate_tokens` (`core/tokens.py:count`: by script, a
-   Latin word ≈ 1 token per 5 letters, Cyrillic per 3.5, CJK one per character, digits in threes; LRU-cached per
+   Latin letters 7 per token, Cyrillic 3.5, punctuation 0.75 each, CJK one per character, digits in threes (checked against Gemma, +1.5 %); LRU-cached per
    text; `web/core/tokens.js` is the same for the «Что видела модель» numbers). Steps, in order:
    0. With the examples block's `examples_mode` "room" (default; "always" skips this, "never" sends none): members'
       examples (with their separators) are dropped whole, last member first, while over the budget
@@ -456,7 +456,7 @@ The engine is `core/retrieval.py:select_blocks`, pure logic. The callers are
 
 - `mode` is `always` (blue), `search` (green) or `off`.
 - `keywords`, `title` (a keyword unless `rules.title_key=false`), `depth` (None = next to the card), `role`.
-- `sticky` (default 3), `chance`, `every`, `detached` (a free bubble, never sent), `parent_id`, `position`.
+- `sticky` (default 3 for our own bubbles; a card's ST book entry keeps ST's own value, 0 when absent), `chance`, `every`, `detached` (a free bubble, never sent), `parent_id`, `position`.
 - `rules` is validated in `character_tree.py:_rules`: `keys2`, `logic`, `whole`, `case`, `scan`, `cooldown`,
   `delay`, `groups`, `main`, `weight`, `filter`, `no_wake`, `not_woken`, `place`.
 
@@ -471,7 +471,9 @@ The engine is `core/retrieval.py:select_blocks`, pure logic. The callers are
    default 3, or the block's own `rules.scan`):
    - **keyword**: `keyword_hits` counts title and keywords; the second keywords apply `logic`
      (and_any|and_all|not_any|not_all);
-   - **meaning**: score ≥ `threshold` (default 0.55, or the vector service's own default);
+   - **meaning**: score ≥ `threshold` (default 0.55, or the vector service's own default; Cohere 0.40) and among
+     the best `retrieval.meaning_max` (7) of the whole reply (`character_tree.best_by_meaning`, cut when the scores
+     are made, so cards and books share the 7);
    - **sticky**: found within the last `sticky` replies.
 
    `cooldown` blocks are skipped while cooling. A miss is held back while its hold lasts. Ranking: keyword hits
@@ -499,8 +501,16 @@ go (up to `min_depth_max`).
    `chat_block_hits`.
 
 **Russian endings**: `stem()` cuts a longest ending from `RU_ENDINGS` (English: `ing|es|ed|s`) when ≥3 letters
-remain. `keyword_pattern` matches `stem\w*` per word. `/regex/flags` keywords are compiled as written.
-`whole`/`case` change this. One-word keywords are counted by binary search over sorted words (`_Words`).
+remain. `keyword_pattern` matches a Russian word as `stem\w*` and a Latin one as the stem plus `s|es|ed|ing` only
+(`LATIN_ENDINGS`). `/regex/flags` keywords are compiled as written. `whole`/`case` change this. One-word keywords
+are counted by binary search over sorted words (`_Words`). With ST's «Match whole words» (`lorebooks.whole_words`,
+`retrieval.with_latin_whole` sets the transient rule `latin_whole` on entries from ST files, not on our own and not
+on entries saying `matchWholeWords: false`) a one-word Latin key is a whole word; phrases stay loose as in ST.
+
+**Order of the found list** (`by_order`): lowest `block_order` first; equal orders from ST files in reverse of the
+order they were activated (the first scan in rank order, then each chain step; the chain text is the whole buffer so
+far); our own bubbles keep their order. **Blue blocks are never cut** by the budget: `select_blocks` sets their cost
+aside first and green ones share what is left.
 
 **Generation counter**: `chat.meta.generation` is incremented once per reply by
 `character_tree.select_for_chat`. Lorebooks read the same number.
@@ -531,8 +541,8 @@ remain. `keyword_pattern` matches `stem\w*` per word. `/regex/flags` keywords ar
   is the fallback.
 - Ranking (`core/retrieval.py:select_blocks`, `by_order`): by book (pool order), then `block_order` highest first
   (`rules.order`, else the imported `st_entry.order` / `insertion_order`, else 100), then the place in the tree.
-  Constant and found entries are ranked together against the budget (`take`), so a constant with a low order can be
-  cut before a keyword entry with a high one. `rules.no_budget` (`retrieval.ignores_budget`, ST «ignore budget»)
+  Blue (constant) entries are never cut: their cost is taken first and found entries share the rest (not ST's:
+  there a constant with a low order can be cut). `rules.no_budget` (`retrieval.ignores_budget`, ST «ignore budget»)
   costs nothing and is never cut.
 - Outlet entries (`place == "outlet"`) are filtered out of the pool before selection.
 - Character bubbles have their own budget, `retrieval.budget_tokens` (2000) **per member**, and blue ones are free.

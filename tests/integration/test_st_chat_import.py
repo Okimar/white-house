@@ -54,6 +54,9 @@ def test_the_parser_reads_the_sillytavern_shape():
     assert parsed["character_name"] == "Char" and parsed["user_name"] == "SKRIPTY"
     assert len(parsed["swipes"][0]) == 5 and parsed["swipes"][0][0] == "Greeting 0 for SKRIPTY.\r\n\r\nMore."
     assert parsed["swipe_metas"][2][0]["reasoning"] == "Thinking 0"
+    # sent back the way SillyTavern sends it: «<think>\n…\n</think>» (thinking.wrap), not our own <thinking>
+    assert parsed["swipe_metas"][2][0]["reasoning_tag"] == "think"
+    assert "reasoning_tag" not in parsed["swipe_metas"][1][0]  # a message without reasoning gets no tag
 
 
 async def _import(client, body: bytes, filename: str = FILENAME):

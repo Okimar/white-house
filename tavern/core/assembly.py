@@ -319,7 +319,9 @@ def assemble(data: PromptInput) -> Prompt:
     variables: dict[str, str] = {}
 
     def sub(text: str) -> str:
-        return substitute(text, char=char, user=user, values=values, variables=variables)
+        # carriage returns (Windows line ends in cards and imported texts) are dropped, as SillyTavern does
+        # (also from what the macros bring in: a card's {{description}} inside a preset text)
+        return substitute(text, char=char, user=user, values=values, variables=variables).replace("\r", "")
 
     def preset_source(block: dict[str, Any]) -> str:
         return f"preset:{data.preset_id}:{block['id']}"
@@ -555,10 +557,9 @@ def assemble(data: PromptInput) -> Prompt:
     note_role = data.notes[0].role if data.notes else "system"  # lore above / below the note rides in its message
     an_top = placed_at.pop("an_top", [])
     an_bottom = placed_at.pop("an_bottom", [])
-    if not data.notes:  # SillyTavern sends entries «at the author's note» only when the note fires; ours always go
-        st_lore = {f"block:{f.block['id']}" for f in data.lore if from_st(f.block)}
-        an_top = [e for e in an_top if e.source not in st_lore]
-        an_bottom = [e for e in an_bottom if e.source not in st_lore]
+    # Without a fired note they still go, at the note's default place (depth 4): SillyTavern's author's note fires by
+    # its interval (every reply by default) even with an empty text, and carries these entries (the owner's exam,
+    # 2026-11-17: Elves, Yuri, Klaus… at the note's top were sent with no note text).
     first_note = data.notes[0] if data.notes else None
     if first_note is not None and first_note.place != "depth":  # the lore rides with the note outside the chat
         anchor = next((e for e in before + after if e.source == f"note:{first_note.id}"), None)

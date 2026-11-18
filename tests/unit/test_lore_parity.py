@@ -59,8 +59,8 @@ def test_an_entry_with_triggers_goes_only_for_those_kinds_of_generation():
     entry = st_block(1, "SWIPE ONLY", ["river"], triggers=["swipe"])
     plain = st_block(2, "ANY", ["river"])
     assert found([entry, plain], "a river", kind="normal") == ["b2"]
-    assert found([entry, plain], "a river", kind="swipe") == ["b1", "b2"]
-    assert found([entry, plain], "a river", kind=None) == ["b1", "b2"]  # not checked when the caller has no kind
+    assert found([entry, plain], "a river", kind="swipe") == ["b2", "b1"]  # equal orders: reversed, as ST
+    assert found([entry, plain], "a river", kind=None) == ["b2", "b1"]  # not checked when the caller has no kind
 
 
 # Scan sources
@@ -81,7 +81,7 @@ def test_delay_until_recursion_waits_for_a_chain_step():
     starter = st_block(1, "The dragon sleeps.", ["cave"])
     delayed = st_block(2, "DRAGON LORE", ["dragon"], delayUntilRecursion=True)
     assert found([starter, delayed], "the dragon cave", recursion=0) == ["b1"]  # the message alone never opens it
-    assert found([starter, delayed], "the dragon cave", recursion=2) == ["b1", "b2"]
+    assert found([starter, delayed], "the dragon cave", recursion=2) == ["b2", "b1"]
 
 
 # Group scoring
@@ -119,12 +119,22 @@ def test_minimum_activations_scan_deeper_until_enough_entries_are_found():
 
 
 def test_found_entries_go_lowest_order_first_and_the_budget_keeps_the_higher_tier():
-    chat_book = st_block(1, "CHAT " * 40, order=10, owner="chat")
-    global_book = st_block(2, "GLOBAL " * 40, order=50, owner="global")
+    chat_book = st_block(1, "CHAT " * 40, ["river"], order=10, owner="chat")
+    global_book = st_block(2, "GLOBAL " * 40, ["river"], order=50, owner="global")
     tiers = {"chat": 0, "global": 3}
-    assert found([global_book, chat_book], tiers=tiers) == ["b1", "b2"]  # text order: Order 10, then 50
+    assert found([global_book, chat_book], "river", tiers=tiers) == ["b1", "b2"]  # text order: Order 10, then 50
     # a budget for one entry keeps the chat's book, though the global one has the higher «Order»
-    assert found([global_book, chat_book], tiers=tiers, budget_tokens=60) == ["b1"]
+    assert found([global_book, chat_book], "river", tiers=tiers, budget_tokens=60) == ["b1"]
+
+
+def test_equal_order_entries_go_in_reverse_of_the_book_like_sillytavern():
+    """The owner's book «Сильваннета» (2026-11-17 exam): four constant entries at depth 1, all Order 100, uids 5, 28,
+    29, 35 in the book. SillyTavern sends them 35, 29, 28, 5 (it walks the activated entries highest order first and
+    puts each in front). This order matters to the owner's jailbreak: never change it."""
+    book = [st_block(uid, f"E{uid}", depth=1, order=100) for uid in (5, 28, 29, 35)]
+    assert found(book) == ["b35", "b29", "b28", "b5"]
+    mixed = [st_block(1, "LOW", order=10), st_block(2, "A", order=50), st_block(3, "B", order=50)]
+    assert found(mixed) == ["b1", "b3", "b2"]  # lowest order first; inside one order: reversed
 
 
 # Settings and scan text
@@ -152,3 +162,32 @@ def test_macros_in_keywords_are_filled_but_the_bubble_stays_as_written():
     filled = _with_key_macros([block], char="Ann", user="Kira")[0]
     assert filled["keywords"] == ["Ann's sword"] and filled["rules"]["keys2"] == ["Kira"]
     assert block["keywords"] == ["{{char}}'s sword"]
+
+
+# SillyTavern's global «whole words» (the owner's exam, 2026-11-17: «kisses» woke The Garden's «kiss» entries in ours)
+
+
+def test_global_whole_words_makes_latin_keys_of_st_entries_exact_and_leaves_russian_by_root():
+    from tavern.core.retrieval import with_latin_whole
+    dragoon = st_block(1, "DRAGOON", ["dragoon"])
+    hold = st_block(2, "HOLD", ["hold hands"])
+    sword = st_block(3, "SWORD", ["меч"])
+    mine = own("o1", "OURS", ["dragoon"])
+    says_no = st_block(4, "OPT OUT", ["dragoon"], matchWholeWords=False)
+    text = "Dragoons were holding hands, and she draws her меча."
+    blocks = [dragoon, hold, sword, mine, says_no]
+    assert set(found(blocks, text)) == {"b1", "b2", "b3", "o1", "b4"}  # off: English endings are allowed
+    # on: «dragoon» is not in «Dragoons»; a phrase stays loose as in ST («hold hands» checked as text, endings kept)
+    assert set(found(with_latin_whole(blocks, True), text)) == {"b2", "b3", "o1", "b4"}
+    assert set(found(with_latin_whole(blocks, True), "a dragoon, hold hands")) == {"b1", "b2", "o1", "b4"}
+    assert set(found(with_latin_whole(blocks, True), "proud Ajin tribes")) == set()
+    tribe = st_block(5, "TRIBE", ["Ajin tribe"])
+    assert found(with_latin_whole([tribe], True), "proud Ajin tribes") == ["b5"]
+    assert "latin_whole" not in (dragoon.get("rules") or {})  # the stored bubble is never changed
+
+
+def test_whole_words_is_a_lorebook_setting():
+    assert DEFAULT_SETTINGS["whole_words"] is False
+    assert clean_settings({"whole_words": True}) == {"whole_words": True}
+    with pytest.raises(LorebookError):
+        clean_settings({"whole_words": "yes"})

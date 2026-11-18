@@ -55,7 +55,12 @@ def is_st_chat(text: str) -> bool:
 def _meta(extra: Any) -> dict[str, Any]:
     if not isinstance(extra, dict):
         return {}
-    return {key: extra[key] for key in _KEEP_META if isinstance(extra.get(key), str) and extra[key]}
+    meta = {key: extra[key] for key in _KEEP_META if isinstance(extra.get(key), str) and extra[key]}
+    if "reasoning" in meta:
+        # SillyTavern sends a reply's reasoning back as «<think>\n…\n</think>» (its default prefix and suffix); without
+        # this the history went in our own <thinking> tag (the owner's exam, 2026-11-18)
+        meta["reasoning_tag"] = "think"
+    return meta
 
 
 def _name(value: Any) -> str:

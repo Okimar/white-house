@@ -29,7 +29,7 @@ from tavern.context import AppContext
 from tavern.core.llm import LLMClient
 from tavern.core.prompt import estimate_tokens
 from tavern.core.retrieval import (
-    LOGICS, PATH_SEPARATOR, SOURCES, TRIGGERS, FoundBlock, cosine, select_blocks, stem,
+    LOGICS, PATH_SEPARATOR, SOURCES, TRIGGERS, FoundBlock, cosine, select_blocks, stem, with_latin_whole,
 )
 from tavern.errors import AppError, NotFound
 from tavern.formats.st_lorebook import LOGIC_FROM_ST, LOGIC_TO_ST, SOURCE_KEYS, card_rules
@@ -44,10 +44,14 @@ ROLES = ("system", "user", "assistant")
 DISPLAYS = ("line", "nested")
 # threshold_manual: the user typed the threshold; until then the vector service's own default is used
 # meaning_*: the chat text that goes to meaning search (one request per reply, each message its own input)
+# meaning_max: at most this many bubbles / entries per reply come by meaning, the best scores (SillyTavern's «max entries»,
+# the owner's 7, 2026-11-18); 0 = no limit
 DEFAULT_RETRIEVAL = {"scan_messages": 3, "budget_tokens": 2000, "threshold": 0.55, "threshold_manual": False,
-                     "meaning_on": True, "meaning_messages": 3, "meaning_user": True, "meaning_characters": True}
+                     "meaning_on": True, "meaning_messages": 3, "meaning_user": True, "meaning_characters": True,
+                     "meaning_max": 7}
 MEANING_BOOLS = ("meaning_on", "meaning_user", "meaning_characters", "threshold_manual")
 MEANING_MESSAGES_MAX = 20
+MEANING_MAX_LIMIT = 100
 MEANING_TEXT_CHARS = 4000
 MAX_TITLE = 200
 MAX_CONTENT = 200_000
@@ -98,7 +102,21 @@ def clean_retrieval(value: dict[str, Any]) -> dict[str, Any]:
                                         or not 1 <= count <= MEANING_MESSAGES_MAX):
         raise AppError(f"retrieval.meaning_messages must be a whole number from 1 to {MEANING_MESSAGES_MAX}",
                        code="bad_setting")
+    most = value.get("meaning_max")
+    if "meaning_max" in value and (isinstance(most, bool) or not isinstance(most, int)
+                                   or not 0 <= most <= MEANING_MAX_LIMIT):
+        raise AppError(f"retrieval.meaning_max must be a whole number from 0 to {MEANING_MAX_LIMIT}",
+                       code="bad_setting")
     return value
+
+
+def best_by_meaning(scores: dict[str, float], threshold: float, most: int) -> dict[str, float]:
+    """Only the scores that can bring a bubble: at or above the threshold, and at most `most` of them (the best;
+    0 = all). One reply's meaning brings at most `most` bubbles and entries in all, as SillyTavern's «max entries»."""
+    passing = sorted(((s, b) for b, s in scores.items() if s >= threshold), reverse=True)
+    if most > 0:
+        passing = passing[:most]
+    return {b: s for s, b in passing}
 
 
 def _clean(changes: dict[str, Any], *, creating: bool) -> dict[str, Any]:
@@ -851,7 +869,8 @@ class Meaning:
 async def meaning_search(ctx: AppContext, blocks: list[dict[str, Any]],
                          texts: list[str], *, wanted: bool = False) -> Meaning:
     """Meaning of the recent chat against every green block that has a current vector: ONE embedding request
-    for all `texts` (one input each); a block's score is its best cosine over the texts. The error is plain
+    for all `texts` (one input each); a block's score is its best cosine over the texts, and only the best
+    `meaning_max` at or above the threshold are kept (best_by_meaning). The error is plain
     Russian for the page and the reply goes on without meaning. No request at all when search is off, there is no
     connection, no text, or no block with a current vector, unless `wanted`: a plugin needs the query vectors
     anyway (the filter event `meaning.wanted`). Never re-embeds bubbles."""
@@ -874,7 +893,9 @@ async def meaning_search(ctx: AppContext, blocks: list[dict[str, Any]],
         await provider.aclose()
     if len(query_vectors) != len(texts):
         return Meaning(error="Поиск по смыслу не сработал: сервис вернул не все векторы. Ответ без него.")
-    return Meaning({block_id: max(cosine(q, vector) for q in query_vectors) for block_id, vector in fresh.items()},
+    settings = retrieval_settings(ctx)
+    scores = {block_id: max(cosine(q, vector) for q in query_vectors) for block_id, vector in fresh.items()}
+    return Meaning(best_by_meaning(scores, float(settings["threshold"]), int(settings["meaning_max"])),
                    list(query_vectors), texts, model)
 
 
@@ -904,8 +925,10 @@ async def select_for_chat(
     result: dict[str, list[FoundBlock]] = {}
     fresh: list[str] = []
     misses: list[str] = []
+    # a card's SillyTavern book follows ST's global «whole words» too (lorebooks.ST_FLAGS)
+    latin_whole = bool((ctx.settings.get("lorebooks") or {}).get("whole_words"))
     for member in members:
-        blocks = all_blocks.get(member.character_id, [])
+        blocks = with_latin_whole(all_blocks.get(member.character_id, []), latin_whole)
         if not blocks:
             continue
         scores = meaning
@@ -958,7 +981,9 @@ def blocks_from_book(book: Any) -> list[dict[str, Any]]:
         if ext.get("position") == AT_DEPTH:  # a broken depth means SillyTavern's default 4, not "next to the card"
             depth = ext.get("depth") if isinstance(ext.get("depth"), int) and not isinstance(ext.get("depth"), bool) \
                 and 0 <= ext["depth"] <= 1000 else 4
-        sticky = ext.get("sticky") if isinstance(ext.get("sticky"), int) and ext.get("sticky") > 0 else 3
+        # SillyTavern's own «sticky» (0 = found anew every reply), as a world file's entry: a default of 3 kept a card
+        # book's entries for 3 more replies and their text woke chains SillyTavern never had (exam, 2026-11-18)
+        sticky = ext.get("sticky") if isinstance(ext.get("sticky"), int) and ext.get("sticky") > 0 else 0
         chance = ext.get("probability")
         use_chance = ext.get("useProbability", True) and isinstance(chance, int) and 0 <= chance <= 100
         result.append({

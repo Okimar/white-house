@@ -27,7 +27,7 @@ from typing import Any
 
 from tavern.context import AppContext
 from tavern.core.prompt import substitute
-from tavern.core.retrieval import PATH_SEPARATOR, Selection, select_blocks
+from tavern.core.retrieval import PATH_SEPARATOR, Selection, select_blocks, with_latin_whole
 from tavern.core.retrieval import from_st as is_from_st
 from tavern.errors import AppError, NotFound
 from tavern.formats import st_lorebook
@@ -38,12 +38,12 @@ from tavern.services import cast, character_tree, history
 DEFAULT_SETTINGS: dict[str, Any] = {
     "budget_tokens": 2000, "budget_percent": 25, "budget_cap": 0, "recursion": 0, "scan_messages": 2,
     "include_names": True, "strategy": "character_first", "min_activations": 0, "min_depth_max": 0,
-    "group_scoring": False, "scan_notes": False,
+    "group_scoring": False, "scan_notes": False, "whole_words": False,
 }
 SETTING_LIMITS = {"budget_tokens": (0, 1_000_000), "budget_percent": (0, 100), "budget_cap": (0, 1_000_000),
                   "recursion": (0, 10), "scan_messages": (0, 1000), "min_activations": (0, 100),
                   "min_depth_max": (0, 1000)}
-SETTING_FLAGS = ("include_names", "group_scoring", "scan_notes")
+SETTING_FLAGS = ("include_names", "group_scoring", "scan_notes", "whole_words")
 STRATEGIES = ("character_first", "global_first", "evenly")
 # Tiers of the budget's ranking: the chat's books, the persona's, then characters / global by the strategy.
 TIERS = {"character_first": (2, 3), "global_first": (3, 2), "evenly": (2, 2)}
@@ -166,13 +166,15 @@ def uses(ctx: AppContext, scope: str, target: str | None = None) -> list[str]:
     return ctx.lorebooks.uses(scope, _check_place(ctx, scope, target))
 
 
-# SillyTavern's world info settings (settings.json -> world_info_settings) -> ours. Whole words and case stay ours:
-# our keyword search knows Russian endings (on purpose, ST_PARITY section 5).
+# SillyTavern's world info settings (settings.json -> world_info_settings) -> ours. «Whole words» becomes
+# `whole_words`: Latin keywords of SillyTavern's entries match whole words only; Russian ones keep matching by root
+# (our search knows Russian endings, the owner's choice, ST_PARITY section 5). Case stays ours.
 ST_STRATEGIES = {0: "evenly", 1: "character_first", 2: "global_first"}
 ST_NUMBERS = {"world_info_depth": "scan_messages", "world_info_min_activations": "min_activations",
               "world_info_min_activations_depth_max": "min_depth_max", "world_info_budget": "budget_percent",
               "world_info_budget_cap": "budget_cap"}
-ST_FLAGS = {"world_info_include_names": "include_names", "world_info_use_group_scoring": "group_scoring"}
+ST_FLAGS = {"world_info_include_names": "include_names", "world_info_use_group_scoring": "group_scoring",
+            "world_info_match_whole_words": "whole_words"}
 UNLIMITED_RECURSION = SETTING_LIMITS["recursion"][1]
 
 
@@ -374,7 +376,8 @@ async def select_for_chat(
         meaning = (await character_tree.meaning_search(
             ctx, blocks, character_tree.meaning_texts(retrieval, history_))).scores
     selection = select_blocks(
-        _with_key_macros(blocks, char=char, user=user), owner_name="", scan_text=scan_text,
+        with_latin_whole(_with_key_macros(blocks, char=char, user=user), bool(lore["whole_words"])),
+        owner_name="", scan_text=scan_text,
         scan_messages=messages, hits=hits, generation=generation, budget_tokens=budget,
         meaning=meaning,
         threshold=float(retrieval["threshold"]), missed=missed, links=ctx.blocks.links(book_ids),

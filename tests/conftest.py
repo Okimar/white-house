@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -17,6 +18,7 @@ from tavern.context import AppContext, open_context
 from tavern.devtools.fake_llm import FakeLLM
 from tavern.paths import DataPaths
 
+ROOT = Path(__file__).resolve().parents[1]
 LOCAL_CLIENT = ("127.0.0.1", 50000)
 REMOTE_CLIENT = ("192.0.2.10", 50000)  # TEST-NET-1, never a real host
 
@@ -26,6 +28,8 @@ REMOTE_CLIENT = ("192.0.2.10", 50000)  # TEST-NET-1, never a real host
 FAST_INTEGRATION = {"test_access_control.py", "test_app.py", "test_chat_api.py", "test_prompt_api.py",
                     "test_backups.py", "test_themes_api.py", "test_cli.py"}
 SLOW_FILES = {"test_updates.py", "test_regex.py", "test_regex_st_files.py", "test_search.py"}
+# `python -m tavern.devtools.affected` lists the test files a change can break here; they get the `affected` marker
+AFFECTED = {p for p in os.environ.get("TAVERN_AFFECTED", "").split(os.pathsep) if p}
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -34,6 +38,8 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if isinstance(item, pytest.Function) and inspect.iscoroutinefunction(item.obj):
             item.add_marker(pytest.mark.anyio)
         path = Path(str(item.fspath))
+        if AFFECTED and path.relative_to(ROOT).as_posix() in AFFECTED:
+            item.add_marker(pytest.mark.affected)
         if "smoke" in path.parts or path.name in SLOW_FILES:
             item.add_marker(pytest.mark.slow)
         elif "unit" in path.parts or path.name in FAST_INTEGRATION:

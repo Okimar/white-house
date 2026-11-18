@@ -69,7 +69,7 @@ SERVICES: list[dict[str, Any]] = [
      "models": ["voyage-4-large", "voyage-4", "voyage-4-lite", "voyage-code-4", "voyage-finance-2",
                 "voyage-law-2", "voyage-3.5", "voyage-3.5-lite", "voyage-code-3"]},
     {"id": "cohere", "name": "Cohere (векторы)", "kind": "openai", "group": "cloud",
-     "base_url": "https://api.cohere.ai/compatibility/v1", "key": "required", "embeddings": True, "threshold": 0.30,
+     "base_url": "https://api.cohere.ai/compatibility/v1", "key": "required", "embeddings": True, "threshold": 0.40,
      "site": "https://dashboard.cohere.com/api-keys",
      # The compatibility /models mixes chat and embedding models; embedding names from docs.cohere.com/docs/models.
      "models": ["embed-v5.0-pro", "embed-v5.0-fast", "embed-v4.0", "embed-multilingual-v3.0",

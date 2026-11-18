@@ -59,9 +59,10 @@ def test_lore_at_the_note_rides_with_a_note_outside_the_chat():
     assert first.index("Write Ann") < first.index("TOP") < first.index("NOTE") < first.index("BOTTOM")
 
 
-def test_sillytaverns_lore_at_the_note_needs_a_fired_note_ours_does_not():
+def test_lore_at_the_note_goes_even_without_a_note_text():
+    # SillyTavern's note fires every reply by default, empty or not, and carries these entries (owner's exam)
     without = contents(build([], [lore_at_note(1, "ST-TOP", st=True), lore_at_note(2, "OWN-TOP", st=False)]))
-    assert not any("ST-TOP" in c for c in without) and any("OWN-TOP" in c for c in without)
+    assert any("ST-TOP" in c for c in without) and any("OWN-TOP" in c for c in without)
     with_note = contents(build([NoteInput("n", "NOTE", depth=2)], [lore_at_note(1, "ST-TOP", st=True)]))
     assert any("ST-TOP" in c for c in with_note)
 

@@ -63,10 +63,11 @@ for more green blocks, up to `recursion` steps. When a step finds nothing new an
 
 Lorebooks (`by_order`), the way SillyTavern does it: the pool's blocks are ranked by tier (`tiers`: chat, persona,
 characters / global by strategy; default the book's place in the pool), then by `block_order` highest first, then
-by their place among neighbours, instead of by how many keywords matched. Blue and found green blocks are taken
-together in that rank against the budget, so a constant entry with a high order is kept before a keyword entry
-with a low one; once one entry does not fit, every later one is dropped too (a `no_budget` entry is never cut).
-The found list then goes lowest order first (SillyTavern's text order). `min_found`: while fewer blocks go, the scan
+by their place among neighbours, instead of by how many keywords matched. Blue blocks are never cut (the owner,
+2026-11-18, unlike SillyTavern): their cost is set aside first, and found green blocks share what is left in that
+rank; once one green entry does not fit, every later one is dropped too (a `no_budget` entry is never cut).
+The found list then goes lowest order first (SillyTavern's text order), entries of equal order in reverse of their
+rank (as SillyTavern puts them: checked on the owner's own book, 2026-11-17). `min_found`: while fewer blocks go, the scan
 reaches one older message more (up to `min_depth_max`, 0 = the whole chat).
 
 Timers (`sticky`, `cooldown`, `delay`) count replies (`generation`); with `clock` (the number of messages in the
@@ -92,6 +93,7 @@ RU_ENDINGS = sorted({
     "юю", "ою", "ею", "ия", "ие", "ы", "и", "а", "я", "о", "е", "у", "ю", "ь", "й",
 }, key=len, reverse=True)
 EN_ENDINGS = ("ing", "es", "ed", "s")
+LATIN_ENDINGS = ("", "s", "es", "ed", "ing")  # what a Latin keyword's stem may be followed by (whole word after it)
 CYRILLIC = re.compile(r"[а-яё]", re.I)
 LOGICS = ("and_any", "and_all", "not_any", "not_all")
 
@@ -143,6 +145,30 @@ def ignores_budget(block: dict[str, Any]) -> bool:
 def from_st(block: dict[str, Any]) -> bool:
     """The block came from a SillyTavern file (a world file or a card's book): its text goes to the model bare."""
     return bool(_st_entry(block))
+
+
+def _entry_whole_words(entry: dict[str, Any]) -> Any:
+    """The entry's own «whole words»: world files `matchWholeWords`, card books `extensions.match_whole_words`;
+    None when it follows the global setting."""
+    if "matchWholeWords" in entry:
+        return entry["matchWholeWords"]
+    ext = entry.get("extensions") if isinstance(entry.get("extensions"), dict) else {}
+    return ext.get("match_whole_words")
+
+
+def with_latin_whole(blocks: list[dict[str, Any]], on: bool) -> list[dict[str, Any]]:
+    """SillyTavern's global «whole words» for its own entries: their Latin keywords match whole words only (the
+    transient rule `latin_whole`); Russian keywords keep matching by root. An entry that says false itself is left
+    alone; our own bubbles are never touched. The stored bubbles are not changed."""
+    if not on:
+        return blocks
+    out = []
+    for block in blocks:
+        entry = _st_entry(block)
+        if entry and _entry_whole_words(entry) is not False and not (block.get("rules") or {}).get("whole"):
+            block = {**block, "rules": {**(block.get("rules") or {}), "latin_whole": True}}
+        out.append(block)
+    return out
 
 
 DECORATORS = {"@@activate": "activate", "@@dont_activate": "dont_activate"}
@@ -205,9 +231,14 @@ def keyword_pattern(keyword: str, *, whole: bool = False, case: bool = False) ->
         return None
     if whole:
         return re.compile(r"(?<!\w)" + r"\W+".join(re.escape(w) for w in words) + r"(?!\w)", flags)
-    # The stem keeps the word's own letters (and their case) up to where the ending starts.
-    parts = [re.escape(w[: len(stem(w))]) + r"\w*" for w in words]
-    return re.compile(r"(?<!\w)" + r"\W+".join(parts), flags)
+    # The stem keeps the word's own letters (and their case) up to where the ending starts. A Russian word then takes
+    # any ending (its forms are many); a Latin one only an English ending — «dragoon» finds «Dragoons», but «theo»
+    # no longer finds «theory» (the owner's exam, 2026-11-17: SillyTavern with whole words did not fire it).
+    def part(word: str) -> str:
+        root = re.escape(word[: len(stem(word))])
+        return root + (r"\w*" if CYRILLIC.search(word) else r"(?:s|es|ed|ing)?(?!\w)")
+
+    return re.compile(r"(?<!\w)" + r"\W+".join(part(w) for w in words), flags)
 
 
 class _Words:
@@ -228,8 +259,11 @@ class _Words:
         word = word if case else word.lower()
         if whole:
             return self._between(words, word, word + "\0")
-        start = word[: len(stem(word))]  # any ending, as keyword_pattern does
-        return self._between(words, start, start + "\U0010ffff")
+        start = word[: len(stem(word))]
+        if CYRILLIC.search(word):  # a Russian word: any ending, as keyword_pattern does
+            return self._between(words, start, start + "\U0010ffff")
+        # a Latin word: only the English endings keyword_pattern allows («theo» is not «theory»)
+        return sum(self._between(words, start + ending, start + ending + "\0") for ending in LATIN_ENDINGS)
 
 
 @lru_cache(maxsize=64)
@@ -240,10 +274,13 @@ def _words(text: str) -> _Words:
 SIMPLE_WORD = re.compile(r"\w+")
 
 
-def _occurrences(word: str, text: str, *, whole: bool, case: bool) -> int:
+def _occurrences(word: str, text: str, *, whole: bool, case: bool, latin: bool = False) -> int:
+    """`latin` (with_latin_whole): a one-word Latin keyword matches the whole word only; Russian words and phrases
+    keep their endings (SillyTavern's «whole words» checks a phrase as plain text: «Ajin tribe» is in «Ajin tribes»)."""
     word = word.strip()
     if SIMPLE_WORD.fullmatch(word):
-        return _words(text).count(word, whole=whole, case=case)
+        exact = whole or (latin and not CYRILLIC.search(word))
+        return _words(text).count(word, whole=exact, case=case)
     is_regex = len(word) > 2 and word.startswith("/") and word.rstrip("gimsuy").endswith("/")
     if not is_regex and any(not _words(text).count(part, whole=whole, case=case)
                             for part in SIMPLE_WORD.findall(word)):
@@ -255,15 +292,15 @@ def _occurrences(word: str, text: str, *, whole: bool, case: bool) -> int:
 def keyword_hits(block: dict[str, Any], text: str) -> int:
     """How many times the block's keywords occur in `text`, after its second-keyword logic."""
     rules = block.get("rules") or {}
-    whole, case = bool(rules.get("whole")), bool(rules.get("case"))
+    whole, case, latin = bool(rules.get("whole")), bool(rules.get("case")), bool(rules.get("latin_whole"))
     words = ([block["title"]] if rules.get("title_key", True) else []) + list(block.get("keywords") or [])
     count = 0
     for word in words:
-        count += _occurrences(word, text, whole=whole, case=case)
+        count += _occurrences(word, text, whole=whole, case=case, latin=latin)
     second = [w for w in rules.get("keys2") or [] if w.strip()]
     if not count or not second:
         return count
-    seen = [_occurrences(word, text, whole=whole, case=case) > 0 for word in second]
+    seen = [_occurrences(word, text, whole=whole, case=case, latin=latin) > 0 for word in second]
     logic = rules.get("logic", "and_any")
     ok = {"and_any": any(seen), "and_all": all(seen), "not_any": not any(seen),
           "not_all": not all(seen)}.get(logic, any(seen))
@@ -274,12 +311,12 @@ def key_score(block: dict[str, Any], text: str) -> int:
     """For group scoring: how many DIFFERENT keywords of the block are in `text` (second keywords count too when
     they must be there: and_any / and_all)."""
     rules = block.get("rules") or {}
-    whole, case = bool(rules.get("whole")), bool(rules.get("case"))
+    whole, case, latin = bool(rules.get("whole")), bool(rules.get("case")), bool(rules.get("latin_whole"))
     words = ([block["title"]] if rules.get("title_key", True) else []) + list(block.get("keywords") or [])
-    score = sum(1 for word in words if _occurrences(word, text, whole=whole, case=case) > 0)
+    score = sum(1 for word in words if _occurrences(word, text, whole=whole, case=case, latin=latin) > 0)
     if rules.get("logic", "and_any") in ("and_any", "and_all"):
         score += sum(1 for word in rules.get("keys2") or []
-                     if word.strip() and _occurrences(word, text, whole=whole, case=case) > 0)
+                     if word.strip() and _occurrences(word, text, whole=whole, case=case, latin=latin) > 0)
     return score
 
 
@@ -469,7 +506,8 @@ def select_blocks(
         nonlocal used, full
         group = [b for b in subtree(block_id) if b not in chosen]
         cost = sum(estimate_tokens(by_id[b]["content"]) for b in group if not ignores_budget(by_id[b]))
-        if budget_tokens and cost and (full or used + cost > budget_tokens):
+        # a blue (always) block is never cut: its cost was set aside before anything else (the owner, 2026-11-18)
+        if reason != "always" and budget_tokens and cost and (full or used + cost > budget_tokens):
             dropped.append(by_id[block_id]["title"])
             full = full or by_order
             return False
@@ -477,7 +515,8 @@ def select_blocks(
             if not lucky(block_id):
                 return False
             fresh.append(block_id)
-        used += cost
+        if reason != "always":
+            used += cost
         chosen[block_id] = reason
         for member in group[1:]:
             chosen.setdefault(member, "group")
@@ -557,8 +596,11 @@ def select_blocks(
         return one_per_group(sorted(found))
 
     if by_order:
-        # Constant and found entries together, by rank: a constant does not jump the queue (SillyTavern), but a
-        # group a constant belongs to is still taken by it.
+        # Constant and found entries together, by rank (the text order follows it), but a constant is never cut: its
+        # cost is set aside first and green entries share what is left (the owner, 2026-11-18). A group a constant
+        # belongs to is still taken by it.
+        used += sum(estimate_tokens(by_id[b]["content"]) for c in constants for b in subtree(c)
+                    if not ignores_budget(by_id[b]))
         held_groups = set(groups_taken)
         groups_taken.update(g for b in constants for g in rules(b).get("groups") or [])
         first = candidates_in(text_for, True, set())
@@ -588,9 +630,10 @@ def select_blocks(
             whole = "\n".join(chain_text)
             before = set(chosen)
             if text or any(lv <= level for lv in levels):
-                def text_of(block_id: str, text: str = text, whole: str = whole) -> str:
-                    # a delayed block reads the messages and the whole chain so far; others the new text only
-                    return f"{text_for(block_id)}\n{whole}" if chain_level(block_id) else text
+                def text_of(block_id: str, whole: str = whole) -> str:
+                    # the messages and the whole chain so far, as SillyTavern scans its recursion buffer: a second
+                    # keyword may stand in an entry found one step earlier (the owner's exam, «Crown Prince Lucien»)
+                    return f"{text_for(block_id)}\n{whole}"
                 for _, block_id, reason in candidates_in(text_of, False, woken, level):
                     if block_id not in chosen:
                         take(block_id, reason)
@@ -629,8 +672,12 @@ def select_blocks(
                 take(other, "link")
 
     going = [b for b in order if b in chosen and by_id[b]["content"].strip()]
-    if by_order:  # SillyTavern's text order: the lowest order first
-        going.sort(key=lambda b: (block_order(by_id[b]), prio[b]))
+    if by_order:  # SillyTavern's text order: the lowest order first; equal orders in reverse of the order they went in
+        # (ST walks its activated entries highest order first, keeping their activation order, and puts each in front:
+        # the first scan in rank order, then each chain step — the owner's exam, 2026-11-17)
+        # Our own bubbles keep the order they went in (a bubble before its sub-bubbles).
+        activated = {b: i for i, b in enumerate(chosen)}
+        going.sort(key=lambda b: (block_order(by_id[b]), -activated[b] if from_st(by_id[b]) else activated[b]))
     found = [FoundBlock(by_id[b], paths[b], chosen[b]) for b in going]
     return Selection(found=found, fresh_hits=[b for b in fresh if b in chosen],
                      dropped=list(dict.fromkeys(dropped)), misses=misses)

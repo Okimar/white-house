@@ -27,6 +27,7 @@ Plan and stage status: [docs/ROADMAP.md](docs/ROADMAP.md). Current stage: **0–
 | Run on a throwaway copy of the data | `python -m tavern --sandbox` |
 | All tests (about 2 min) | `python -m pytest` |
 | Fast tier for everyday edits (about 30 s: `tests/unit` + key security / data / chat files) | `python -m pytest -m fast` |
+| **While working: fast tier + every test the change can break** (imports, names, removed values; `--list` to see why) | `python -m tavern.devtools.affected` |
 | Everything except git / server / regex-process tests | `python -m pytest -m "not slow"` |
 | Health check of a data dir | `python -m tavern check` |
 | Copies of the whole data folder | `python -m tavern backup create|list|restore NAME` |
@@ -76,6 +77,8 @@ tavern/                 Python package (backend)
   devtools/capture.py   recording fake LLM server (`--port 5003 --out captures`, `--forward URL`): point SillyTavern or this app at
                         it and every request is saved as JSON
   devtools/compare_requests.py  `python -m tavern.devtools.compare_requests A.json B.json`: what differs between two saved requests
+  devtools/affected.py  `python -m tavern.devtools.affected [--list] [files]`: the fast tier plus every test file a change can break
+                        (imports, names, values removed from the diff); the full suite stays the last run before a commit
   api/                  HTTP routes (chats + SSE, characters + settings, connections, themes,
                         assets); static.py serves /themes/{id}/{path} and /assets/{name}; thin, no logic
   services/chat.py      use cases: create chat, send, continue, impersonate, regenerate, stop
@@ -297,7 +300,9 @@ data/                   user data, git-ignored. Never commit, never delete
 4. **Schema changes go through a new migration file.** Never edit a committed migration.
    See `.claude/skills/core-changes`.
 5. **Run `python -m pytest` before you finish.** All tests must pass. Add tests with every
-   change; bugs get a regression test first.
+   change; bugs get a regression test first. While working, never run the full suite (about 5 min) to find which
+   old tests a change breaks: run `python -m tavern.devtools.affected` (about 30 s), fix what it shows, and run the
+   full suite once at the end (owner, 2026-11-18: a half-minute task took 20 minutes of full runs).
 6. **Security defaults stay on.** Loopback-only by default; remote access requires the token;
    secrets never reach the browser or logs. Do not weaken `security.py`, the page CSP in `app.py`
    or the theme-script approval without an ADR (see `docs/adr/0002-themes.md`).

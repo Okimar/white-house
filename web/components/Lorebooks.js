@@ -285,6 +285,10 @@ export function LorebookSettings({ settings = {}, onChanged, onError }) {
       <input type="checkbox" checked=${values.scan_notes} onChange=${(e) => save("scan_notes", e.target.checked)} />
       Искать ключи и в заметках автора</label>
     <p class="hint">Если включено, записи находятся и по словам из сработавших заметок автора, а не только из сообщений. В SillyTavern по умолчанию выключено.</p>
+    <label class="check" data-slot="lorebook-whole-words">
+      <input type="checkbox" checked=${values.whole_words} onChange=${(e) => save("whole_words", e.target.checked)} />
+      Английские ключи записей из SillyTavern — целыми словами</label>
+    <p class="hint">Как «Match whole words» в SillyTavern: ключ «kiss» не найдётся в «kisses». Русские ключи всё равно ищутся по корню. Наши собственные записи это не затрагивает.</p>
     <h2>В каком порядке берутся записи</h2>
     <ol class="hint lore-order">
       <li>Лорбуки текущего чата.</li>

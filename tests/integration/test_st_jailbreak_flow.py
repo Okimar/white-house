@@ -29,8 +29,10 @@ async def send(client, ctx, chat_id, text):
 
 
 def world_with_jailbreak(filler: int = 0) -> dict:
-    entries = {str(i): {"uid": i, "displayIndex": i, "key": [], "comment": f"Факт {i}", "content": "слово " * 300,
-                        "constant": True, "order": 100, "position": 0} for i in range(filler)}
+    # the filler is found by a keyword of the message: blue entries are never cut by the budget (2026-11-18)
+    entries = {str(i): {"uid": i, "displayIndex": i, "key": ["Привет"], "comment": f"Факт {i}",
+                        "content": "слово " * 300, "constant": False, "order": 100, "position": 0}
+               for i in range(filler)}
     entries["jb"] = {"uid": 999, "displayIndex": 999, "key": [], "comment": "@ D jailbreak", "content": JAILBREAK,
                      "constant": True, "order": 1000, "position": 4, "depth": 1, "role": 0}
     return {"name": "Gemini", "entries": entries}
