@@ -1,4 +1,4 @@
-# Совпадение с SillyTavern (ST_PARITY)
+﻿# Совпадение с SillyTavern (ST_PARITY)
 
 Статус на 2026-11-16. Ниже сначала короткий русский текст для владельца, потом английские таблицы для агентов.
 
@@ -194,7 +194,7 @@ into the connection (the page asks; the test answers yes).
 | Sticky / cooldown / delay counted in chat messages. | Entries from ST files: chat messages; our own bubbles: replies. | done 2026-11-16 (ours **отличается нарочно**) | R, L | Sticky 2 by message count. |
 | Per-entry generation-type triggers; decorators `@@activate` / `@@dont_activate`; character filter by tags. | Triggers (rule `triggers`; the chat passes normal / swipe / impersonate) and decorators done; tag filter: ST tag ids cannot be mapped (name filter only). | done 2026-11-16 except tags | SL, R, C | `@@activate\nX` with no keys. |
 | Positions: 0 before / 1 after card; 2/3 top / bottom of AN (only when AN fires); 4 at depth with role; 5/6 before / after examples; 7 outlet (only through the outlet macro). | All mapped; outlet kept but not sent; AN top / bottom do not depend on AN firing. | partly / outlet done 2026-11-13 | A, SL, M | AN interval 2, entry at AN top on a skipped turn. |
-| Before / after texts: all joined with one "\n" into one text, wrapped by `wi_format` (default "{0}"), one system message at the marker. Entry text bare. Depth entries bare too (no wrapper). | Entries bare (no «[Книга › Запись]»), for depth and ST-file entries. `wi_format` not applied; before / after entries still one message each. | done for bare text 2026-11-13; `wi_format` and one-text join missing | A, SP | Two before-entries: ST "e1\ne2" in one message. |
+| Before / after texts: all joined with one "\n" into one text, wrapped by `wi_format` (default "{0}"), one system message at the marker. Entry text bare. Depth entries bare too (no wrapper). | Entries bare (no «[Книга › Запись]»), for depth and ST-file entries. For an ST preset the entries before / after the card are one text (one line break), wrapped by its `wi_format` (2026-11-18, `assembly.place_lore`); our own presets keep one message each. | done 2026-11-18 | A, SP | Two before-entries: ST "e1\ne2" in one message. |
 | Role matters only for depth entries; non-depth lore is always system. | Role imported for every entry. | partly | SL | — |
 | Card-embedded book at position 4 with broken depth gets 4. | Becomes "next to card". | partly | character_tree | — |
 | Entry content gets regex (placement world info; depth only for @D) and macros. | `lore_rewritten`, macros. | same | RX | — |
@@ -296,7 +296,7 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 ## 13. Where each setting lives in ST
 
 - **Preset file** (chat completion): source, models, temperature, penalties, top_p / top_k / top_a / min_p, repetition_penalty, max context and response, `names_behavior`, `send_if_empty`, the prompt texts (`impersonation_prompt`, `new_chat_prompt`, `new_group_chat_prompt`, `new_example_chat_prompt`, `continue_nudge_prompt`, `group_nudge_prompt`), `wi_format`, `scenario_format`, `personality_format`, bias, `prompts`, `prompt_order`, `assistant_prefill`, `assistant_impersonation`, `use_sysprompt`, `squash_system_messages`, `continue_prefill`, `continue_postfix`, `show_thoughts`, `reasoning_effort`, `seed`, `n`, `custom_*` body / headers / post-processing, preset-scoped regex in `extensions`.
-  **We consume**: prompts, prompt_order, `injection_order`, squash, sampling (moved to the connection), max context, reasoning effort (partly), impersonation / group nudge / prefill / formats, send_if_empty, new_*_prompt, assistant_impersonation (2026-11-16), use_sysprompt, custom_* body / headers, post-processing (2026-11-16, `core.presets.provider_extras`). **Kept but unused**: names_behavior, continue_*, wi_format, show_thoughts, seed, n, bias.
+  **We consume**: prompts, prompt_order, `injection_order`, squash, sampling (moved to the connection), max context, reasoning effort (partly), impersonation / group nudge / prefill / formats, send_if_empty, new_*_prompt, assistant_impersonation (2026-11-16), use_sysprompt, custom_* body / headers, post-processing (2026-11-16, `core.presets.provider_extras`). **Kept but unused**: names_behavior, continue_*, show_thoughts, seed, n, bias.
 - **settings.json**: world info settings (depth 2, budget 25 %, cap, recursion off, max steps, min activations, case, whole words, group scoring, include names, strategy), **global regex** (now read), AN defaults and character notes, persona description + position / depth / role, reasoning prefix / suffix / separator / add-to-prompts / max additions / auto-parse, custom stopping strings, example behaviour, prefer card prompt / jailbreak, bias presets.
 - **Card**: description, personality, scenario, first message, examples, system prompt, post-history instructions, character note (`depth_prompt`), creator notes, embedded book, linked world, card regex, talkativeness.
 - **Chat metadata**: AN text / position / depth / interval / role, chat-bound world, chat variables, scenario / system / examples overrides.
@@ -312,7 +312,7 @@ The first findings (Gemini behind an OpenAI-compatible proxy) put the regex tric
 2. **System role delivery to Claude and Gemini.** Done 2026-11-16: a preset from ST follows its `use_sysprompt` (off when the file does not say).
 3. **Prefill rules.** Done 2026-11-16: Claude / text mode only, trimmed, flipped to a user turn with thinking or on 4.6+, impersonation prefill.
 4. **Macros left raw.** Done 2026-11-16 (engine); some values (`lastUserMessage`, `model`, outlets) still wait for the assembly to pass them.
-5. **Lorebook entry text and selection.** Done 2026-11-16 except `wi_format` and stem matching (ours on purpose).
+5. **Lorebook entry text and selection.** Done 2026-11-16; `wi_format` 2026-11-18; stem matching is ours on purpose.
 6. **Gemini safety settings.** Done 2026-11-16: all off by default.
 7. **Missing separators and example structure.** Done 2026-11-16.
 8. **Our own wording in the prompt.** Done 2026-11-16 for presets from ST; left: "### Name" and "Also in the scene:" in group chats (section 12).

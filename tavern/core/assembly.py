@@ -437,7 +437,19 @@ def assemble(data: PromptInput) -> Prompt:
             memory_unconditional.append(entry)
 
     def place_lore(where: str, block: dict[str, Any]) -> None:
-        for entry in placed_at.pop(where, []):
+        entries_here = placed_at.pop(where, [])
+        if st_way and where in ("card_before", "card_after"):
+            # SillyTavern: the entries before / after the card are one text (one line break between), wrapped by the
+            # preset's `wi_format` ("{0}" = as is; an empty one = bare). Only the first and last entries carry the wrapper.
+            entries_here = [e for e in entries_here if e.text.strip()]
+            for entry in entries_here[1:]:
+                entry.join = True
+            wrapper = (preset.get("st") or {}).get("wi_format", "{0}")
+            if entries_here and isinstance(wrapper, str) and "{0}" in wrapper and wrapper.strip():
+                opening, _, closing = wrapper.partition("{0}")
+                entries_here[0].text = opening + entries_here[0].text
+                entries_here[-1].text = entries_here[-1].text + closing
+        for entry in entries_here:
             place(entry, block)
 
     def place_blocks(member: Member, block: dict[str, Any]) -> None:

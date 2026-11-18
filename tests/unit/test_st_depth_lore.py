@@ -1,4 +1,4 @@
-"""Lorebook entries «@ D» the way SillyTavern sends them (clean-room report st-lore-depth, section (d)).
+﻿"""Lorebook entries «@ D» the way SillyTavern sends them (clean-room report st-lore-depth, section (d)).
 
 The owner's Gemini jailbreak lives in an imported lorebook entry at depth 1: it must arrive bare (no "[Book ›
 Title]" line), in the role its gear chose, between the previous reply and the user's newest message; entries of
@@ -11,7 +11,7 @@ import pytest
 
 from tavern.core import thinking
 from tavern.core.assembly import Member, NoteInput, PromptInput, assemble
-from tavern.core.presets import default_preset, normalize_preset
+from tavern.core.presets import ORIGIN_ST, default_preset, normalize_preset
 from tavern.core.prompt import estimate_tokens
 from tavern.core.retrieval import FoundBlock, block_order, select_blocks
 from tavern.formats import st_lorebook, st_preset
@@ -220,3 +220,27 @@ def test_the_import_keeps_order_ignore_budget_outlets_and_the_role_only_at_a_dep
     assert outlet["rules"]["place"] == "outlet" and outlet["role"] == "system"
     back = st_lorebook.entry_from_block({**fields, "id": "b"}, 0, "c", True)
     assert back["order"] == 42 and back["ignoreBudget"] is True
+
+
+def _st_lore_preset(wi_format):
+    preset = default_preset()
+    preset["origin"] = ORIGIN_ST
+    preset["squash_system"] = False
+    preset["st"] = {} if wi_format is None else {"wi_format": wi_format}
+    return preset
+
+
+def _two_before_entries():
+    return [imported(st_entry(1, "Fact one.", depth=None, position=0, role=1)),
+            imported(st_entry(2, "Fact two.", depth=None, position=0, role=1))]
+
+
+def test_st_entries_before_the_card_are_one_text_wrapped_by_wi_format():
+    sent = build(_two_before_entries(), preset=_st_lore_preset("<setting>\n{0}\n</setting>"))
+    assert ("system", "<setting>\nFact one.\nFact two.\n</setting>") in sent
+
+
+@pytest.mark.parametrize("wi_format", [None, "{0}", ""])
+def test_st_entries_without_a_wrapper_are_joined_bare(wi_format):
+    sent = build(_two_before_entries(), preset=_st_lore_preset(wi_format))
+    assert ("system", "Fact one.\nFact two.") in sent
