@@ -140,6 +140,17 @@ def request_params(kind: str, params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+BASIC_SAMPLING = ("temperature", "max_tokens")
+
+
+def with_basics(params: dict[str, Any]) -> dict[str, Any]:
+    """`params` plus the table's default for a temperature or reply length the connection leaves unset.
+
+    SillyTavern always sends both; with an empty connection nothing was sent and a proxy's own defaults decided
+    (answers cut short or wild). A value the connection sets, even 0, is kept as it is."""
+    return {**{name: BY_ID[name]["default"] for name in BASIC_SAMPLING if name not in params}, **params}
+
+
 def tavern_setting(params: dict[str, Any], name: str) -> Any:
     """A Tavern-side setting with its default."""
     return params.get(name, BY_ID[name]["default"])

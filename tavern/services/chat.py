@@ -24,7 +24,7 @@ from tavern.core.prompt import DEFAULT_CHAR_NAME, estimate_tokens, substitute
 from tavern.core.runs import Run
 
 from tavern.providers.base import ChatMessage
-from tavern.providers.params import request_params
+from tavern.providers.params import request_params, with_basics
 from tavern.services import cast, character_tree, lorebooks, parallel, speakers, spending
 from tavern.services import messages as message_service
 from tavern.services import notes as note_service
@@ -573,7 +573,9 @@ def _writer(
     window = int(params.pop("max_context_tokens", 0) or 0)  # the model's window, in the service's tokens
     # Model settings live only in the connection; the preset's old `params` are not used. A preset from SillyTavern
     # adds its request options (system field, post-processing, custom body / headers): the providers read them.
-    model_defaults = {**request_params(connection["kind"], params), **provider_extras(preset["data"])}
+    # An empty connection still sends a temperature and a reply length (ST does); the window reserve below keeps
+    # using only what the connection itself sets.
+    model_defaults = {**request_params(connection["kind"], with_basics(params)), **provider_extras(preset["data"])}
     # Wave 3 (ST parity): the reply needs room too, so the prompt gets the window minus the reply's length (when the
     # connection sets one). Both go into the estimate's units by what this model really counted before.
     reserve = response_reserve(window, params.get("max_tokens"))

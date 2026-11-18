@@ -45,7 +45,7 @@
 | 2 | Эталоны: записанные запросы ST в `tests/fixtures/st_goldens/`, по ним тесты «наш запрос = эталон» | сделано (12 случаев, `tests/integration/test_st_goldens.py`) |
 | 3а | Пресет и сборка: порядок блоков, карточка тремя частями, примеры, разделители «[Start a new Chat]», имена, подсказка группе, impersonate, continue, префилл только Claude | частично (глубина, склейка и «Склеивать соседние системные» сделаны) |
 | 3б | Лорбук: без заголовков, склейка на одной глубине, бюджет 25 %, порядок «Order», рекурсия, глубина скана, позиции | частично (сделано главное, остальное в таблице) |
-| 3в | Поля запроса по источникам: OpenAI-совместимый, Gemini, Claude (system-роль, safety, семплинг, имена, постобработка) | сделано 2026-11-16 (волна 4, раздел 11); осталось: кэш промпта Claude, семплинг при пустом подключении (пункт 14 ниже) |
+| 3в | Поля запроса по источникам: OpenAI-совместимый, Gemini, Claude (system-роль, safety, семплинг, имена, постобработка) | сделано 2026-11-16 (волна 4, раздел 11); семплинг при пустом подключении сделан 2026-11-18; осталось: кэш промпта Claude (пункт 14 ниже) |
 | 3г | Макросы, регексы, размышление | частично (регексы и размышление сделаны, макросы нет) |
 | 3д | Обрезка окна: запас под ответ, порядок выбрасывания, примеры | сделано 2026-11-16 (волна 3, раздел 10) |
 | 3е | Заметка автора, персона, Character's Note, группы | не начато |
@@ -259,7 +259,7 @@ Files: `core/macros.py` (engine), `core/prompt.py` (`substitute`), `core/assembl
 
 | ST | Ours | Status | Files |
 |---|---|---|---|
-| Body: messages, model, temperature, max_tokens, stream, presence / frequency penalty, top_p always sent (even 0 / 1); top_k not sent; stop only when non-empty (max 4); logit_bias; seed ≥ 0; n > 1. | Only set connection params sent; preset sampling moved to the connection on import (asked); `stream_options.include_usage` added. With an empty connection nothing about length or temperature is sent. | partly | openai_compat.py, SP, params.py |
+| Body: messages, model, temperature, max_tokens, stream, presence / frequency penalty, top_p always sent (even 0 / 1); top_k not sent; stop only when non-empty (max 4); logit_bias; seed ≥ 0; n > 1. | Only set connection params sent; preset sampling moved to the connection on import (asked); `stream_options.include_usage` added. With an empty connection temperature 1 and length 1024 are sent (2026-11-18, `params.with_basics`; the window reserve still counts only a length the connection sets). | partly | openai_compat.py, SP, params.py |
 | `custom_include_body`, `custom_exclude_body`, `custom_include_headers`. | Same, from an ST preset (`core.presets.provider_extras` → `request.extra`); headers never auth / key / cookie / host / length. `seed` ≥ 0 only, `n` never. | done 2026-11-16 | openai_compat.py, params.py, presets.py, chat.py |
 | Prompt post-processing: merge, semi-strict, strict, single user message (+ tool variants). | Same (`post_process`). | done 2026-11-16 | openai_compat.py |
 | Messages carry `name` for named example lines. | Same. | done 2026-11-16 | openai_compat.py, A |
@@ -321,7 +321,7 @@ The first findings (Gemini behind an OpenAI-compatible proxy) put the regex tric
 11. **Past reasoning sent** after import (done: last one, in the model's own tag).
 12. **Different history kept.** Done 2026-11-16: response reserve, counting by script with the learned ratio, examples only while room is left; our min 6 messages stays.
 13. **Character's Note, AN positions.** Done 2026-11-16 / 17; the interval stays ours on purpose.
-14. **Sampling values.** With an empty connection no temperature, penalties or max_tokens are sent, so the proxy's defaults decide (fits "answers badly" more than refusals); Claude limited-sampling rules, custom exclude-body / headers and post-processing missing.
+14. **Sampling values.** Temperature 1 and max_tokens 1024 now go even with an empty connection (done 2026-11-18); other penalties stay unset, so the proxy's defaults decide them. Still missing: Claude limited-sampling rules, custom exclude-body / headers and post-processing missing.
 
 ## To confirm on the owner's device (not seen)
 
