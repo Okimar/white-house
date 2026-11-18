@@ -1,4 +1,4 @@
-﻿# Совпадение с SillyTavern (ST_PARITY)
+# Совпадение с SillyTavern (ST_PARITY)
 
 Статус на 2026-11-16. Ниже сначала короткий русский текст для владельца, потом английские таблицы для агентов.
 
@@ -135,7 +135,7 @@ into the connection (the page asks; the test answers yes).
 | Prompt `role` and `injection_position` 0 = relative, 1 = in chat at `injection_depth` (default 4) with `injection_order` (default 100). | `position: depth`, `depth`, `order`, `role` mapped; order now imported and used (see section 4). | same / done for order | SP, A | Role user, position 1, depth 2, order 50. |
 | A prompt switched off is not sent, but the main prompt off still leaves an empty anchor for author's note "before / after main". | Off block skipped entirely. | partly (matters only with AN before/after main, which we lack) | A | AN "after main", main off. |
 | Per-prompt generation-type trigger list (`injection_trigger`: normal, continue, impersonate, swipe, regenerate, quiet); empty = always. | Block `triggers` («Только для»), imported / exported; the chat passes normal / continue / impersonate / swipe (`PromptInput.generation_kind`). | done 2026-11-17 | SP, P, A, C | `tests/unit/test_continue_and_triggers.py` |
-| Card's system prompt replaces main; card's post-history instructions replace jailbreak; `{{original}}` = preset text. Only with "prefer card prompt" (default on) and prompt on and not `forbid_overrides`. | `prefer_card_prompts` and `{{original}}` handled; `forbid_overrides` ignored. | partly | SP, P, A | Main with `forbid_overrides: true` + card system prompt: ST keeps preset text. |
+| Card's system prompt replaces main; card's post-history instructions replace jailbreak; `{{original}}` = preset text. Only with "prefer card prompt" (default on) and prompt on and not `forbid_overrides`. | `prefer_card_prompts`, `{{original}}` and `forbid_overrides` (2026-11-19) handled. | done | SP, P, A | Main with `forbid_overrides: true` + card system prompt: ST keeps preset text. |
 | Chat-level overrides of system prompt / scenario / examples. | None. | missing (rare) | C, A | — |
 | `enhanceDefinitions` and `nsfw` are ordinary text prompts. | Imported as text blocks. | same | SP | — |
 | Main default text uses `{{charIfNotGroup}}`. | Ours says `{{char}}`; imported text kept, macro not expanded. | partly | P, M | Group chat, import default ST preset. |
@@ -223,7 +223,7 @@ into the connection (the page asks; the test answers yes).
 | Time / date macros, `timeDiff`, `idle_duration` | Done, English formats (`3:05 PM`, `November 14, 2026`); `datetimeformat` takes the common date tokens; `idle_duration` from value `lastUserMessageTime`, else "just now". | same (ST follows the UI language) |
 | `{{lastMessage}}`, `{{lastUserMessage}}`, `{{lastCharMessage}}`, message ids, swipe ids, `{{lastGenerationType}}`, `{{input}}` | Engine done (values by those names, empty / "normal" without them); wait for the assembly to pass them. | partly (wiring) |
 | `{{model}}`, `{{maxContext}}`, `{{maxPrompt}}`, `{{maxResponse}}`, `{{isMobile}}`, `{{hasExtension}}` | Engine done (values, empty / "false" without); `hasExtension` always "false". | partly (wiring) |
-| Variables set / get / add / inc / dec / has / delete, chat-local (kept in the chat) and global (kept in settings) | All operations and global forms; shared by every text of one request; not kept between replies yet (needs a place in the chat / settings). | partly |
+| Variables set / get / add / inc / dec / has / delete, chat-local (kept in the chat) and global (kept in settings) | All operations and global forms; shared by every text of one request; kept between replies since 2026-11-19 (chat meta `variables`, setting `global_variables`). | done |
 | `{{if …}}…{{else}}…{{/if}}`, `{{outlet::name}}`, `{{banned "x"}}` | if / else (nested, `!` negation, a macro name or `{{…}}` as condition; false = empty, false, 0, off, no; only the chosen branch runs); outlet from value `outlet::name` (empty when none); banned removed (no banned-token list). | partly (outlet wiring) |
 | Unknown macro left as is | same (inner macros expanded) | same |
 

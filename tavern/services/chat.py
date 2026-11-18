@@ -538,6 +538,17 @@ def _launch(
 Body = Callable[[Run], Awaitable["dict[str, Any] | None"]]
 
 
+def _keep_variables(ctx: AppContext, chat_id: str, chat_vars: dict[str, str], global_vars: dict[str, str],
+                    before: tuple[dict[str, str], dict[str, str]]) -> None:
+    """Save what the prompt's {{setvar}} / {{setglobalvar}} … changed. The chat's meta is read again first: the
+    reply's own bookkeeping (the generation number) changed it meanwhile."""
+    if chat_vars != before[0]:
+        meta = ctx.chats.get_chat(chat_id)["meta"]
+        ctx.chats.update_meta(chat_id, {**meta, "variables": chat_vars})
+    if global_vars != before[1]:
+        ctx.settings.set("global_variables", global_vars)
+
+
 def _writer(
     ctx: AppContext,
     chat: dict[str, Any],
@@ -693,6 +704,10 @@ def _writer(
             ]
             kind = "continue" if continuing else generation_kind(reply, new_swipe)
             current = ctx.chats.get_chat(chat_id)
+            # {{setvar}} and friends: the chat's store and the global one, kept between replies as in SillyTavern
+            chat_vars = {str(k): str(v) for k, v in (current["meta"].get("variables") or {}).items()}
+            global_vars = {str(k): str(v) for k, v in (ctx.settings.get("global_variables") or {}).items()}
+            vars_before = (dict(chat_vars), dict(global_vars))
             rows = ctx.members.list(chat_id)
             settings = speakers.get_settings(current)
             if ask_speaker:
@@ -752,6 +767,9 @@ def _writer(
                 scene=speakers.scene(rows, character["id"] if character else None, settings["others"])
                 if speakers.several(rows) else [],
                 provider_kind=prompt_kind(connection),
+                values={"model": connection.get("model") or "", "maxContext": str(window or ""),
+                        "maxPrompt": str(prompt_budget or ""), "maxResponse": str(model_defaults.get("max_tokens") or "")},
+                variables=chat_vars, global_variables=global_vars,
             )
             job = GenerationJob(ctx=ctx, chat=chat, card=character["data"] if character else None,
                                 history=history, user_name=me, llm=llm, run=run,
@@ -811,6 +829,7 @@ def _writer(
                             job.meta["reasoning_tag"] = event.text
                         via_label = label
             text = "".join(parts)
+            _keep_variables(ctx, chat_id, chat_vars, global_vars, vars_before)
             for result in results:
                 if result.label in tallies and tallies[result.label].requests:
                     result.usage = tallies[result.label].as_meta()

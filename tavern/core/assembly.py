@@ -138,6 +138,10 @@ class PromptInput:
     # start of the reply with `continue_prefill`).
     generation_kind: str = "normal"
     continue_id: str = ""
+    # {{setvar}} / {{getvar}} stores kept between replies (SillyTavern keeps them in the chat and in its settings):
+    # the chat's and the global one. The assembly changes them in place; the caller saves them. None = this prompt only.
+    variables: dict[str, str] | None = None
+    global_variables: dict[str, str] | None = None
 
 
 @dataclass
@@ -290,6 +294,42 @@ def _tokens(entries: list[Entry]) -> int:
     return sum(_cost(e) for e in entries)
 
 
+def _card_values(card: dict[str, Any]) -> dict[str, str]:
+    """The card fields SillyTavern's macros read: {{charPrompt}} (the card's main prompt), {{charInstruction}} /
+    {{charJailbreak}} (post-history instructions), {{charDepthPrompt}} (the character's note), {{charCreatorNotes}},
+    {{charVersion}}, {{charFirstMessage}} / {{greeting}}."""
+    ext = card.get("extensions") if isinstance(card.get("extensions"), dict) else {}
+    depth = ext.get("depth_prompt") if isinstance(ext.get("depth_prompt"), dict) else {}
+    text = lambda value: value.strip() if isinstance(value, str) else ""  # noqa: E731
+    return {
+        "charPrompt": text(card.get("system_prompt")),
+        "charInstruction": text(card.get("post_history_instructions")),
+        "charDepthPrompt": text(depth.get("prompt")),
+        "charCreatorNotes": text(card.get("creator_notes")),
+        "charVersion": text(card.get("character_version")),
+        "charFirstMessage": text(card.get("first_mes")),
+    }
+
+
+def _chat_values(history: list[dict[str, Any]]) -> dict[str, str]:
+    """What SillyTavern's chat macros read from the chat as it is (hidden messages count, as there): the last
+    message, the last of the user / of a character (system lines skipped), its number from 0, the swipes of the
+    last message (from 1), and the range of every number."""
+    if not history:
+        return {"lastMessage": "", "lastUserMessage": "", "lastCharMessage": "", "lastMessageId": "",
+                "currentSwipeId": "", "lastSwipeId": "", "allChatRange": ""}
+    last = history[-1]
+    user_said = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+    char_said = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
+    return {
+        "lastMessage": last["content"], "lastUserMessage": user_said, "lastCharMessage": char_said,
+        "lastMessageId": str(len(history) - 1),
+        "currentSwipeId": str(int(last.get("active_swipe") or 0) + 1),
+        "lastSwipeId": str(int(last.get("swipe_count") or 1)),
+        "allChatRange": f"0-{len(history) - 1}",
+    }
+
+
 def assemble(data: PromptInput) -> Prompt:
     preset = data.preset
     me = next((m for m in data.members if m.is_me), None)
@@ -316,14 +356,19 @@ def assemble(data: PromptInput) -> Prompt:
         "summary": "",  # a plugin sets it (PromptInput.values), e.g. the memory's «Сюжет до сих пор»
         # {{group}}: the characters of the chat (cards sent or not), as in the group new-chat line
         "group": ", ".join(dict.fromkeys([*(m.name for m in others), *(name for name, _ in data.scene)])),
+        **_card_values(primary_card),
+        **_chat_values(data.history),
+        "lastGenerationType": data.generation_kind or "normal",
     }
     values.update(data.values)
-    variables: dict[str, str] = {}
+    variables: dict[str, str] = data.variables if data.variables is not None else {}
+    global_variables: dict[str, str] = data.global_variables if data.global_variables is not None else {}
 
     def sub(text: str) -> str:
         # carriage returns (Windows line ends in cards and imported texts) are dropped, as SillyTavern does
         # (also from what the macros bring in: a card's {{description}} inside a preset text)
-        return substitute(text, char=char, user=user, values=values, variables=variables).replace("\r", "")
+        return substitute(text, char=char, user=user, values=values, variables=variables,
+                          global_variables=global_variables).replace("\r", "")
 
     def preset_source(block: dict[str, Any]) -> str:
         return f"preset:{data.preset_id}:{block['id']}"
@@ -472,7 +517,7 @@ def assemble(data: PromptInput) -> Prompt:
 
     def card_with_override(block: dict[str, Any], key: str) -> tuple[str, str]:
         own = (primary.card.get(key) or "").strip() if primary else ""
-        if prefer_card and own:
+        if prefer_card and own and not block.get("forbid_overrides"):
             return own.replace("{{original}}", block["text"]), f"character:{primary.character_id}:{key}"
         return block["text"], preset_source(block)
 

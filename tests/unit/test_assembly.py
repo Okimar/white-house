@@ -136,6 +136,45 @@ def test_card_macros_and_variables_in_preset_blocks():
     assert "setvar" not in system
 
 
+def test_chat_and_card_macros_get_their_values_and_variables_live_in_the_given_stores():
+    """SillyTavern's chat macros read the chat as it is; card field macros read the card; the {{setvar}} stores
+    are the caller's (kept between replies), so a value set in an earlier reply is read now."""
+    card = {**ANN.card, "system_prompt": "CARD MAIN", "post_history_instructions": "CARD JB", "first_mes": "Hello!",
+            "creator_notes": "notes", "character_version": "2", "extensions": {"depth_prompt": {"prompt": "NOTE"}}}
+    ann = Member("ann", "Ann", card, primary=True)
+    preset = default_preset()
+    preset["blocks"].insert(0, {"id": "m", "kind": "text", "name": "Macros", "text": (
+        "[{{lastMessage}}|{{lastUserMessage}}|{{lastCharMessage}}|{{lastMessageId}}|{{currentSwipeId}}/"
+        "{{lastSwipeId}}|{{allChatRange}}|{{lastGenerationType}}] [{{charPrompt}}|{{charJailbreak}}|"
+        "{{charDepthPrompt}}|{{charCreatorNotes}}|{{charVersion}}|{{greeting}}] [{{model}}] "
+        "seen={{getvar::seen}}{{incvar::seen}} g={{getglobalvar::g}}{{setglobalvar::g::on}}")})
+    msgs = history("u1", "a1", "u2")
+    msgs[-1].update(active_swipe=1, swipe_count=3)
+    chat_vars, global_vars = {"seen": "4"}, {}
+    prompt = build([ann], msgs, preset=normalize_preset(preset), generation_kind="swipe", values={"model": "gm"},
+                   variables=chat_vars, global_variables=global_vars)
+    system = prompt.messages[0].content
+    assert "[u2|u2|a1|2|2/3|0-2|swipe] [CARD MAIN|CARD JB|NOTE|notes|2|Hello!] [gm] seen=45 g=" in system
+    assert chat_vars == {"seen": "5"} and global_vars == {"g": "on"}
+
+
+def test_forbid_overrides_keeps_the_preset_text_over_the_cards_own():
+    from tavern.formats.st_preset import from_st, to_st
+    card = {**ANN.card, "system_prompt": "CARD MAIN {{original}}", "post_history_instructions": "CARD JB"}
+    ann = Member("ann", "Ann", card, primary=True)
+    st = {"prompts": [{"identifier": "main", "content": "PRESET MAIN", "forbid_overrides": True},
+                      {"identifier": "jailbreak", "content": "PRESET JB"}, {"identifier": "chatHistory", "marker": True}],
+          "prompt_order": [{"character_id": 100001, "order": [
+              {"identifier": "main", "enabled": True}, {"identifier": "chatHistory", "enabled": True},
+              {"identifier": "jailbreak", "enabled": True}]}]}
+    _, data = from_st(st)
+    text = "\n".join(m.content for m in build([ann], history("hi"), preset=data).messages)
+    assert "PRESET MAIN" in text and "CARD MAIN" not in text  # forbidden: the card's main does not replace it
+    assert "CARD JB" in text and "PRESET JB" not in text  # allowed: the card's post-history text wins
+    main = next(p for p in to_st(data)["prompts"] if p["identifier"] == "main")
+    assert main["forbid_overrides"] is True
+
+
 def test_old_random_and_roll_forms():
     from tavern.core.prompt import substitute
     assert substitute("{{random:a,b,c}}", char="", user="", rng=lambda n: 2) == "c"

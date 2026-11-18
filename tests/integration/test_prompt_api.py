@@ -207,3 +207,17 @@ def test_upgrade_makes_existing_chat_characters_members(tmp_path):
     assert db.schema_version == load_migrations()[-1].version
     row = db.fetchone("SELECT * FROM chat_members")
     assert (row["chat_id"], row["character_id"], row["is_me"], row["depth"]) == ("c", "a", 0, None)
+
+
+async def test_setvar_values_are_kept_between_replies_and_the_model_macro_is_filled(client, ctx, fake_llm):
+    ann, chat_id = await setup(client)
+    preset = (await client.post("/api/presets", json={"name": "Vars", "from": "default"})).json()
+    data = preset["data"]
+    data["blocks"].append({"id": "count", "kind": "text", "name": "Count", "role": "system",
+                           "text": "turn {{incvar::turn}} on {{model}}, last: {{lastUserMessage}}"})
+    assert (await client.put(f"/api/presets/{preset['id']}", json={"name": "Vars", "data": data})).status_code == 200
+    await client.put(f"/api/chats/{chat_id}/meta", json={"preset_id": preset["id"]})
+    for text, expected in (("one", "turn 1 on m, last: one"), ("two", "turn 2 on m, last: two")):
+        await finish(ctx, await client.post(f"/api/chats/{chat_id}/send", json={"text": text}))
+        assert fake_llm.requests[-1]["messages"][-1]["content"] == expected
+    assert ctx.chats.get_chat(chat_id)["meta"]["variables"] == {"turn": "2"}

@@ -139,6 +139,8 @@ def from_st(obj: Any, name: str = "") -> tuple[str, dict[str, Any]]:
         trigger = prompt.get("injection_trigger")
         if isinstance(trigger, list) and kind != "history":
             block["triggers"] = [t for t in trigger if t in GENERATION_KINDS]
+        if kind in ("main", "post_history") and prompt.get("forbid_overrides") is True:
+            block["forbid_overrides"] = True
         if kind == "history":
             # SillyTavern sends the last reply's reasoning back (its «add to prompts», max 1), in the reply's tag.
             block["history"] = {"thoughts": 1}
@@ -196,6 +198,7 @@ def to_st(data: dict[str, Any]) -> dict[str, Any]:
             "injection_depth": block["depth"],
             "injection_order": block.get("order", DEFAULT_DEPTH_ORDER),
             "injection_trigger": list(block.get("triggers") or []),
+            **({"forbid_overrides": True} if block.get("forbid_overrides") else {}),
         })
         order.append({"identifier": identifier, "enabled": block["enabled"]})
 

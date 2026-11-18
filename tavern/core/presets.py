@@ -303,6 +303,8 @@ def normalize_block(raw: Any, index: int) -> dict[str, Any]:
         raise PresetError(f"Block {index + 1}: triggers must be a list of {', '.join(GENERATION_KINDS)}")
     if triggers:
         block["triggers"] = [k for k in GENERATION_KINDS if k in triggers]
+    if kind in ("main", "post_history") and raw.get("forbid_overrides"):
+        block["forbid_overrides"] = True  # SillyTavern's «forbid overrides»: a card's own text never replaces this one
     if kind == "examples":
         mode = raw.get("examples_mode", EXAMPLE_MODES[0])
         if mode not in EXAMPLE_MODES:
