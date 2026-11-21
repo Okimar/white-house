@@ -46,7 +46,8 @@ def test_document_header_keeps_44px_buttons_on_a_short_line() -> None:
 
 def test_the_page_puts_the_view_on_the_chat_and_remeasures_the_list() -> None:
     assert "data-view=${chatView}" in MAIN
-    assert "layoutKey=${chatView}" in MAIN
+    # the list re-measures when the view changes (also reading mode, density and text size: part of the same key)
+    assert re.search(r"layoutKey=\$\{`\$\{chatView\}\|", MAIN)
     assert 'chat_view: view' in MAIN and "Вид: как в настройках" in MAIN
     # the chat's own choice first, then the app setting, then bubbles
     assert re.search(r"chat\.chat\.meta\.chat_view, settings\.chat_view\]", MAIN)
