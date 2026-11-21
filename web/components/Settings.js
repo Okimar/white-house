@@ -195,6 +195,16 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           </label>
           <p id="hint-chat-font" class="hint">Только текст сообщений и размышлений. Кнопки и меню не меняются.</p>
 
+          <label class="stack">Режим чтения: прятать пустое поле ввода через, секунд
+            <input type="number" inputmode="numeric" min="0" max="120" step="1" class="num"
+              value=${settings.reading_hide_seconds ?? 4} aria-describedby="hint-reading-hide"
+              onChange=${(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n) && n >= 0 && n <= 120) saveSetting({ reading_hide_seconds: n });
+              }} />
+          </label>
+          <p id="hint-reading-hide" class="hint">Поле ввода в режиме чтения уезжает само, если в нём ничего не написано. 0 — не прятать. Тап мимо поля прячет его сразу.</p>
+
           <label class="stack">Размышления модели
             <${Select} value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
               aria-describedby="hint-thinking-display"

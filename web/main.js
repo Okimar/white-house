@@ -81,9 +81,48 @@ function App() {
     setWriteOpen(false);
     if (on) store.set("tavern.reading", "1"); else store.del("tavern.reading");
   };
+  const pull = useRef(null); // a finger on the bottom zone: { y, done }
+  const pullTop = useRef(null); // a finger on the top edge: a swipe down leaves reading mode
   useEffect(() => { // the box slid out: the keyboard comes with it
     if (writeOpen) setTimeout(() => { const t = document.querySelector(".composer textarea"); if (t) t.focus(); }, 30);
   }, [writeOpen]);
+  // While the box is out: a tap on the chat text or a swipe down on the box puts it away (the draft stays).
+  useEffect(() => {
+    if (!reading || !writeOpen) return undefined;
+    let down = null;
+    const start = (e) => { down = { y: e.clientY, x: e.clientX, inBox: Boolean(e.target.closest && e.target.closest(".composer")) }; };
+    const move = (e) => {
+      if (down && down.inBox && e.clientY - down.y > 40 && Math.abs(e.clientX - down.x) < 40) { down = null; setWriteOpen(false); }
+    };
+    const end = (e) => {
+      // a tap anywhere outside the strip (not a scroll) puts it away
+      if (down && !down.inBox && Math.abs(e.clientY - down.y) < 8 && Math.abs(e.clientX - down.x) < 8) setWriteOpen(false);
+      down = null;
+    };
+    // By itself after N seconds (setting reading_hide_seconds, default 4; 0 = never) while nothing is written in it.
+    const seconds = settings.reading_hide_seconds ?? 4;
+    let timer = null;
+    const arm = () => {
+      clearTimeout(timer);
+      if (!seconds) return;
+      timer = setTimeout(() => {
+        const t = document.querySelector(".composer textarea");
+        if (!t || !t.value.trim()) setWriteOpen(false); else arm();
+      }, seconds * 1000);
+    };
+    arm();
+    document.addEventListener("pointerdown", start, true);
+    document.addEventListener("pointermove", move, true);
+    document.addEventListener("pointerup", end, true);
+    document.addEventListener("input", arm, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", start, true);
+      document.removeEventListener("pointermove", move, true);
+      document.removeEventListener("pointerup", end, true);
+      document.removeEventListener("input", arm, true);
+    };
+  }, [reading, writeOpen, settings.reading_hide_seconds]);
   const chatsLoadedRef = useRef(false);
   chatsLoadedRef.current = chatsLoaded;
   const [sheet, setSheet] = useState(null); // phone: the section of the left panel shown under the bar
@@ -541,7 +580,7 @@ function App() {
     streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
     streamThinking=${chat.streams[m.id] ? chat.streams[m.id].thinking : null}
     shown=${regexShown(m, chat.streams[m.id] ? chat.streams[m.id].text : null)}
-    textColors=${textColors} reading=${reading}
+    textColors=${textColors} reading=${reading} onExitReading=${() => setReadingMode(false)}
     shownThinking=${regexShown.thinking ? regexShown.thinking(m, chat.streams[m.id] ? chat.streams[m.id].thinking : null) : null}
     onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
@@ -765,13 +804,22 @@ function App() {
               </div>`}
             </div>
             <div class="reading-dock" data-slot="reading-dock">
-            ${reading && html`<div class="reading-controls" data-slot="reading-controls">
-              <${IconButton} icon="book-open" label="Выйти из режима чтения" class="reading-exit"
-                onClick=${() => setReadingMode(false)} />
-              <${IconButton} icon="chevron-down" label=${writeOpen ? "Спрятать поле ввода" : "Написать сообщение"}
-                class=${"reading-write" + (writeOpen ? "" : " flip")} aria-expanded=${writeOpen ? "true" : "false"}
-                onClick=${() => setWriteOpen(!writeOpen)} />
-            </div>`}
+            ${reading && html`<div class="reading-top" data-slot="reading-top" aria-hidden="true"
+              onPointerDown=${(e) => { pullTop.current = e.clientY; }}
+              onPointerMove=${(e) => {
+                if (pullTop.current !== null && e.clientY - pullTop.current > 40) { pullTop.current = null; setReadingMode(false); }
+              }}
+              onPointerUp=${() => { pullTop.current = null; }} onPointerCancel=${() => { pullTop.current = null; }}></div>`}
+            ${reading && !writeOpen && html`<button type="button" class="reading-pull" data-slot="reading-pull"
+              aria-label="Написать сообщение" title="Тап или свайп вверх — поле ввода"
+              onPointerDown=${(e) => { pull.current = { y: e.clientY, done: false }; }}
+              onPointerMove=${(e) => {
+                if (pull.current && !pull.current.done && pull.current.y - e.clientY > 24) {
+                  pull.current.done = true; setWriteOpen(true);
+                }
+              }}
+              onClick=${() => { if (!pull.current || !pull.current.done) setWriteOpen(true); pull.current = null; }}>
+              <span class="reading-handle" aria-hidden="true"></span></button>`}
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
               rows=${settings.chat_density === "roomy" ? 2 : 1}
               onSend=${(text, images) => {

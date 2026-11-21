@@ -167,6 +167,7 @@ SETTING_TYPES = {
     "text_colors": list,
     "chat_density": str,  # "compact" (as SillyTavern, default) or "roomy": font, line height and gaps in the chat
     "chat_font_size": int,  # the text size of messages in px (12..28); none = as the density gives (16 compact)
+    "reading_hide_seconds": int,  # reading mode: the empty message strip hides by itself after this many s (0 = never)
 }
 TEXT_COLOR = re.compile(r"^(#[0-9a-fA-F]{6})?$")
 STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
@@ -201,6 +202,8 @@ async def put_settings(request: Request) -> JSONResponse:
             raise BadRequest(f"Setting {key!r} must map short strings to short strings")
         if key in SETTING_CHOICES and value not in ("", None, *SETTING_CHOICES[key]):
             raise BadRequest(f"Setting {key!r} must be one of: {', '.join(SETTING_CHOICES[key])}")
+        if key == "reading_hide_seconds" and not 0 <= value <= 120:
+            raise BadRequest(f"Setting {key!r} must be from 0 to 120")
         if key == "chat_font_size" and not 12 <= value <= 28:
             raise BadRequest(f"Setting {key!r} must be from 12 to 28")
         if key == "notes_shown" and not 1 <= value <= 20:

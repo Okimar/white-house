@@ -82,7 +82,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate, onContinueMessage,
   onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
   actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, shownThinking = null, textColors = null, reading = false,
-  onRegexUndo }) {
+  onExitReading = null, onRegexUndo }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
@@ -180,6 +180,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     ...(actionsMode === "always" ? [] : pluginButtons.map((b) => ({
       icon: b.icon, emoji: true, label: titleOf(b), onClick: () => b.onClick(message),
     }))),
+    // reading mode has no bars: its way out is here, on the last message
+    ...(reading && isLast && onExitReading ? [{ icon: "book-open", label: "Выйти из режима чтения", onClick: onExitReading }] : []),
   ];
 
   const dividers = streaming || pending ? [] : messageDividers(message);
@@ -240,7 +242,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           ${actionsMode === "always" && pluginButtons.map((b, i) => html`<button key=${b.owner + i} type="button"
             class="icon-btn" data-slot="message-plugin-button" data-plugin=${b.owner} title=${titleOf(b)}
             aria-label=${titleOf(b)} onClick=${() => b.onClick(message)}>${b.icon}</button>`)}
-          ${(menu.length > 0 || pluginMenu.length > 0 || (actionsMode !== "always" && pluginButtons.length > 0)) && html`<${MenuButton}
+          ${(menu.length > 0 || pluginMenu.length > 0 || (actionsMode !== "always" && pluginButtons.length > 0)
+            || (reading && isLast && onExitReading)) && html`<${MenuButton}
             label="Действия с сообщением" data-slot="message-menu" items=${menuItems} />`}
         </span>`}
       </header>`}

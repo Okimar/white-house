@@ -112,6 +112,8 @@ async def test_chat_font_size_is_a_number_in_range_and_empty_resets_it(client):
     assert (await client.put("/api/settings", json={"chat_font_size": 18})).json()["chat_font_size"] == 18
     assert (await client.put("/api/settings", json={"chat_font_size": 40})).status_code == 400
     assert "chat_font_size" not in (await client.put("/api/settings", json={"chat_font_size": None})).json()
+    assert (await client.put("/api/settings", json={"reading_hide_seconds": 0})).json()["reading_hide_seconds"] == 0
+    assert (await client.put("/api/settings", json={"reading_hide_seconds": 999})).status_code == 400
 
 
 async def test_text_colors_setting_takes_marks_with_a_colour(client):
