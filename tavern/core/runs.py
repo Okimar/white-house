@@ -106,7 +106,7 @@ class RunManager:
         self, chat_id: str, budget: RunBudget, body: Callable[[Run], Awaitable[None]]
     ) -> Run:
         if chat_id in self._active:
-            raise Conflict("A generation is already running in this chat", code="busy")
+            raise Conflict("Модель уже отвечает в этом чате: дождитесь ответа или нажмите «Стоп»", code="busy")
         run = Run(chat_id, budget)
         self._active[chat_id] = run
         self.foreground.enter()

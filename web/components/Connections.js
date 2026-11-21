@@ -215,6 +215,9 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
   const [params, setParams] = useState(conn.params || {});
   const [dirty, setDirty] = useState(false);
   const [models, setModels] = useState([]);
+  // The first tap on the model field asks the service for its list (free), as one expects after a new key;
+  // «Проверить» stays for asking again.
+  const askedModels = useRef(false);
   const [probeable, setProbeable] = useState([]);
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(""); // "" | "inspect" | "probe"
@@ -329,6 +332,7 @@ function ConnectionEditor({ conn, catalog, connections, reveal, onSaved, onRemov
       <div class="model-select-row">
         <label class="stack grow">Название модели
           <${Suggest} value=${head.model} options=${models}
+            onFocus=${() => { if (!askedModels.current && !busy) { askedModels.current = true; inspect(); } }}
             onInput=${(e) => setHead({ ...head, model: e.target.value })}
             onChange=${(e) => saveHead({ model: e.target.value })} /></label>
         <div class="model-btn-group">

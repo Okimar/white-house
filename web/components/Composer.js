@@ -170,19 +170,42 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
     for (const h of plugins.composerHelpers) h.onText(text, caret);
   }, [text]);
 
-  // Auto-grow textarea with content so typing on phone/desktop is comfortable without inner scroll
+  // Auto-grow textarea with content so typing on phone/desktop is comfortable without inner scroll.
+  // Measured on a hidden copy: shrinking the field itself to "auto" for a moment made the chat above taller, the
+  // browser clipped its scroll, and the whole chat jumped on every letter (owner's tablet, 2026-11-22).
+  const measurer = useRef(null);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
     if (!text) {
-      el.style.height = "";
+      if (el.style.height) el.style.height = "";
       return;
     }
-    el.style.height = "auto";
+    if (!measurer.current) {
+      const m = document.createElement("textarea");
+      m.setAttribute("aria-hidden", "true");
+      m.tabIndex = -1;
+      Object.assign(m.style, { position: "absolute", left: "-9999px", top: "0", height: "auto", visibility: "hidden",
+        overflow: "hidden", pointerEvents: "none" });
+      document.body.appendChild(m);
+      measurer.current = m;
+    }
+    const m = measurer.current;
+    const css = getComputedStyle(el);
+    for (const k of ["boxSizing", "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "paddingTop",
+      "paddingBottom", "paddingLeft", "paddingRight", "borderTopWidth", "borderBottomWidth", "borderLeftWidth",
+      "borderRightWidth", "whiteSpace", "wordBreak", "overflowWrap", "tabSize"]) m.style[k] = css[k];
+    m.style.width = `${el.offsetWidth}px`;
+    m.rows = el.rows || 1; // as tall as the empty field at least: the first letter must not change its height
+    m.value = text;
     const max = window.innerHeight < 500 ? 120 : 180;
-    const next = Math.min(el.scrollHeight, max);
-    el.style.height = next > 0 ? `${next}px` : "";
+    const borders = css.boxSizing === "border-box"
+      ? parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth) : 0;
+    const next = Math.min(m.scrollHeight + borders, max);
+    const want = next > 0 ? `${next}px` : "";
+    if (el.style.height !== want) el.style.height = want; // only when the number of lines changed
   }, [text]);
+  useEffect(() => () => measurer.current && measurer.current.remove(), []);
 
   const submit = async () => {
     const value = text.trim();
@@ -271,7 +294,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
             onClick=${() => x.view.undo.onClick()}>${x.view.undo.label}</button>`}
         </div>`)}
       <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
-        aria-label="Сообщение" aria-description="Enter — отправить, Shift+Enter — перенос строки" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
+        aria-label="Сообщение" aria-description="Enter — отправить, Shift+Enter — перенос строки (на телефоне Enter — перенос)" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown} onPaste=${onPaste} onClick=${onTap} onScroll=${() => sync.current()}></textarea>
       <div ref=${layer} class="composer-marks" data-slot="composer-marks" aria-hidden="true"
         hidden=${!marks.length}><div ref=${layerText} class="composer-marks-text">${marks.length > 0

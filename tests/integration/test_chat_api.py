@@ -306,3 +306,17 @@ async def test_messages_excluded_from_prompt_are_not_sent_but_stay_stored(client
     sent = json.dumps(fake_llm.requests[0]["messages"])
     assert "agent scratchpad" not in sent
     assert any(m["owner"] == "agents" for m in await messages(client, chat_id))
+
+
+async def test_a_chat_keeps_its_own_model_of_the_connection(client, ctx, fake_llm):
+    ann = (await client.post("/api/characters", json={"name": "Ann"})).json()
+    await client.post("/api/connections", json={"name": "fake", "base_url": "http://llm/v1", "model": "base-model"})
+    one = (await client.post("/api/chats", json={"character_id": ann["id"]})).json()["chat"]["id"]
+    two = (await client.post("/api/chats", json={"character_id": ann["id"]})).json()["chat"]["id"]
+    assert (await client.put(f"/api/chats/{one}/meta", json={"model": "model-3.5"})).status_code == 200
+    for chat_id, expected in ((one, "model-3.5"), (two, "base-model")):
+        response = await client.post(f"/api/chats/{chat_id}/send", json={"text": "hi"})
+        await asyncio.wait([ctx.runs.get(response.json()["run_id"]).task], timeout=10)
+        assert fake_llm.requests[-1]["model"] == expected
+    await client.put(f"/api/chats/{one}/meta", json={"model": ""})  # back to the connection's own
+    assert "models" not in ctx.chats.get_chat(one)["meta"]

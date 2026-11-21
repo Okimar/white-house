@@ -10,14 +10,17 @@ import { html, useState, useRef, useLayoutEffect, useEffect, useCallback } from 
 import { Icon } from "./Icon.js";
 
 const ESTIMATE = 90;
-const OVERSCAN_PX = 600;
+const OVERSCAN_PX = 900;
+const REDRAW_PX = 300; // the rendered window moves when the view moved this far (not on every scroll event)
 const STICK_PX = 48;
 const LOAD_MORE_PX = 400;
 const JUMP_MS = 800;
 
 const keyOf = (item) => item.vkey || item.id;
 
-export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, stickTo = null, layoutKey = null }) {
+// `status`: a short line shown over the bottom of the list (never moving the rows), e.g. «Собираю запрос…».
+export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, stickTo = null, layoutKey = null,
+  status = "" }) {
   const box = useRef(null);
   const jump = useRef(null); // { id, until }: keep this item at the top while heights above are measured
   useLayoutEffect(() => {
@@ -28,6 +31,8 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
   const anchor = useRef(null); // { id, offset } of the first item before an update
   const [, redraw] = useState(0);
   const [viewport, setViewport] = useState({ top: 0, height: 600 });
+  const viewportRef = useRef(viewport); // the last window drawn, read by onScroll
+  const setViewportBoth = (v) => { viewportRef.current = v; setViewport(v); };
   const [showJump, setShowJump] = useState(false);
   const showJumpRef = useRef(false);
 
@@ -173,14 +178,20 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
     }
     // The user moved the view: that is the new reference point, not a layout shift to undo.
     anchor.current = captureAnchor(el.scrollTop);
-    setViewport({ top: el.scrollTop, height: el.clientHeight });
+    // Redraw only when the rendered window must move: the overscan covers the steps in between. Redrawing every
+    // message on every scroll event made a fast fling up stutter (owner's tablet, 2026-11-22).
+    const seen = viewportRef.current;
+    if (Math.abs(el.scrollTop - seen.top) > REDRAW_PX || el.clientHeight !== seen.height || el.scrollTop < REDRAW_PX
+        || distance < REDRAW_PX) {
+      setViewportBoth({ top: el.scrollTop, height: el.clientHeight });
+    }
     if (el.scrollTop < LOAD_MORE_PX && onReachTop) onReachTop();
   }, [onReachTop]);
 
   useEffect(() => {
     const el = box.current;
-    setViewport({ top: el.scrollTop, height: el.clientHeight });
-    const resize = new ResizeObserver(() => setViewport({ top: el.scrollTop, height: el.clientHeight }));
+    setViewportBoth({ top: el.scrollTop, height: el.clientHeight });
+    const resize = new ResizeObserver(() => setViewportBoth({ top: el.scrollTop, height: el.clientHeight }));
     resize.observe(el);
     return () => resize.disconnect();
   }, []);
@@ -212,7 +223,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
     <div class="vlist-wrap" data-slot="virtual-list-wrap">
       <div class="vlist" ref=${box} onScroll=${onScroll}
         role="log" aria-label="История сообщений" aria-relevant="additions text" tabindex="0"
-        onTouchStart=${() => { touching.current = true; stuck.current = false; }}
+        onTouchStart=${() => { touching.current = true; /* a touch alone does not unstick: only scrolling up does (onScroll) */ }}
         onTouchEnd=${() => { touching.current = false; markUser(700); }}
         onTouchCancel=${() => { touching.current = false; markUser(700); }}
         onWheel=${(e) => { markUser(200); if (e.deltaY < 0) stuck.current = false; }}>
@@ -222,6 +233,7 @@ export function VirtualList({ items, renderItem, onReachTop, resetKey, jumpTo, s
         `)}
         <div style=${{ height: end + "px" }}></div>
       </div>
+      ${status && html`<div class="vlist-status" data-slot="vlist-status" role="status"><span class="spinner" aria-hidden="true"></span>${status}</div>`}
       ${showJump && html`<button type="button" class="vlist-jump" data-slot="vlist-jump"
         aria-label="Перейти к последним сообщениям" title="Перейти к последним сообщениям" onClick=${scrollToBottom}>
         <${Icon} name="chevron-down" />

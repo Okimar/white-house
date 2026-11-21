@@ -105,7 +105,7 @@ function Panel({ anchor, rows, active, listId, onActive, onPick, onClose }) {
   </div>`;
 }
 
-export function Suggest({ value, options, onInput, onChange, disabled, ...rest }) {
+export function Suggest({ value, options, onInput, onChange, onFocus, disabled, ...rest }) {
   const input = useRef(null);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value === undefined || value === null ? "" : String(value));
@@ -177,7 +177,7 @@ export function Suggest({ value, options, onInput, onChange, disabled, ...rest }
   return html`<input ref=${input} type="text" autocomplete="off" autocapitalize="off" spellcheck="false" ...${rest}
     disabled=${disabled} role="combobox" aria-autocomplete="list" aria-expanded=${visible ? "true" : "false"}
     aria-controls=${visible ? listId : undefined} aria-activedescendant=${visible && active >= 0 ? listId + "-" + active : undefined}
-    onFocus=${() => { setActive(-1); setOpen(true); }}
+    onFocus=${(e) => { setActive(-1); setOpen(true); if (onFocus) onFocus(e); }}
     onInput=${(e) => { setText(e.target.value); setDirty(true); setActive(-1); setOpen(true); if (onInput) onInput(e); }}
     onChange=${onChange}
     onBlur=${() => { if (!pressing) setOpen(false); }}

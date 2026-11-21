@@ -165,6 +165,7 @@ SETTING_TYPES = {
     # coloured text in messages: [{open, close, color ("#rrggbb" or "" = the theme's), on}] (web/core/textColors.js);
     # text between an opening and its closing mark is drawn in that colour, as SillyTavern does with "quotes"
     "text_colors": list,
+    "chat_density": str,  # "compact" (as SillyTavern, default) or "roomy": font, line height and gaps in the chat
 }
 TEXT_COLOR = re.compile(r"^(#[0-9a-fA-F]{6})?$")
 STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
@@ -173,6 +174,7 @@ SETTING_CHOICES = {
     "thinking_display": ("folded", "open", "hidden"),
     "message_actions": ("menu", "always"),
     "chat_view": ("bubbles", "document"),
+    "chat_density": ("compact", "roomy"),
 }
 MESSAGE_BUTTONS = frozenset({"edit", "copy", "regenerate", "continue_message", "branches", "prompt", "exclude", "notes", "delete"})
 

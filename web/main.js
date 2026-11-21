@@ -10,6 +10,7 @@ import { VirtualList } from "./components/VirtualList.js";
 import { Message } from "./components/Message.js";
 import { useRegexDisplay } from "./core/regex.js";
 import { textColorRules } from "./core/textColors.js";
+import { ModelChip } from "./components/ModelChip.js";
 import { Composer } from "./components/Composer.js";
 import { ProfileSwitch, PickVariants } from "./components/Profiles.js";
 import { SpendingBar } from "./components/Spending.js";
@@ -589,7 +590,8 @@ function App() {
         onAssistant=${openAssistant} onSearch=${openSearch} settings=${settings} onError=${onError}
         mode=${menuMode} onFold=${menuMode === "side" ? () => { setSheet(null); setMenuFolded(true); } : null} />
       ${sheet && html`<${SheetKeys} onClose=${() => setSheet(null)} />`}
-      <main class="main" data-slot="chat" data-view=${chatView} data-running=${chat.running ? "true" : "false"}>
+      <main class="main" data-slot="chat" data-view=${chatView} data-running=${chat.running ? "true" : "false"}
+        data-density=${settings.chat_density === "roomy" ? "roomy" : "compact"}>
         <div class="scene" data-slot="scene" aria-hidden="true"></div>
         ${menuMode === "top" && !menuFolded && html`<nav class="menubar only-wide" data-slot="menubar" aria-label="Меню">
           <${IconButton} icon="chevron-down" label="Свернуть меню" class="fold-menu" data-slot="fold-menu"
@@ -655,6 +657,7 @@ function App() {
             <${Icon} name="wand" /> ${assistantState.waiting.length ? "Ждёт вас" : "Работает"}</button>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
           ${shown && html`<${ProfileSwitch} refreshKey=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
+          ${shown && html`<${ModelChip} chat=${chat.chat} settings=${settings} onChanged=${chat.refreshInfo} onError=${onError} />`}
           ${shown && regexShown.waiting > 0 && html`<button type="button" class="plugin-chip error" data-slot="regex-waiting"
             title=${`Регекс-правила этого чата пришли с карточкой или пресетом и не работают, пока вы их не разрешите (${regexShown.waiting}). Открыть «Регекс»`}
             onClick=${() => openSettings("regex")}>Регекс ждёт: ${regexShown.waiting}</button>`}
@@ -682,10 +685,19 @@ function App() {
               <//></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
               onReachTop=${chat.loadOlder} resetKey=${chatId} layoutKey=${chatView} jumpTo=${jumpTo}
-              stickTo=${(chat.messages.find((m) => m.pending) || {}).vkey || null} />
+              stickTo=${(chat.messages.find((m) => m.pending) || {}).vkey || null}
+              status=${chat.starting ? "Собираю запрос…" : ""} />
             <div class="chat-actions" data-slot="chat-actions">
-              <button disabled=${chat.running} onClick=${() => chat.continue(role)}
-                title="Модель напишет следующее сообщение без вашей реплики">Продолжить</button>
+              ${(() => {
+                // As SillyTavern's Continue: the model goes on with its last reply (the same message). After your own
+                // message it simply answers. A new message from someone is the «Ответит: …» buttons.
+                const last = chat.messages.filter((m) => !m.hidden && !m.pending).slice(-1)[0];
+                const extend = last && last.role === "assistant";
+                return html`<button disabled=${chat.running}
+                  onClick=${() => (extend ? chat.continueMessage() : chat.continue(role))}
+                  title=${extend ? "Модель допишет свой последний ответ (как Continue в SillyTavern)"
+                    : "Модель ответит на ваше сообщение"}>Продолжить</button>`;
+              })()}
               ${cast.length > 1 && html`<button data-slot="talk-button" disabled=${chat.running} onClick=${() => chat.talk()}
                 title="Персонажи отвечают друг другу сами, пока не наберётся предел из «Кто говорит» или пока вы не нажмёте «Стоп»">Пусть поговорят</button>`}
               ${cast.length > 0 && html`<div class="speakers" data-slot="speakers" role="group" aria-label="Ответит">

@@ -108,6 +108,23 @@ async def update_chat_meta(request: Request) -> JSONResponse:
                 meta[key] = value
             else:
                 meta.pop(key, None)
+    if "model" in body:
+        # this chat's own model on its connection (or the default one when empty): meta `models`
+        model = (field(body, "model", str, default=None) or "").strip()
+        if len(model) > 200:
+            raise BadRequest("Field 'model' is too long")
+        connection_id = meta.get("connection_id") or ctx_of(request).settings.get("active_connection") or ""
+        if not connection_id:
+            raise BadRequest("The chat has no connection to choose a model for")
+        models = dict(meta.get("models") or {})
+        if model:
+            models[connection_id] = model
+        else:
+            models.pop(connection_id, None)
+        if models:
+            meta["models"] = models
+        else:
+            meta.pop("models", None)
     if "chat_view" in body:
         view = field(body, "chat_view", str)
         if view not in ("", *CHAT_VIEWS):

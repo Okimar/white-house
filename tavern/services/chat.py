@@ -114,12 +114,16 @@ def resolve_connection(ctx: AppContext, chat: dict[str, Any]) -> dict[str, Any]:
     if not connection_id:
         raise Conflict("No API connection selected. Add one in Settings.", code="no_connection")
     try:
-        return ctx.connections.get(connection_id)
+        connection = ctx.connections.get(connection_id)
     except NotFound:
         raise Conflict(
             "The selected API connection no longer exists. Pick another in Settings.",
             code="no_connection",
         ) from None
+    # A chat may use its own model of the same connection (chat meta `models`: connection id -> model; the model
+    # button in the chat's header): one connection, 3.5 in this chat and 3.8 in another (owner, 2026-11-22).
+    own = (chat["meta"].get("models") or {}).get(connection["id"]) if isinstance(chat["meta"].get("models"), dict) else None
+    return {**connection, "model": own} if isinstance(own, str) and own.strip() else connection
 
 
 def prompt_kind(connection: dict[str, Any]) -> str:
@@ -467,7 +471,7 @@ def stop(ctx: AppContext, chat_id: str) -> bool:
 
 def _ensure_idle(ctx: AppContext, chat_id: str) -> None:
     if ctx.runs.active(chat_id) is not None:
-        raise Conflict("A generation is already running in this chat", code="busy")
+        raise Conflict("Модель уже отвечает в этом чате: дождитесь ответа или нажмите «Стоп»", code="busy")
 
 
 def _error_dict(exc: BaseException) -> dict[str, Any]:

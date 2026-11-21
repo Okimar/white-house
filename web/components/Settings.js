@@ -177,6 +177,15 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
               onChange=${(e) => togglePinned(a.id, e.target.checked)} /> ${a.label}</label>`)}
           </div>
 
+          <label class="stack">Плотность чата
+            <${Select} value=${settings.chat_density || "compact"} aria-label="Плотность текста в чате"
+              aria-describedby="hint-chat-density" onChange=${(e) => saveSetting({ chat_density: e.target.value })}>
+              <option value="compact">Плотно, как в SillyTavern</option>
+              <option value="roomy">Просторно: крупный шрифт и отступы</option>
+            </${Select}>
+          </label>
+          <p id="hint-chat-density" class="hint">Плотно — больше текста на экране: шрифт поменьше, строки ближе, между абзацами небольшой зазор.</p>
+
           <label class="stack">Размышления модели
             <${Select} value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
               aria-describedby="hint-thinking-display"

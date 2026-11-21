@@ -82,7 +82,11 @@ function blocks(text, rules) {
     const body = para.join("\n").replace(/^\n+|\n+$/g, "");
     para = [];
     if (!body) return;
-    out.push(html`<div key=${"p" + out.length} class="md-p">${inline(body, rules, "p" + out.length)}</div>`);
+    // an empty line between paragraphs is a gap set by the chat density (CSS), not a whole blank line of text
+    for (const piece of body.split(/\n[ \t]*\n+/)) {
+      const k = "p" + out.length;
+      out.push(html`<div key=${k} class="md-p">${inline(piece, rules, k)}</div>`);
+    }
   };
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
@@ -136,7 +140,7 @@ function blocks(text, rules) {
 // text -> elements; cached by text (and the marks), so long chats do not parse every message on every render
 export function renderMarkdown(text, rules) {
   if (!text) return text;
-  if (!/[*_`#>\[~\-!+]|\d[.)]/.test(text)) return colorize(text, rules);
+  if (!/[*_`#>\[~\-!+]|\d[.)]|\n[ \t]*\n/.test(text)) return colorize(text, rules);
   const key = JSON.stringify(rules || []) + "\u0000" + text;
   let found = CACHE.get(key);
   if (!found) {

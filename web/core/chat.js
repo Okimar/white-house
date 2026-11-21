@@ -57,12 +57,13 @@ export function useChat(chatId, onError) {
       closeRef.current = null;
       if (event.reload) {
         // A turn of several replies: a round may have reordered or joined them on the server.
-        setState((s) => ({ ...s, running: false }));
+        setState((s) => ({ ...s, running: false, starting: false }));
         if (reloadRef.current) reloadRef.current().catch((e) => onError(e.message));
       } else {
         setState((s) => ({
           ...s,
           running: false,
+          starting: false,
           messages: event.message
             ? upsert(dropPending(s.messages), event.message)
             : dropPending(s.messages).filter((m) => m.id !== replyId),
@@ -75,7 +76,7 @@ export function useChat(chatId, onError) {
     };
     closeRef.current = followRun(runId, (event) => {
       if (event.type === "turn_start") {
-        setState((s) => ({ ...s, running: true,
+        setState((s) => ({ ...s, running: true, starting: false,
           messages: event.user_message ? settle(s.messages, event.user_message) : s.messages }));
       } else if (event.type === "start") {
         replyId = event.message.id;
@@ -83,7 +84,7 @@ export function useChat(chatId, onError) {
         setState((s) => {
           let messages = s.messages;
           if (event.user_message) messages = settle(messages, event.user_message);
-          return { ...s, running: true, messages: upsert(messages, event.message) };
+          return { ...s, running: true, starting: false, messages: upsert(messages, event.message) };
         });
       } else if (event.type === "delta" || event.type === "reasoning") {
         const b = (buffers[event.id || replyId] ||= { text: "", thinking: "" });
@@ -133,6 +134,16 @@ export function useChat(chatId, onError) {
 
   // false tells the caller it failed (the error is already shown), so a draft can be kept.
   const guard = (promise) => promise.catch((e) => { onError(e.message); return false; });
+  // A reply was asked for: the page is busy at once (buttons off, «Собираю запрос…» under the chat) until the server's
+  // first event. The server builds the prompt first (lore, meaning search, rules): seconds on a tablet, and with
+  // nothing on screen the person tapped again and got «already running» (owner, 2026-11-22).
+  const starting = (promise) => {
+    setState((s) => ({ ...s, running: true, starting: true }));
+    return guard(promise).then((result) => {
+      if (result === false) setState((s) => ({ ...s, running: false, starting: false }));
+      return result;
+    });
+  };
   // After the active branch changed on the server: reload its newest page.
   const reload = () => api.get(`/chats/${chatId}?limit=${PAGE}`).then((d) =>
     setState((s) => ({ ...s, chat: d.chat, messages: d.messages, hasMore: d.has_more })));
@@ -168,27 +179,28 @@ export function useChat(chatId, onError) {
     send: async (text, replyRole = "assistant", images = [], author = "") => {
       const temp = makePending(stateRef.current.messages, { text, images, name: author });
       const sentIn = chatId;
-      setState((s) => ({ ...s, messages: [...s.messages, temp] }));
+      setState((s) => ({ ...s, messages: [...s.messages, temp], running: true, starting: true }));
       const result = await guard(api.post(`/chats/${chatId}/send`,
         { text, reply_role: replyRole, images }).then((r) => {
         if (chatRef.current !== sentIn) return undefined; // another chat is open now: its page reattaches to the run
         if (r.run_id) return follow(r.run_id);
-        return setState((s) => ({ ...s, messages: settle(s.messages, r.message) }));
+        // no run (the person picks who answers): not busy after all
+        return setState((s) => ({ ...s, running: false, starting: false, messages: settle(s.messages, r.message) }));
       }));
       if (result === false && chatRef.current === sentIn) {
-        setState((s) => ({ ...s, messages: dropPending(s.messages, temp.id) }));
+        setState((s) => ({ ...s, running: false, starting: false, messages: dropPending(s.messages, temp.id) }));
       }
       return result;
     },
     // speaker: the character who writes it ("ответь ты"); default the chat's order.
-    continue: (role = "assistant", speaker = null) => guard(api.post(`/chats/${chatId}/continue`,
+    continue: (role = "assistant", speaker = null) => starting(api.post(`/chats/${chatId}/continue`,
       speaker ? { role, speaker } : { role }).then((r) => follow(r.run_id))),
     // «Пусть поговорят»: the characters answer one another (count: how many replies; default the chat's).
-    talk: (count = null) => guard(api.post(`/chats/${chatId}/talk`, count ? { count } : {})
+    talk: (count = null) => starting(api.post(`/chats/${chatId}/talk`, count ? { count } : {})
       .then((r) => follow(r.run_id))),
-    regenerate: () => guard(api.post(`/chats/${chatId}/regenerate`).then((r) => follow(r.run_id))),
+    regenerate: () => starting(api.post(`/chats/${chatId}/regenerate`).then((r) => follow(r.run_id))),
     // «Дописать»: the model goes on with the last message (SillyTavern's continue)
-    continueMessage: () => guard(api.post(`/chats/${chatId}/continue-message`).then((r) => follow(r.run_id))),
+    continueMessage: () => starting(api.post(`/chats/${chatId}/continue-message`).then((r) => follow(r.run_id))),
     stop: () => guard(api.post(`/chats/${chatId}/stop`)),
     closePick: () => setState((s) => ({ ...s, pick: null })),
     search: (query) => api.get(`/chats/${chatId}/search?q=${encodeURIComponent(query)}`),
