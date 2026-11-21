@@ -299,7 +299,7 @@ body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
   display: flex; gap: 8px; padding: 8px max(12px, calc((100% - var(--chat-width)) / 2)); padding-bottom: max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--line); background: var(--composer-bg); box-shadow: var(--shadow);
 }
-.composer textarea { flex: 1 0 100%; min-width: 0; resize: none; max-height: 40vh; font-size: 16px; padding: 10px 12px; line-height: 1.45; transition: border-color 140ms ease-out, box-shadow 140ms ease-out; }
+.composer textarea { flex: 1 0 100%; min-width: 0; resize: none; max-height: 25dvh; font-size: 16px; padding: 10px 12px; line-height: 1.45; transition: border-color 140ms ease-out, box-shadow 140ms ease-out; }
 /* Marks of plugin helpers (spelling) in the message box: a layer over the textarea with the same box, font and
    wrapping (Composer.js copies them); its text is clear, only the wavy underlines show; it never takes a touch. */
 .composer { position: relative; }
@@ -2272,12 +2272,18 @@ a.button.icon-btn:hover { color: var(--fg); }
   transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s; }
 /* only the strip: the text and «Отправить» (or «Стоп») */
 .main[data-reading="true"] .composer-tools > :not([data-slot="send-button"]):not([data-slot="stop-button"]) { display: none; }
-.app .main[data-reading="true"] .composer-tools { width: auto; flex: none; margin-left: 0; }
-/* a small round icon on the right, no words (the finger still gets 44px) */
+.app .main[data-reading="true"] .composer-tools { width: 0; min-width: 0; min-height: 0; flex: none; margin: 0; gap: 0; }
+.app .main[data-reading="true"] .composer { gap: 0; }
+/* «Отправить» is a see-through icon inside the strip, at its right bottom corner (the finger still gets 44px) */
+.app .main[data-reading="true"] .composer { position: relative; }
+.app .main[data-reading="true"] .composer textarea { padding-right: 48px; }
 .app .main[data-reading="true"] .composer [data-slot="send-button"],
-.app .main[data-reading="true"] .composer [data-slot="stop-button"] { font-size: 0; gap: 0; width: var(--tap-min);
-  min-width: var(--tap-min); height: var(--tap-min); min-height: var(--tap-min); padding: 0; border-radius: 50%;
-  justify-content: center; }
+.app .main[data-reading="true"] .composer [data-slot="stop-button"] { position: absolute; right: 10px;
+  bottom: max(5px, env(safe-area-inset-bottom)); font-size: 0; gap: 0; width: var(--tap-min); min-width: var(--tap-min);
+  height: var(--tap-min); min-height: var(--tap-min); padding: 0; justify-content: center; border: 0; box-shadow: none;
+  background: transparent; color: var(--accent); }
+.app .main[data-reading="true"] .composer [data-slot="send-button"]:disabled { color: var(--muted); opacity: 0.5; }
+.app .main[data-reading="true"] .composer [data-slot="stop-button"] { color: var(--danger); }
 .app .main[data-reading="true"] .composer [data-slot="send-button"] svg,
 .app .main[data-reading="true"] .composer [data-slot="stop-button"] svg { width: 18px; height: 18px; }
 .app .main[data-reading="true"] .composer textarea { flex: 1 1 auto; }

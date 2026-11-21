@@ -198,7 +198,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
     m.style.width = `${el.offsetWidth}px`;
     m.rows = el.rows || 1; // as tall as the empty field at least: the first letter must not change its height
     m.value = text;
-    const max = window.innerHeight < 500 ? 120 : 180;
+    const max = Math.max(90, Math.round(window.innerHeight / 4)); // grows with the text up to a quarter of the screen
     const borders = css.boxSizing === "border-box"
       ? parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth) : 0;
     const next = Math.min(m.scrollHeight + borders, max);
