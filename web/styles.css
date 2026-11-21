@@ -201,7 +201,7 @@ body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
 .vlist { flex: 1; overflow-y: auto; overflow-anchor: none; padding: 0 var(--chat-pad-x); overscroll-behavior: contain; }
 .vitem { padding: var(--msg-gap) 0; max-width: var(--chat-width); margin: 0 auto; }
 /* the chat's model in the header (components/ModelChip.js): its own model is marked with the accent */
-.model-chip { flex: 0 1 auto; min-width: 0; max-width: 120px; min-height: var(--tap); padding: 0 10px;
+.model-chip { flex: none; min-width: 0; max-width: 150px; min-height: var(--tap); padding: 0 10px; margin-left: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm);
   font-variant-numeric: tabular-nums; border-radius: var(--radius-full); }
 .model-chip.own { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); }
@@ -2240,8 +2240,10 @@ a.button.icon-btn:hover { color: var(--fg); }
 .md-p + .md-p, .md-p + .md-h, .md-h + .md-p, .md-quote, .md-list, .md-pre, .md-hr { margin-top: var(--para-gap, 0.6em); }
 /* Chat density (setting chat_density): «compact» = as SillyTavern shows a chat, the default; «roomy» = the old look */
 .main[data-density="compact"] { --text-reading: 15px; --line-height-reading: 1.45; --msg-pad-x: 10px; --msg-pad-y: 6px;
-  --msg-gap: 4px; --chat-width: 920px; --para-gap: 0.45em; }
-.main[data-density="compact"] .msg .body { margin-top: 2px; }
+  --msg-gap: 4px; --para-gap: 0.45em; }
+/* the text uses the whole message width, as in SillyTavern (the 68ch reading measure left a wide empty band on a
+   tablet once the font got smaller; owner's screenshot, 2026-11-22) */
+.main[data-density="compact"] .msg .body, .main[data-density="compact"] [data-slot="message-body"] { margin-top: 2px; max-width: none; }
 .main[data-density="roomy"] { --para-gap: 1.1em; }
 .md-h { font-weight: 700; line-height: 1.3; margin-top: 0.4em; }
 .md-h1 { font-size: 1.4em; } .md-h2 { font-size: 1.25em; } .md-h3 { font-size: 1.12em; }
