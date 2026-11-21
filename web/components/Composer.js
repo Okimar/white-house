@@ -77,7 +77,7 @@ function MarkMenu({ mark, layer, onClose }) {
   </div>`;
 }
 
-export function Composer({ running, disabled, role, onRole, onSend, onStop, onError }) {
+export function Composer({ running, disabled, role, onRole, onSend, onStop, onError, rows = 2 }) {
   const plugins = usePluginUi(); // buttons plugins put beside the message box
   const [text, setText] = useState("");
   const [images, setImages] = useState([]); // picture names in the library
@@ -293,7 +293,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
           ${x.view.undo && html`<button type="button" class="composer-helper-undo"
             onClick=${() => x.view.undo.onClick()}>${x.view.undo.label}</button>`}
         </div>`)}
-      <textarea ref=${box} rows="2" value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
+      <textarea ref=${box} rows=${rows} value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
         aria-label="Сообщение" aria-description="Enter — отправить, Shift+Enter — перенос строки (на телефоне Enter — перенос)" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown} onPaste=${onPaste} onClick=${onTap} onScroll=${() => sync.current()}></textarea>
       <div ref=${layer} class="composer-marks" data-slot="composer-marks" aria-hidden="true"

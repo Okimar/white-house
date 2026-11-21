@@ -749,6 +749,7 @@ function App() {
               </div>`}
             </div>
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
+              rows=${settings.chat_density === "roomy" ? 2 : 1}
               onSend=${(text, images) => {
                 if (isCommand(text) && !images.length) return runCommand(text);
                 emit("send", { text });
