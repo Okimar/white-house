@@ -186,6 +186,15 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           </label>
           <p id="hint-chat-density" class="hint">Плотно — больше текста на экране: шрифт поменьше, строки ближе, между абзацами небольшой зазор.</p>
 
+          <label class="stack">Размер текста в чате
+            <${Select} value=${String(settings.chat_font_size || "")} aria-label="Размер текста сообщений"
+              aria-describedby="hint-chat-font" onChange=${(e) => saveSetting({ chat_font_size: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">Как у плотности (${settings.chat_density === "roomy" ? 17 : 16} px)</option>
+              ${[13, 14, 15, 16, 17, 18, 19, 20, 22, 24, 26].map((n) => html`<option key=${n} value=${String(n)}>${n} px</option>`)}
+            </${Select}>
+          </label>
+          <p id="hint-chat-font" class="hint">Только текст сообщений и размышлений. Кнопки и меню не меняются.</p>
+
           <label class="stack">Размышления модели
             <${Select} value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
               aria-describedby="hint-thinking-display"

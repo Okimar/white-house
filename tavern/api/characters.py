@@ -166,6 +166,7 @@ SETTING_TYPES = {
     # text between an opening and its closing mark is drawn in that colour, as SillyTavern does with "quotes"
     "text_colors": list,
     "chat_density": str,  # "compact" (as SillyTavern, default) or "roomy": font, line height and gaps in the chat
+    "chat_font_size": int,  # the text size of messages in px (12..28); none = as the density gives (16 compact)
 }
 TEXT_COLOR = re.compile(r"^(#[0-9a-fA-F]{6})?$")
 STRING_MAPS = frozenset({"character_themes", "trusted_theme_scripts"})
@@ -189,6 +190,9 @@ async def put_settings(request: Request) -> JSONResponse:
     for key, value in body.items():
         if key not in SETTING_TYPES:
             raise BadRequest(f"Unknown setting {key!r}")
+        if value in ("", None):  # empty = back to the default, whatever the setting's type
+            ctx.settings.delete(key)
+            continue
         field(body, key, SETTING_TYPES[key])
         if key in STRING_MAPS and not all(
             isinstance(k, str) and isinstance(v, str) and len(k) <= 100 and len(v) <= 100
@@ -197,6 +201,8 @@ async def put_settings(request: Request) -> JSONResponse:
             raise BadRequest(f"Setting {key!r} must map short strings to short strings")
         if key in SETTING_CHOICES and value not in ("", None, *SETTING_CHOICES[key]):
             raise BadRequest(f"Setting {key!r} must be one of: {', '.join(SETTING_CHOICES[key])}")
+        if key == "chat_font_size" and not 12 <= value <= 28:
+            raise BadRequest(f"Setting {key!r} must be from 12 to 28")
         if key == "notes_shown" and not 1 <= value <= 20:
             raise BadRequest(f"Setting {key!r} must be from 1 to 20")
         if key == "skip_confirms" and not all(

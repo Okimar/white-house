@@ -81,7 +81,8 @@ function NoteCard({ note, onHide }) {
 export function Message({ message, notes = [], showHidden, notesOpen, notesDisplay = "few", age = 0, avatar,
   streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate, onContinueMessage,
   onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
-  actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, shownThinking = null, textColors = null, onRegexUndo }) {
+  actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, shownThinking = null, textColors = null, reading = false,
+  onRegexUndo }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
@@ -190,8 +191,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
     <article class=${"msg msg-" + message.role + (selected ? " msg-selected" : "") + (found ? " msg-found" : "") + (excluded ? " msg-excluded" : "")}
       data-slot="message" data-role=${message.role} data-streaming=${streaming ? "true" : "false"}
       data-excluded=${excluded ? "true" : "false"} data-pending=${pending ? "true" : "false"}
-      aria-busy=${streaming ? "true" : "false"}>
-      <header data-slot="message-header">
+      aria-busy=${streaming ? "true" : "false"} aria-label=${reading && !isLast ? (message.name || fallbackName) : null}>
+      ${(!reading || isLast || selecting) && html`<header data-slot="message-header">
         ${selecting && html`<input type="checkbox" checked=${selected} disabled=${busy || pending}
           aria-label=${"Выбрать сообщение " + (message.depth + 1)} onChange=${() => onSelect(message.id)} />`}
         <span class="msg-num" data-slot="message-number" title="Номер сообщения">${message.depth + 1}</span>
@@ -242,7 +243,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           ${(menu.length > 0 || pluginMenu.length > 0 || (actionsMode !== "always" && pluginButtons.length > 0)) && html`<${MenuButton}
             label="Действия с сообщением" data-slot="message-menu" items=${menuItems} />`}
         </span>`}
-      </header>
+      </header>`}
       ${editing !== null
         ? html`
           <div class="msg-edit-wrap" data-slot="message-edit-wrap">

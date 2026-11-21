@@ -2239,7 +2239,7 @@ a.button.icon-btn:hover { color: var(--fg); }
 /* markdown in messages (web/core/markdown.js), the way SillyTavern shows a reply */
 .md-p + .md-p, .md-p + .md-h, .md-h + .md-p, .md-quote, .md-list, .md-pre, .md-hr { margin-top: var(--para-gap, 0.6em); }
 /* Chat density (setting chat_density): «compact» = as SillyTavern shows a chat, the default; «roomy» = the old look */
-.main[data-density="compact"] { --text-reading: 15px; --line-height-reading: 1.45; --msg-pad-x: 10px; --msg-pad-y: 6px;
+.main[data-density="compact"] { --text-reading: 16px; --line-height-reading: 1.45; --msg-pad-x: 10px; --msg-pad-y: 6px;
   --msg-gap: 4px; --para-gap: 0.45em; }
 /* the text uses the whole message width, as in SillyTavern (the 68ch reading measure left a wide empty band on a
    tablet once the font got smaller; owner's screenshot, 2026-11-22) */
@@ -2253,6 +2253,24 @@ a.button.icon-btn:hover { color: var(--fg); }
 .app .main[data-density="compact"] .chat-actions { max-width: none; padding: 2px 6px; }
 .app .main[data-density="compact"] .composer { padding: 4px 6px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   flex-wrap: wrap; }
+/* Reading mode (main[data-reading]): only the text. No bars, no chat buttons; the message box hides under an arrow
+   (bottom right) and slides up when opened; old messages show no header (Message.js). */
+.reading-dock { display: contents; }
+.main[data-reading="true"] .reading-dock { display: block; position: relative; }
+.main[data-reading="true"] .menubar, .main[data-reading="true"] .topbar,
+.main[data-reading="true"] .chat-actions { display: none; }
+.main[data-reading="true"][data-write="closed"] .composer { display: none; }
+.main[data-reading="true"][data-write="open"] .composer { animation: reading-slide 180ms var(--ease); }
+@keyframes reading-slide { from { transform: translateY(100%); opacity: 0.4; } to { transform: none; opacity: 1; } }
+.reading-controls { position: absolute; right: 10px; bottom: calc(100% + 10px); z-index: 6; display: flex; gap: 8px; }
+.main[data-reading="true"][data-write="closed"] .vlist { padding-bottom: 64px; } /* the last lines scroll above the arrow */
+.reading-controls .icon-btn { width: var(--tap-min); height: var(--tap-min); min-height: var(--tap-min); border-radius: 50%;
+  background: var(--dialog-bg); border: 1px solid var(--line); box-shadow: var(--menu-shadow); color: var(--accent);
+  opacity: 0.92; }
+.reading-controls .flip svg { transform: rotate(180deg); }
+.main[data-reading="true"] .vlist-jump { right: 116px; }
+.main[data-reading="true"] .vitem:first-child { padding-top: max(var(--msg-gap), env(safe-area-inset-top)); }
+@media (prefers-reduced-motion: reduce) { .main[data-reading="true"][data-write="open"] .composer { animation: none; } }
 /* on a tablet the box and its buttons share one line (a phone wraps the buttons under it) */
 .app .main[data-density="compact"] .composer textarea { flex: 1 1 300px; }
 .app .main[data-density="compact"] .composer-tools { width: auto; flex: 0 1 auto; flex-wrap: nowrap; margin-left: auto; }

@@ -108,6 +108,12 @@ async def test_thinking_written_in_the_reply_goes_to_its_reasoning(client, ctx, 
     assert "split_thinking" not in fake_llm.requests[0]
 
 
+async def test_chat_font_size_is_a_number_in_range_and_empty_resets_it(client):
+    assert (await client.put("/api/settings", json={"chat_font_size": 18})).json()["chat_font_size"] == 18
+    assert (await client.put("/api/settings", json={"chat_font_size": 40})).status_code == 400
+    assert "chat_font_size" not in (await client.put("/api/settings", json={"chat_font_size": None})).json()
+
+
 async def test_text_colors_setting_takes_marks_with_a_colour(client):
     good = [{"open": "*", "close": "*", "color": "#c0392b", "on": True}, {"open": "«", "close": "»", "color": ""}]
     assert (await client.put("/api/settings", json={"text_colors": good})).json()["text_colors"] == good

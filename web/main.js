@@ -72,6 +72,18 @@ function App() {
   const [backupWarningHidden, setBackupWarningHidden] = useState(false);
   const [loaded, setLoaded] = useState(false); // the first load of the lists and settings finished
   const [chatsLoaded, setChatsLoaded] = useState(false); // the chat list really came from the server
+  // Reading mode (this device): only the text. Bars, the chat's buttons and the old messages' headers are gone; the
+  // last message keeps its «…» and pinned buttons; the message box hides under an arrow and slides out on a tap.
+  const [reading, setReading] = useState(() => store.get("tavern.reading") === "1");
+  const [writeOpen, setWriteOpen] = useState(false);
+  const setReadingMode = (on) => {
+    setReading(on);
+    setWriteOpen(false);
+    if (on) store.set("tavern.reading", "1"); else store.del("tavern.reading");
+  };
+  useEffect(() => { // the box slid out: the keyboard comes with it
+    if (writeOpen) setTimeout(() => { const t = document.querySelector(".composer textarea"); if (t) t.focus(); }, 30);
+  }, [writeOpen]);
   const chatsLoadedRef = useRef(false);
   chatsLoadedRef.current = chatsLoaded;
   const [sheet, setSheet] = useState(null); // phone: the section of the left panel shown under the bar
@@ -529,7 +541,7 @@ function App() {
     streamText=${chat.streams[m.id] ? chat.streams[m.id].text : null}
     streamThinking=${chat.streams[m.id] ? chat.streams[m.id].thinking : null}
     shown=${regexShown(m, chat.streams[m.id] ? chat.streams[m.id].text : null)}
-    textColors=${textColors}
+    textColors=${textColors} reading=${reading}
     shownThinking=${regexShown.thinking ? regexShown.thinking(m, chat.streams[m.id] ? chat.streams[m.id].thinking : null) : null}
     onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
@@ -557,6 +569,7 @@ function App() {
   const viewItem = (view, label) => ({ icon: ownView === view ? "check" : view === "document" ? "book-open" : "message-square", label: "Вид: " + label,
     disabled: ownView === view, onClick: () => setChatView(view) });
   const chatMenu = () => [
+    { icon: "book-open", label: "Режим чтения", onClick: () => setReadingMode(true) },
     { icon: "search", label: "Поиск по чату", onClick: () => setSearching(true), phone: true },
     { icon: "users", label: "Участники и пресет", onClick: () => setShowMembers(true), phone: true },
     { icon: "notebook-pen", label: "Заметки автора", onClick: () => setShowNotes(true), phone: true },
@@ -591,7 +604,9 @@ function App() {
         mode=${menuMode} onFold=${menuMode === "side" ? () => { setSheet(null); setMenuFolded(true); } : null} />
       ${sheet && html`<${SheetKeys} onClose=${() => setSheet(null)} />`}
       <main class="main" data-slot="chat" data-view=${chatView} data-running=${chat.running ? "true" : "false"}
-        data-density=${settings.chat_density === "roomy" ? "roomy" : "compact"}>
+        data-density=${settings.chat_density === "roomy" ? "roomy" : "compact"}
+        data-reading=${reading && shown ? "true" : "false"} data-write=${writeOpen ? "open" : "closed"}
+        style=${settings.chat_font_size ? { "--text-reading": `${settings.chat_font_size}px` } : null}>
         <div class="scene" data-slot="scene" aria-hidden="true"></div>
         ${menuMode === "top" && !menuFolded && html`<nav class="menubar only-wide" data-slot="menubar" aria-label="Меню">
           <${IconButton} icon="chevron-down" label="Свернуть меню" class="fold-menu" data-slot="fold-menu"
@@ -684,7 +699,8 @@ function App() {
                 </div>`}
               <//></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
-              onReachTop=${chat.loadOlder} resetKey=${chatId} layoutKey=${chatView} jumpTo=${jumpTo}
+              onReachTop=${chat.loadOlder} resetKey=${chatId} jumpTo=${jumpTo}
+              layoutKey=${`${chatView}|${reading ? "read" : ""}|${settings.chat_density || ""}|${settings.chat_font_size || ""}`}
               stickTo=${(chat.messages.find((m) => m.pending) || {}).vkey || null}
               status=${chat.starting ? "Собираю запрос…" : ""} />
             <div class="chat-actions" data-slot="chat-actions">
@@ -748,9 +764,18 @@ function App() {
                   <span class="branch-hint muted">Чат продолжится от этого сообщения. Всё, что было после него, останется в старой ветке, она будет в этом же списке.</span>`}
               </div>`}
             </div>
+            <div class="reading-dock" data-slot="reading-dock">
+            ${reading && html`<div class="reading-controls" data-slot="reading-controls">
+              <${IconButton} icon="book-open" label="Выйти из режима чтения" class="reading-exit"
+                onClick=${() => setReadingMode(false)} />
+              <${IconButton} icon="chevron-down" label=${writeOpen ? "Спрятать поле ввода" : "Написать сообщение"}
+                class=${"reading-write" + (writeOpen ? "" : " flip")} aria-expanded=${writeOpen ? "true" : "false"}
+                onClick=${() => setWriteOpen(!writeOpen)} />
+            </div>`}
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
               rows=${settings.chat_density === "roomy" ? 2 : 1}
               onSend=${(text, images) => {
+                if (reading) setWriteOpen(false); // in reading mode the box slides away after sending
                 if (isCommand(text) && !images.length) return runCommand(text);
                 emit("send", { text });
                 // The name the server will give the message (the chat's «me» character, else the setting), so the
@@ -758,7 +783,8 @@ function App() {
                 const me = members.find((m) => m.is_me);
                 return chat.send(text, role, images, (me && me.name) || settings.user_name || "User");
               }}
-              onStop=${chat.stop} onError=${onError} />`
+              onStop=${chat.stop} onError=${onError} />
+            </div>`
           : html`<div class="empty" data-slot="empty">
               ${chatId && !chat.failed && html`<${Pending} />`}
               ${chatId && chat.failed && html`<${Pending} error=${chat.failed} onRetry=${() => location.reload()} />`}
