@@ -58,6 +58,12 @@ CARD_SECTIONS = (("Description", "description"), ("Personality", "personality"),
 # mode, where it is the start of the reply. OpenAI-compatible and Gemini chats never get a trailing assistant turn.
 PREFILL_KINDS = ("anthropic", "text")
 START_RE = re.compile(r"^\s*<start>\s*$", re.IGNORECASE | re.MULTILINE)
+# «Дописать»: where the text stopped and how to go on, added to the preset's continue nudge.
+CONTINUE_TAIL = 200
+CONTINUE_POINT = ("[This is the SAME reply, cut off mid-text. It currently ends with: «{tail}». Continue it from that "
+                  "exact point: begin by writing its last word again in full (complete it if it was cut off), then go "
+                  "on. Do not restart the scene, do not repeat anything else already written, no thinking block, no "
+                  "opening marker or header: rules about how a reply begins do not apply to a continuation.]")
 
 
 @dataclass
@@ -671,6 +677,13 @@ def assemble(data: PromptInput) -> Prompt:
     past_thoughts = dict(zip((m["id"] for m in thought_rows),
                              thinking.compact([data.thoughts_rewritten.get(m["id"], m["swipe_meta"]["reasoning"])
                                                for m in thought_rows])))
+    # «Дописать»: the reply being continued always goes with its own whole thinking, whatever the preset sends of old
+    # thinking: the model goes on with its own plan (owner, 2026-11-22: presets like «[c4]» open every reply with it).
+    if data.continue_id:
+        own = next((m for m in history if m["id"] == data.continue_id), None)
+        reasoning = ((own or {}).get("swipe_meta") or {}).get("reasoning") or ""
+        if own is not None and reasoning.strip():
+            past_thoughts[own["id"]] = data.thoughts_rewritten.get(own["id"], reasoning)
 
     def message_entry(m: dict[str, Any]) -> Entry:
         text = data.rewritten.get(m["id"], m["content"])
@@ -912,11 +925,18 @@ def assemble(data: PromptInput) -> Prompt:
     continued = next((e for e in chat_part if data.continue_id and e.source == f"message:{data.continue_id}"), None)
     if continued is not None:
         chat_part = [e for e in chat_part if e is not continued]
-        ending.append(continued)
         nudge_text = prompts.get("continue_nudge") or ""
-        if not preset.get("continue_prefill") and nudge_text.strip():
-            ending.append(Entry("system", sub(nudge_text.replace("{{lastChatMessage}}", continued.text)),
-                                "prompt:continue_nudge", "Дописать", "prompt", alone=True))
+        # SillyTavern's nudge alone (or none: a preset may leave it empty) lost to presets that open every reply their
+        # own way («[c4]», a thinking rule, a header…): the model started a new reply inside the old one (live test,
+        # Gemini 3.5 flash lite, 2026-11-22). So the exact place the text stopped and «same reply, next word» always
+        # go, as a user turn (a trailing system text may be moved into the system instruction by a proxy).
+        point = CONTINUE_POINT.format(tail=continued.text[-CONTINUE_TAIL:].lstrip())
+        if preset.get("continue_prefill"):  # the message is the start of the reply: the point goes before it
+            ending += [Entry("user", point, "prompt:continue_nudge", "Дописать", "prompt", alone=True), continued]
+        else:
+            nudge = sub(nudge_text.replace("{{lastChatMessage}}", continued.text)).strip()
+            ending += [continued, Entry("user", (nudge + "\n" if nudge else "") + point,
+                                        "prompt:continue_nudge", "Дописать", "prompt", alone=True)]
 
     entries = [*before, *chat_part, *after, *tail, *ending]
     # No user turn at all: our own presets without the new-chat line add a user "[Start]" so every service accepts

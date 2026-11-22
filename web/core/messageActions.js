@@ -4,7 +4,6 @@ export const MESSAGE_ACTIONS = [
   { id: "edit", label: "Изменить", icon: "pencil" },
   { id: "copy", label: "Копировать", icon: "copy" },
   { id: "regenerate", label: "Другой вариант", icon: "refresh-cw" },
-  { id: "continue_message", label: "Дописать", icon: "corner-down-right" },
   { id: "branches", label: "Ветки", icon: "git-branch" },
   { id: "prompt", label: "Что видела модель", icon: "eye" },
   { id: "exclude", label: "Скрыть от модели", icon: "eye-off" },

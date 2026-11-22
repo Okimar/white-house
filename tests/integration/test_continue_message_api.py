@@ -28,17 +28,21 @@ async def messages(client, chat_id):
 
 async def test_the_last_message_is_continued_in_place(client, ctx, fake_llm):
     chat_id = await setup(client)
-    fake_llm.queue("door.")
+    fake_llm.queue("the door.")  # the last word again, then on (asked in the continue instruction)
     found = await run(client, ctx, chat_id)
     after = await messages(client, chat_id)
     assert len(after) == 1 and after[0]["content"] == "He opened the door."
     assert after[0]["swipe_count"] == 1  # no new version: the same one grew
     sent = fake_llm.requests[-1]["messages"]
-    assert sent[-2:] == [{"role": "assistant", "content": "He opened the"},
-                         {"role": "system", "content": "[Continue your last message without repeating its original "
-                                                       "content.]"}]
+    assert sent[-2]["role"] == "assistant" and sent[-2]["content"] == "He opened the"
+    assert sent[-1]["role"] == "user" and sent[-1]["content"].startswith(
+        "[Continue your last message without repeating its original content.]") and "«He opened the»" in sent[-1]["content"]
     deltas = "".join(e["text"] for e in found.events if e["type"] == "delta")
-    assert deltas == "He opened the door."  # the page's stream starts from the old text
+    assert deltas.startswith("He opened the")  # the page's stream starts from the old text
+    fake_llm.queue("windows.")  # a cut word, repeated whole
+    await client.put(f"/api/messages/{after[0]['id']}", json={"content": "He opened the win"})
+    await run(client, ctx, chat_id)
+    assert (await messages(client, chat_id))[0]["content"] == "He opened the windows."
 
 
 async def test_an_empty_answer_leaves_the_message_alone(client, ctx, fake_llm):

@@ -143,11 +143,20 @@ def generation_kind(reply: dict[str, Any], new_swipe: bool) -> str:
     return "swipe" if new_swipe else "normal"
 
 
-def continued_text(original: str, postfix: str, new: str) -> str:
+def continued_text(original: str, postfix: str, new: str, *, mid_word: bool = False) -> str:
     """«Дописать»: the old text, the preset's continue_postfix (a space by default; SillyTavern's own options are
     none, a space, a line break or two) and what the model wrote, without doubling the joining space."""
     if postfix and postfix.isspace():
-        return original.rstrip() + postfix + new.lstrip()
+        rest = new.lstrip()
+        # «Дописать» asks the model to begin with the old text's last word again, whole (assembly.CONTINUE_POINT):
+        # «была пр» + «принадлежала …» -> «была принадлежала …», «реакцию» + «реакцию на …» -> «реакцию на …». When it
+        # did not, the usual join (a space). Guessing from a missing space glued words (live test, 2026-11-22).
+        if mid_word:
+            tail = re.search(r"(\w+)$", original)
+            head = re.match(r"(\w+)", rest)
+            if tail and head and head.group(1).lower().startswith(tail.group(1).lower()):
+                return original[: len(original) - len(tail.group(1))] + rest
+        return original.rstrip() + postfix + rest
     return original + postfix + new
 
 
@@ -651,7 +660,7 @@ def _writer(
                 return False
             text, _ = regex_service.stored(ctx, chat_id, text, reply["role"])
             ctx.chats.set_content(reply["id"], continued_text(
-                old_text, preset["data"]["prompts"].get("continue_postfix", " "), text), swipe_idx=swipe_idx)
+                old_text, preset["data"]["prompts"].get("continue_postfix", " "), text, mid_word=True), swipe_idx=swipe_idx)
             return True
         if text.strip():
             # Regex rules for the saved text (stage 11): once, here; the text before them is kept for «вернуть».
@@ -784,7 +793,8 @@ def _writer(
                                 max_context_tokens=prompt_budget, instruction=instruction,
                                 prompt_input=prompt_input, message_id=reply["id"])
             job.meaning = found_meaning
-            job.params["split_thinking"] = True  # <thinking> written in the reply goes to «Размышление»
+            # <thinking> written in the reply goes to «Размышление»; «Дописать» keeps a leading space (a new word)
+            job.params["split_thinking"] = "keep_lead" if continuing else True
             if prompt_kind(connection) == "text":  # the template's {{user}} / {{char}} / {{name}} and "\nName:" stops
                 job.params["text_names"] = {"user": me, "char": character["name"] if character else DEFAULT_CHAR_NAME}
                 if reply["role"] == "user" and not continuing:  # «Написать за меня»: the user's turn is opened
@@ -792,8 +802,9 @@ def _writer(
             job.on_reasoning = lambda text: run.emit("reasoning", id=reply["id"], text=text)
             run.emit("start", run_id=run.id, message=reply, user_message=user_message)
             if continuing:  # the page shows the stream instead of the text: it starts from the old text
-                run.emit("delta", id=reply["id"], text=continued_text(
-                    old_text, preset["data"]["prompts"].get("continue_postfix", " "), ""))
+                postfix = preset["data"]["prompts"].get("continue_postfix", " ")
+                # a plain space comes from the model itself (asked: a space before a new word, none inside a cut one)
+                run.emit("delta", id=reply["id"], text=old_text if postfix == " " else continued_text(old_text, postfix, ""))
             if warning:
                 run.emit("spend_warning", text=warning)
             if meaning_error:  # the reply goes on by keywords; the page shows why meaning search did not work

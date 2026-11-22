@@ -830,10 +830,10 @@ function App() {
                 // message it simply answers. A new message from someone is the «Ответит: …» buttons.
                 const last = chat.messages.filter((m) => !m.hidden && !m.pending).slice(-1)[0];
                 const extend = last && last.role === "assistant";
-                return html`<button disabled=${chat.running}
+                return html`<button class="chat-action-main" data-slot="continue-button" disabled=${chat.running}
                   onClick=${() => (extend ? chat.continueMessage() : chat.continue(role))}
-                  title=${extend ? "Модель допишет свой последний ответ (как Continue в SillyTavern)"
-                    : "Модель ответит на ваше сообщение"}>Продолжить</button>`;
+                  title=${extend ? "Модель допишет свой последний ответ с того места, где он оборвался (Continue в SillyTavern)"
+                    : "Модель ответит на ваше сообщение"}>${extend ? "Дописать" : "Ответить"}</button>`;
               })()}
               ${cast.length > 1 && html`<button data-slot="talk-button" disabled=${chat.running} onClick=${() => chat.talk()}
                 title="Персонажи отвечают друг другу сами, пока не наберётся предел из «Кто говорит» или пока вы не нажмёте «Стоп»">Пусть поговорят</button>`}

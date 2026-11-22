@@ -134,7 +134,8 @@ class LLMClient:
         """`split_thinking=True` (chat replies): `<thinking>…</thinking>` in the text comes out as reasoning, and
         one event "reasoning_tag" (text = "thinking" or "think") says which tag the model used."""
         await self._begin()
-        splitter = thinking.ThinkSplitter() if opts.get("split_thinking") else None
+        splitter = (thinking.ThinkSplitter(keep_lead=opts.get("split_thinking") == "keep_lead")
+                    if opts.get("split_thinking") else None)
         request = self._request(messages, opts)
         parts: list[str] = []
         done = False

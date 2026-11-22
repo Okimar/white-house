@@ -2253,6 +2253,17 @@ a.button.icon-btn:hover { color: var(--fg); }
 .app .main[data-density="compact"] .chat-actions { max-width: none; padding: 2px 6px; }
 .app .main[data-density="compact"] .composer { padding: 4px 6px; padding-bottom: max(4px, env(safe-area-inset-bottom));
   flex-wrap: wrap; }
+/* The buttons under the chat (Дописать / Ответить, Пусть поговорят, Ответит: …): quiet text chips, no boxes
+   (owner, 2026-11-22: the framed «bubbles» looked clumsy). The finger still gets the full height. */
+.app .main .chat-actions button { background: transparent; border-color: transparent; box-shadow: none;
+  color: var(--text2); border-radius: var(--radius-full); padding: 0 12px; min-height: var(--tap);
+  transition: background-color 120ms ease-out, color 120ms ease-out; }
+.app .main .chat-actions button:hover:not(:disabled),
+.app .main .chat-actions button:active:not(:disabled) { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.app .main .chat-actions button.chat-action-main { color: var(--accent); font-weight: 600; }
+.app .main .chat-actions button:disabled { opacity: 0.45; }
+.app .main .chat-actions .speakers > .muted { font-size: var(--text-sm); padding-left: 4px; }
+.app .main .chat-actions .speaker-avatar { width: 22px; height: 22px; border-radius: 50%; }
 /* Reading mode (main[data-reading]): only the text. No bars, no chat buttons, old messages without a header
    (Message.js). A tap or a swipe up on the bottom zone slides out the message strip; a tap on the text, a swipe down
    on the strip or sending puts it away (main.js). */

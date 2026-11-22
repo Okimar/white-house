@@ -29,7 +29,8 @@ def _maybe_tag_start(tail: str) -> bool:
 class ThinkSplitter:
     """Feed streamed text; get back (kind, text) pieces, kind "text" or "reasoning"."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, keep_lead: bool = False) -> None:
+        self.keep_lead = keep_lead
         self._buffer = ""
         self._inside: str | None = None  # the open tag's name
         self._shown = False  # some reply text went out already
@@ -93,8 +94,10 @@ class ThinkSplitter:
 
     def _text(self, text: str, out: list[tuple[str, str]]) -> None:
         if self._skip_space or not self._shown:
-            text = text.lstrip()
-            if not text:
+            # «Дописать» (keep_lead): a leading space is meaningful (a new word vs. the rest of a cut one); only line
+            # breaks are dropped
+            text = text.lstrip("\r\n") if self.keep_lead else text.lstrip()
+            if not text or (self.keep_lead and not text.strip()):
                 return
             self._skip_space = False
         self._shown = True

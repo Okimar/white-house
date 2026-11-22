@@ -71,8 +71,10 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
   const saveDefaultMe = (id) => saveSetting({ default_me: id });
 
   const pinned = settings.message_pinned || DEFAULT_PINNED;
+  // only buttons that still exist (an old «Дописать» pin is dropped: that button is now under the chat)
   const togglePinned = (id, on) => saveSetting({
-    message_pinned: on ? [...pinned, id] : pinned.filter((x) => x !== id),
+    message_pinned: (on ? [...pinned, id] : pinned.filter((x) => x !== id))
+      .filter((x) => MESSAGE_ACTIONS.some((a) => a.id === x)),
   });
 
   useEscape(onClose);
