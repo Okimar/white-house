@@ -89,15 +89,30 @@ class ChatRepo:
         return _chat(row)
 
     def list_chats(self, character_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
-        """Newest first, with message counts of the active branch omitted (cheap listing)."""
+        """Newest first. Each chat also tells how long its active branch is (`messages`) and how it ends
+        (`last`: role, name and the start of the text), so the lists can tell chats with one title apart."""
+        select = (
+            "SELECT c.*, lm.depth AS leaf_depth, lm.role AS leaf_role, lm.name AS leaf_name, "
+            "substr(ls.content, 1, 400) AS leaf_text FROM chats c "
+            "LEFT JOIN messages lm ON lm.id = c.leaf_id "
+            "LEFT JOIN swipes ls ON ls.message_id = lm.id AND ls.idx = lm.active_swipe "
+        )
         if character_id is None:
-            rows = self.db.fetchall("SELECT * FROM chats ORDER BY updated_at DESC LIMIT ?", (limit,))
+            rows = self.db.fetchall(select + "ORDER BY c.updated_at DESC LIMIT ?", (limit,))
         else:
             rows = self.db.fetchall(
-                "SELECT * FROM chats WHERE character_id = ? ORDER BY updated_at DESC LIMIT ?",
-                (character_id, limit),
+                select + "WHERE c.character_id = ? ORDER BY c.updated_at DESC LIMIT ?", (character_id, limit)
             )
-        return [_chat(r) for r in rows]
+        chats = []
+        for r in rows:
+            chat = _chat(r)
+            chat["messages"] = 0 if r["leaf_depth"] is None else r["leaf_depth"] + 1
+            text = " ".join((r["leaf_text"] or "").split())
+            chat["last"] = None if r["leaf_depth"] is None else {
+                "role": r["leaf_role"], "name": r["leaf_name"], "text": text[:160],
+            }
+            chats.append(chat)
+        return chats
 
     def rename_chat(self, chat_id: str, title: str) -> dict[str, Any]:
         self.get_chat(chat_id)

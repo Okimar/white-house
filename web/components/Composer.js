@@ -1,16 +1,15 @@
-// Message input. Enter sends, Shift+Enter inserts a newline. While a reply is being written,
-// the send button turns into Stop. Your text is always a user message; the role menu decides who
-// the model's next messages arrive from (assistant, system, or user for writing in your place).
+// Message input. Enter sends, Shift+Enter inserts a newline (on a touch screen Enter is a new line). While a reply
+// is being written, the send button turns into Stop. Your text is always a user message and the character answers;
+// who else may write next (narrator, the model in your place) is the row of buttons under the chat (main.js), not
+// a remembered mode here (owner, 2026-11-22).
 // 📎 (or pasting a picture) adds pictures to the message: they go to the picture library and the
 // model sees them with the message. Plugins add buttons here (core/plugins.js); "/command" text
 // is offered to plugins first by the app shell (main.js).
 // Plugin helpers may mark ranges of the typed text (spelling): a layer over the textarea draws wavy underlines
 // (a textarea cannot style its own text), and a tap that puts the caret in a marked range opens a small menu of
 // that mark's options (MarkMenu) above the word, inside the part of the page the keyboard leaves visible.
-import { Select } from "./Select.js";
 import { html, useState, useRef, useEffect, useLayoutEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
-import { ROLES } from "./roles.js";
 import { usePluginUi, setComposerBridge, resolve, pluginSummary } from "../core/plugins.js";
 import { applyEdits, markAt, segments, spellingHint } from "../core/textMarks.js";
 import { holdTouch, placeList, visibleArea } from "../core/popup.js";
@@ -77,7 +76,7 @@ function MarkMenu({ mark, layer, onClose }) {
   </div>`;
 }
 
-export function Composer({ running, disabled, role, onRole, onSend, onStop, onError, rows = 2 }) {
+export function Composer({ running, disabled, onSend, onStop, onError, rows = 2 }) {
   const plugins = usePluginUi(); // buttons plugins put beside the message box
   const [text, setText] = useState("");
   const [images, setImages] = useState([]); // picture names in the library
@@ -305,7 +304,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
       ${running
         ? html`<button type="button" class="danger" data-slot="stop-button" aria-label="Остановить генерацию ответа" title="Остановить генерацию ответа" onClick=${onStop}>
             <${Icon} name="square" /> Стоп</button>`
-        : html`<button type="submit" class="primary" data-slot="send-button" aria-label="Отправить сообщение" title="Отправить сообщение (Enter)"
+        : html`<button type="submit" class="primary" data-slot="send-button" aria-label="Отправить сообщение" title="Отправить сообщение (Ctrl+Enter; с клавиатурой компьютера и просто Enter)"
             disabled=${disabled || uploading || (!text.trim() && !images.length)}>
             <${Icon} name="send-horizontal" /> Отправить</button>`}
       </div>
@@ -323,13 +322,6 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
           disabled=${disabled || running} onClick=${() => b.onClick()}>${resolve(b.icon)}</button>`)}
         <input ref=${picker} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden
           onChange=${(e) => { attach(e.target.files); e.target.value = ""; }} />
-        <label class="role-pick" title="От чьего имени модель пишет следующее сообщение">
-          <span class="muted role-label">Ответ от</span>
-          <${Select} value=${role} aria-label="От чьего имени модель пишет следующее сообщение"
-            onChange=${(e) => onRole(e.target.value)}>
-            ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
-          </${Select}>
-        </label>
       </div>
     </form>
   `;

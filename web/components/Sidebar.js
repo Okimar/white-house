@@ -1,7 +1,9 @@
 // Menu: chats, characters (import a card from a JSON or PNG file) and lorebooks. `mode` "side" = the left
 // panel; "top" = a drop-down under the menu bar (main.js), one section at a time like on a phone.
 // On a phone it is a sheet under the top bar showing one section (`section`), chosen by the small icons
-// in the bar. A press on a character only opens its list of actions: a new chat is an explicit choice.
+// in the bar. A tap on a character opens its latest chat (as in SillyTavern); its «⋯» has the other actions.
+// One rule for all three lists: a worded «+ Новый …» on top; a chat asks «с кем» (NewChatPicker, in main.js),
+// a character or a book asks where it comes from (by hand, a file, the assistant).
 // The chat import picker has no `accept`: Android greys out .jsonl (no MIME type there); the server checks the file.
 import { html, useRef } from "../vendor/preact-htm.mjs";
 import { LorebookShelf } from "./Lorebooks.js";
@@ -10,19 +12,11 @@ import { IconButton } from "./Icon.js";
 import { MenuButton, openMenu } from "./Menu.js";
 import { ask, askText } from "./Dialogs.js";
 import { EmptyNote } from "./State.js";
+import { NewButton, chatFacts, lastText } from "./NewChat.js";
 
-// «19 нояб., 00:06» under a chat's name: chats of one character share the name, the time tells them apart
-function shortDate(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleString("ru-RU", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }),
-    hour: "2-digit", minute: "2-digit" });
-}
-
-export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onImport, onImportChat, onRenameChat,
-  onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, onSearch, onHome, section,
-  settings, onError, mode, onFold }) {
+export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onPickNewChat, onImport, onImportChat,
+  onRenameChat, onExportCharacter, onEditCharacter, onDeleteChat, onDeleteCharacter, onSettings, onAssistant, onAskAssistant,
+  onSearch, onHome, section, settings, onError, mode, onFold }) {
   const fileInput = useRef(null);
   const chatFileInput = useRef(null);
 
@@ -90,17 +84,14 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
       <section class="side-section" data-name="chats" data-slot="chats">
         <div class="section-head">
           <h2>Чаты</h2><span class="spacer"></span>
-          <${MenuButton} label="Новый чат или импорт" icon="plus" items=${() => [
-            { icon: "message-square", label: "Чат без персонажа", onClick: () => onNewChat(null) },
-            { icon: "upload", label: "Импорт чата", onClick: () => chatFileInput.current.click() },
-          ]} />
+          <${NewButton} label="Новый чат" slot="new-chat-button" onClick=${onPickNewChat} />
         </div>
         <input ref=${chatFileInput} type="file" hidden
           onChange=${async (e) => { const file = e.target.files[0]; e.target.value = ""; if (file) await onImportChat(file); }} />
         ${chats.length === 0 && html`<${EmptyNote} icon="message-square" title="Чатов пока нет"
           hint="Выберите персонажа или начните свободную беседу.">
           <div class="empty-actions">
-            <button type="button" class="primary empty-btn" onClick=${() => onNewChat(null)}>Новый чат</button>
+            <button type="button" class="primary empty-btn" onClick=${onPickNewChat}>Новый чат</button>
             <button type="button" class="empty-btn" onClick=${() => chatFileInput.current.click()}>Импорт чата</button>
           </div>
         <//>`}
@@ -116,7 +107,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
               <button class="item" aria-current=${c.id === chatId ? "true" : null} onClick=${() => onOpenChat(c.id)}
                 title=${chatTitle + (c?.updated_at ? "\nИзменён: " + new Date(c.updated_at).toLocaleString("ru-RU") : "")}>
                 <span class="item-title">${chatTitle}</span>
-                ${c?.updated_at && html`<span class="item-sub muted">${shortDate(c.updated_at)}</span>`}</button>
+                <span class="item-sub muted">${chatFacts(c)}${lastText(c) ? " · " + lastText(c) : ""}</span></button>
               <${MenuButton} label=${"Действия с чатом " + chatTitle} data-slot="chat-rename" items=${() => chatActions(c, tools)} />
             </li>`;
           }} />
@@ -125,8 +116,12 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
       <section class="side-section" data-name="characters" data-slot="characters">
         <div class="section-head">
           <h2>Персонажи</h2><span class="spacer"></span>
-          <${IconButton} icon="plus" label="Новый персонаж" onClick=${() => onEditCharacter(null)} />
-          <${IconButton} icon="upload" label="Импорт карточки" onClick=${() => fileInput.current.click()} />
+          <${NewButton} label="Новый персонаж" slot="new-character-button" onClick=${(e) => openMenu(e.currentTarget, [
+            { icon: "pencil", label: "Заполнить самому", onClick: () => onEditCharacter(null) },
+            { icon: "upload", label: "Загрузить карточку (PNG или JSON)", onClick: () => fileInput.current.click() },
+            ...(onAskAssistant ? [{ icon: "wand", label: "Попросить помощника",
+              onClick: () => onAskAssistant("Создай персонажа: ") }] : []),
+          ])} />
         </div>
         <input ref=${fileInput} type="file" accept=".json,.png,application/json,image/png" hidden onChange=${pickFile} />
         ${characters.length === 0 && html`<${EmptyNote} icon="users" title="Персонажей пока нет"
@@ -151,7 +146,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onIm
       </section>
 
       <section class="side-section" data-name="lorebooks">
-        <${LorebookShelf} settings=${settings} onError=${onError} />
+        <${LorebookShelf} settings=${settings} onError=${onError} onAskAssistant=${onAskAssistant} />
       </section>
     </aside>
   `;

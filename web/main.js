@@ -16,6 +16,7 @@ import { ProfileSwitch, PickVariants } from "./components/Profiles.js";
 import { SpendingBar } from "./components/Spending.js";
 import { useSpending } from "./core/spending.js";
 import { Sidebar } from "./components/Sidebar.js";
+import { NewChatPicker, CharacterChats, RecentChats } from "./components/NewChat.js";
 import { Settings } from "./components/Settings.js";
 import { Members } from "./components/Members.js";
 import { CharacterEditor } from "./components/CharacterEditor.js";
@@ -221,6 +222,9 @@ function App() {
   const [sheet, setSheet] = useState(null); // phone: the section of the left panel shown under the bar
   const [searching, setSearching] = useState(false); // phone: the search line is open
   const [showAssistant, setShowAssistant] = useState(false);
+  const [assistantStart, setAssistantStart] = useState(null); // {text}: «Попросить помощника» begins a request
+  const [pickingNewChat, setPickingNewChat] = useState(false); // «Новый чат с…»
+  const [showCharacterChats, setShowCharacterChats] = useState(false); // «Все чаты с <имя>» from the chat menu
   const [showSearch, setShowSearch] = useState(false); // the search across all chats
   const [pendingFound, setPendingFound] = useState(null); // a result in another chat, shown once that chat is loaded
   const [assistantMsg, setAssistantMsg] = useState(null); // a conversation message to scroll to
@@ -236,7 +240,6 @@ function App() {
   const [jumpTo, setJumpTo] = useState(null); // { id } of the found message being shown
   const foundTimer = useRef(null);
   const [branchResults, setBranchResults] = useState(null);
-  const [role, setRole] = useState("assistant"); // who the model's next messages are saved as
   const [selecting, setSelecting] = useState(false); // checkbox mode for changing roles in bulk
   const [selected, setSelected] = useState(() => new Set());
   const [bulkRole, setBulkRole] = useState("user");
@@ -549,15 +552,7 @@ function App() {
     setSelected(new Set());
     setNumbers("");
     setSearching(false);
-    let saved = null;
-    try { saved = chatId && localStorage.getItem("tavern.replyRole." + chatId); } catch (e) { /* storage off */ }
-    setRole(ROLES.some((r) => r.id === saved) ? saved : "assistant");
   }, [chatId]);
-
-  const chooseRole = (value) => {
-    setRole(value);
-    try { localStorage.setItem("tavern.replyRole." + chatId, value); } catch (e) { /* storage off */ }
-  };
 
   const toggleSelected = (id) => setSelected((s) => {
     const next = new Set(s);
@@ -678,13 +673,15 @@ function App() {
     onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
-    onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${(m) => (m.role === "user" ? chat.continue(role) : chat.regenerate())} onContinueMessage=${chat.continueMessage}
+    onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${(m) => (m.role === "user" ? chat.continue("assistant") : chat.regenerate())} onContinueMessage=${chat.continueMessage}
     onBranches=${openBranches} onPrompt=${setPromptOf}
     onExclude=${(id, on) => api.put(`/messages/${id}`, { exclude_from_prompt: on }).then(() => chat.reload())
       .catch((e) => onError(e.message))} />`;
 
   const shown = chatId && chat.chat;
   const openAssistant = () => { setSheet(null); setShowAssistant(true); };
+  const askAssistant = (text) => { setAssistantStart({ text }); openAssistant(); };
+  const pickNewChat = () => { setSheet(null); setPickingNewChat(true); };
   const openSearch = () => { setSheet(null); setShowSearch(true); };
   const openSettings = (tab = true) => { setSheet(null); setShowSettings(tab); };
   const assistantBusy = assistantState.waiting.length > 0 || assistantState.running.length > 0;
@@ -700,7 +697,14 @@ function App() {
   const ownView = (chat.chat && chat.chat.meta && chat.chat.meta.chat_view) || "";
   const viewItem = (view, label) => ({ icon: ownView === view ? "check" : view === "document" ? "book-open" : "message-square", label: "Вид: " + label,
     disabled: ownView === view, onClick: () => setChatView(view) });
+  const ownChats = character ? chats.filter((c) => c.character_id === character.id).length : 0;
   const chatMenu = () => [
+    // As SillyTavern's «Start new chat»: a fresh chat with the same character, and the others with them.
+    character
+      ? { icon: "message-square-plus", label: `Новый чат: ${character.name}`, onClick: () => newChat(character.id) }
+      : { icon: "message-square-plus", label: "Новый чат…", onClick: pickNewChat },
+    ...(character && ownChats > 1 ? [{ icon: "message-square", label: `Все чаты: ${character.name} (${ownChats})`,
+      onClick: () => setShowCharacterChats(true) }] : []),
     { icon: "book-open", label: "Режим чтения", onClick: () => setReadingMode(true) },
     { icon: "search", label: "Поиск по чату", onClick: () => setSearching(true), phone: true },
     { icon: "users", label: "Участники и пресет", onClick: () => setShowMembers(true), phone: true },
@@ -728,7 +732,8 @@ function App() {
       ${!backupWarningHidden && !showSettings && html`<${BackupWarning} status=${backupStatus}
         onOpen=${() => openSettings("backups")} onClose=${() => setBackupWarningHidden(true)} />`}
       <${Sidebar} characters=${characters} chats=${chats} chatId=${chatId} section=${sheet}
-        onOpenChat=${open} onHome=${goHome} onNewChat=${newChat} onImport=${importCard} onImportChat=${importChat}
+        onOpenChat=${open} onHome=${goHome} onNewChat=${newChat} onPickNewChat=${pickNewChat} onAskAssistant=${askAssistant}
+        onImport=${importCard} onImportChat=${importChat}
         onExportCharacter=${exportCharacter} onDeleteChat=${deleteChat} onRenameChat=${renameChat}
         onEditCharacter=${(id) => { setEditingCharacter(id); setSheet(null); }}
         onDeleteCharacter=${deleteCharacter} onSettings=${() => openSettings()}
@@ -827,7 +832,7 @@ function App() {
                   : "Напишите первое сообщение в поле ввода внизу."}>
                 ${character && html`<div class="empty-actions">
                   <button type="button" class="primary empty-btn" disabled=${chat.running}
-                    onClick=${() => chat.continue(role)}>Начать беседу</button>
+                    onClick=${() => chat.continue("assistant")}>Начать беседу</button>
                 </div>`}
               <//></div>`}
             <${VirtualList} items=${chat.messages.filter((m) => !m.hidden)} renderItem=${renderItem}
@@ -837,25 +842,31 @@ function App() {
               status=${chat.starting ? "Собираю запрос…" : ""} />
             <div class="chat-actions" data-slot="chat-actions">
               ${(() => {
-                // As SillyTavern's Continue: the model goes on with its last reply (the same message). After your own
-                // message it simply answers. A new message from someone is the «Ответит: …» buttons.
+                // Who writes now: one row of one-shot buttons, no remembered mode (owner, 2026-11-22, UI_MAP §9а-13).
+                // «Дописать» = SillyTavern's Continue: the model goes on with its last reply (the same message).
+                // «Ответить» (anyone, by the chat's order) is shown when no single name would do the same.
                 const last = chat.messages.filter((m) => !m.hidden && !m.pending).slice(-1)[0];
                 const extend = last && last.role === "assistant";
-                return html`<button class="chat-action-main" data-slot="continue-button" disabled=${chat.running}
-                  onClick=${() => (extend ? chat.continueMessage() : chat.continue(role))}
+                return (extend || cast.length !== 1) && html`<button class="chat-action-main" data-slot="continue-button"
+                  disabled=${chat.running}
+                  onClick=${() => (extend ? chat.continueMessage() : chat.continue("assistant"))}
                   title=${extend ? "Модель допишет свой последний ответ с того места, где он оборвался (Continue в SillyTavern)"
                     : "Модель ответит на ваше сообщение"}>${extend ? "Дописать" : "Ответить"}</button>`;
               })()}
               ${cast.length > 1 && html`<button data-slot="talk-button" disabled=${chat.running} onClick=${() => chat.talk()}
                 title="Персонажи отвечают друг другу сами, пока не наберётся предел из «Кто говорит» или пока вы не нажмёте «Стоп»">Пусть поговорят</button>`}
-              ${cast.length > 0 && html`<div class="speakers" data-slot="speakers" role="group" aria-label="Ответит">
+              <div class="speakers" data-slot="speakers" role="group" aria-label="Кто напишет следующее сообщение">
                 <span class="muted">Ответит:</span>
                 ${cast.map((m) => html`<button key=${m.character_id} class=${m.muted ? "muted-member" : ""}
                   disabled=${chat.running} onClick=${() => chat.continue("assistant", m.character_id)}
                   title=${`Пусть ответит ${m.name}` + (m.muted ? " (молчит, но ответит, раз просите)" : "")}>
                   ${m.has_avatar && html`<img class="speaker-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
                   ${m.name}</button>`)}
-              </div>`}
+                <button data-slot="narrator-button" disabled=${chat.running} onClick=${() => chat.continue("system")}
+                  title="Модель напишет сообщение от рассказчика (роль «Система»), не от персонажа">Рассказчик</button>
+                <button data-slot="impersonate-button" disabled=${chat.running} onClick=${() => chat.continue("user")}
+                  title="Модель напишет следующую реплику за вас (impersonate в SillyTavern)">За меня</button>
+              </div>
               ${selecting && html`<div class="bulk-roles" role="group" aria-label="Смена ролей у нескольких сообщений">
                 <span>Отмечено: ${selected.size}</span>
                 <input value=${numbers} placeholder="Номера: 1-5, 8" aria-label="Номера сообщений"
@@ -912,7 +923,7 @@ function App() {
               onPointerUp=${() => dragEnd(false)} onPointerCancel=${() => dragEnd(true)}
               onClick=${(e) => { if (e.detail === 0) setWriteOpen(true); /* keyboard: Enter / Space */ }}>
               <span class="reading-handle" aria-hidden="true"></span></button>`}
-            <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
+            <${Composer} running=${chat.running}
               rows=${settings.chat_density === "roomy" ? 2 : 1}
               onSend=${(text, images) => {
                 if (reading) setWriteOpen(false); // in reading mode the box slides away after sending
@@ -921,7 +932,7 @@ function App() {
                 // The name the server will give the message (the chat's «me» character, else the setting), so the
                 // temporary message is replaced without a visible change.
                 const me = members.find((m) => m.is_me);
-                return chat.send(text, role, images, (me && me.name) || settings.user_name || "User");
+                return chat.send(text, "assistant", images, (me && me.name) || settings.user_name || "User");
               }}
               onStop=${chat.stop} onError=${onError} />
             </div>`
@@ -952,25 +963,10 @@ function App() {
                 icon="message-square" title="Начните первую беседу"
                 hint="Персонажи уже созданы. Начните диалог с любым из них или создайте свободный чат.">
                 <div class="empty-actions">
-                  <button class="primary empty-btn" onClick=${() => {
-                    if (window.matchMedia("(max-width: 720px)").matches) setSheet("characters");
-                    else newChat(characters[0].id);
-                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Выбрать персонажа" : `Начать с «${characters[0].name}»`}</button>
-                  <button class="empty-btn" onClick=${() => newChat(null)}>Чат без персонажа</button>
+                  <button class="primary empty-btn" onClick=${pickNewChat}>Новый чат</button>
                 </div><//>`}
-              ${!chatId && loaded && settings.active_connection && chats.length > 0 && html`<${EmptyNote}
-                icon="message-square" title="Выберите чат"
-                hint="Откройте беседу из списка или начните новую историю.">
-                <div class="empty-actions">
-                  <button class="primary empty-btn" onClick=${() => {
-                    if (window.matchMedia("(max-width: 720px)").matches) setSheet("chats");
-                    else newChat(null);
-                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Список чатов" : "Новый чат"}</button>
-                  <button class="empty-btn" onClick=${() => {
-                    if (window.matchMedia("(max-width: 720px)").matches) setSheet("characters");
-                    else setEditingCharacter(null);
-                  }}>${window.matchMedia("(max-width: 720px)").matches ? "Персонажи" : "Новый персонаж"}</button>
-                </div><//>`}
+              ${!chatId && loaded && settings.active_connection && chats.length > 0 && html`<${RecentChats}
+                chats=${chats} characters=${characters} onOpen=${open} onNew=${pickNewChat} />`}
             </div>`}
         <div class="overlay-layer" data-slot="overlay"></div>
       </main>
@@ -1006,9 +1002,18 @@ function App() {
       ${promptOf && html`<${PromptView} message=${promptOf} onClose=${() => setPromptOf(null)} onError=${onError} />`}
       ${showSearch && html`<${Search} characters=${characters} onOpen=${openFound} onError=${onError}
         onClose=${() => setShowSearch(false)} />`}
-      ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} openConv=${assistantConv} openMsg=${assistantMsg} onError=${onError}
+      ${pickingNewChat && html`<${NewChatPicker} characters=${characters} chats=${chats}
+        onPick=${(id) => { setPickingNewChat(false); newChat(id); }}
+        onImportFile=${(file) => { setPickingNewChat(false); importChat(file); }}
+        onClose=${() => setPickingNewChat(false)} />`}
+      ${showCharacterChats && character && html`<${CharacterChats} character=${character} chats=${chats} currentId=${chatId}
+        onOpen=${(id) => { setShowCharacterChats(false); open(id); }}
+        onNew=${() => { setShowCharacterChats(false); newChat(character.id); }}
+        onClose=${() => setShowCharacterChats(false)} />`}
+      ${showAssistant && html`<${Assistant} chatId=${shown ? chatId : null} openConv=${assistantConv} openMsg=${assistantMsg}
+        startText=${assistantStart} onError=${onError}
         onOpenSkills=${() => setShowSettings("skills")}
-        onChanged=${assistantChanged} onClose=${() => setShowAssistant(false)} />`}
+        onChanged=${assistantChanged} onClose=${() => { setShowAssistant(false); setAssistantStart(null); }} />`}
       ${asks.length > 0 && html`<${PluginAsks} asks=${asks} onError=${onError} />`}
       <${DialogHost} />
       ${toast && html`<div class=${"toast" + (toastClosing ? " closing" : "")} data-slot="toast" data-kind=${toast.kind}

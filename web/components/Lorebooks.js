@@ -18,6 +18,7 @@ import { EmptyNote, Pending, useLoad } from "./State.js";
 import { ask, askText } from "./Dialogs.js";
 import { notify } from "../core/notify.js";
 import { backdrop, useEscape } from "../core/keys.js";
+import { NewButton } from "./NewChat.js";
 
 // Where a book is switched on, for the shelf row and the book window.
 const whereOf = (b) => [b.global ? "везде" : "", b.chats ? `чатов: ${b.chats}` : "", b.characters ? `персонажей: ${b.characters}` : ""]
@@ -176,7 +177,7 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
     </div>`;
 }
 
-export function LorebookShelf({ settings, onError, showHeading = true }) {
+export function LorebookShelf({ settings, onError, onAskAssistant, showHeading = true }) {
   const { data, error, reload } = useLoad(() => api.get("/lorebooks"), []);
   const [editing, setEditing] = useState(null);
   const fileInput = useRef(null);
@@ -222,10 +223,12 @@ export function LorebookShelf({ settings, onError, showHeading = true }) {
     <div class="section-head">
       ${showHeading && html`<h2>Лорбуки</h2>`}
       <span class="spacer"></span>
-      <${IconButton} icon="plus" label="Новый лорбук" onClick=${create} />
-      <${MenuButton} label="Другие действия" items=${[
-        { icon: "file-up", label: "Импорт лорбука", onClick: () => fileInput.current.click() },
-      ]} />
+      <${NewButton} label="Новый лорбук" slot="new-lorebook-button" onClick=${(e) => openMenu(e.currentTarget, [
+        { icon: "pencil", label: "Заполнить самому", onClick: create },
+        { icon: "file-up", label: "Загрузить файл (JSON, мир SillyTavern)", onClick: () => fileInput.current.click() },
+        ...(onAskAssistant ? [{ icon: "wand", label: "Попросить помощника",
+          onClick: () => onAskAssistant("Создай лорбук на тему: ") }] : []),
+      ])} />
     </div>
     <input ref=${fileInput} type="file" accept=".json,application/json" hidden onChange=${pick} />
     ${books === null && html`<${Pending} error=${error} onRetry=${reload} />`}
@@ -245,7 +248,7 @@ export function LorebookShelf({ settings, onError, showHeading = true }) {
         <button class="item book-item" title=${b.name} onClick=${() => setEditing(b.id)}>
           <span class="book-line"><span class="book-name">${b.name}</span><span class="muted count">${b.blocks}</span></span>
           <span class="muted book-where">${whereOf(b)}</span></button>
-        <${MenuButton} label="Действия с лорбуком" items=${() => bookActions(b, tools)} />
+        <${MenuButton} label=${"Действия с лорбуком " + b.name} items=${() => bookActions(b, tools)} />
       </li>`} />`}
     ${editing && html`<${LorebookEditor} bookId=${editing} settings=${settings} onChanged=${reload}
       connected=${editingBook ? whereOf(editingBook) : ""}

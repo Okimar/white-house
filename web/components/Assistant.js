@@ -393,7 +393,8 @@ function timeline(messages, actions) {
   return items.sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : x.order - y.order));
 }
 
-export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpenSkills, onError }) {
+// startText: {text} from «+ Новый персонаж / лорбук → Попросить помощника»: a new conversation with the request begun.
+export function Assistant({ chatId, openConv, openMsg, startText, onClose, onChanged, onOpenSkills, onError }) {
   const pluginUi = usePluginUi();
   const [overview, setOverview] = useState(null);
   const [convId, setConvId] = useState(openConv || stored(CHAT_KEY, ""));
@@ -448,6 +449,16 @@ export function Assistant({ chatId, openConv, openMsg, onClose, onChanged, onOpe
     });
   }, []);
   useEffect(() => { if (openConv) setConvId(openConv); }, [openConv]);
+  useEffect(() => {
+    if (!startText) return;
+    setListOpen(false);
+    setConvId("");
+    setText(startText.text);
+    setTimeout(() => {
+      const el = box.current && box.current.querySelector("textarea");
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    }, 50);
+  }, [startText]);
   // Work in another conversation goes on when you leave it (a new conversation, another chat): the list
   // marks it and keeps itself fresh while anything is running.
   const anyRunning = (overview?.chats || []).some((c) => c.running);

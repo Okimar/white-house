@@ -237,8 +237,6 @@ body { padding-top: var(--notice-h, 0px); box-sizing: border-box; }
 .msg-avatar { width: var(--avatar-size); height: var(--avatar-size); border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 75%, transparent); }
 .bulk-roles { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%; }
 .bulk-roles input { width: 140px; }
-.role-pick { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-sm); }
-.role-pick select, .role-pick .select-btn { font-size: var(--text-sm); }
 .msg header { display: flex; gap: 6px; align-items: center; min-height: var(--tap); max-width: 100%; }
 .msg header .role-icon {
   width: 28px; height: 28px; min-height: 28px; min-width: 28px; padding: 0;
@@ -2370,9 +2368,10 @@ a.button.icon-btn:hover { color: var(--fg); }
   .regex-buttons { width: 100%; justify-content: flex-end; }
 }
 
-/* Short screen (a phone with its keyboard open): the reply buttons share one row you can swipe, so the
-   messages keep some room above the message box. */
-@media (max-height: 480px) {
+/* A phone, or a short screen (keyboard open): the buttons under the chat share one row you can swipe, so the
+   messages keep their room above the message box (owner, 2026-11-22: one row, «кто пишет»). */
+@media (max-width: 720px), (max-height: 480px) {
+  .app .main .chat-actions button { padding: 0 8px; }
   .chat-actions { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
   .chat-actions::-webkit-scrollbar { display: none; }
   .chat-actions > button { flex: none; }
@@ -3098,3 +3097,47 @@ summary:focus-visible,
 /* A window that scrolls as a whole (.dialog.stack) never squeezes its parts: the tab row of the card window
    collapsed to 5px because a scrolling child may shrink to nothing in a flex column. */
 .dialog.stack > *, .dialog > .tabs, .dialog > .side-head { flex-shrink: 0; }
+
+/* ==== One way to start (owner, 2026-11-22, docs/UI_MAP.md §9а 5–6): «+ Новый …», «Новый чат с…», «Недавние». ==== */
+/* «+ Новый чат / персонаж / лорбук»: a quiet worded button, the same in all three lists and on the home screen. */
+.section-new { display: inline-flex; align-items: center; gap: 4px; background: transparent; border-color: transparent;
+  box-shadow: none; color: var(--accent); font-size: var(--text-sm); font-weight: 600; padding: 0 8px;
+  min-height: 32px; border-radius: var(--radius-full); white-space: nowrap;
+  transition: background-color 120ms ease-out; }
+.section-new:hover, .section-new:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+@media (pointer: coarse) { .section-new { min-height: var(--tap); } }
+.section-new svg { width: 16px; height: 16px; }
+/* A chat as two lines: avatar · title · facts, then the start of the last message. */
+.chat-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 75%, transparent); }
+.chat-avatar.no-photo { display: inline-flex; align-items: center; justify-content: center; background: var(--raised);
+  color: var(--text2); font-weight: 600; font-size: var(--text-sm); }
+.chat-avatar.no-photo svg { width: 18px; height: 18px; }
+.chat-lines { display: flex; flex-direction: column; gap: 2px; }
+.chat-line { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: transparent;
+  border-color: transparent; box-shadow: none; padding: 8px 10px; border-radius: var(--radius-sm); min-height: 56px;
+  color: var(--fg); transition: background-color 100ms ease-out; }
+.chat-line:hover, .chat-line:active { background: var(--raised); }
+.chat-line.active { background: var(--raised); box-shadow: inset 2px 0 0 var(--accent); }
+.chat-line-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.chat-line-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.chat-line-title { font-weight: 600; font-size: var(--text-md); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-width: 0; }
+.chat-line-facts { font-size: var(--text-sm); white-space: nowrap; font-variant-numeric: tabular-nums; margin-left: auto; flex: none; }
+.chat-line-text, .sidebar .item .item-sub { text-align: left; }
+.chat-line-text { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Home: the recent chats fill the chat area instead of «Выберите чат». */
+.main > .empty:has(.recent-chats) { margin: 0 auto; max-width: min(760px, 100%); width: 100%; text-align: left;
+  color: var(--fg); padding: 12px 12px 24px; overflow-y: auto; min-height: 0; flex: 1; }
+.recent-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; padding: 0 10px; }
+.recent-head h2 { margin: 0; font-size: var(--text-sm); font-weight: 600; color: var(--text2); }
+/* «Новый чат с…»: avatars, then «без персонажа» and a chat file after a thin line. */
+.new-chat .list .item { gap: 10px; }
+.new-chat .chat-avatar { width: 32px; height: 32px; }
+.new-chat .pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.new-chat .pick-count { font-size: var(--text-sm); flex: none; }
+.new-chat .pick-divider { height: 1px; background: var(--line); margin: 6px 0; list-style: none; }
+.new-chat .pick-empty { padding: 12px 0; text-align: center; list-style: none; }
+.new-chat .list { max-height: min(60vh, 520px); }
+.new-chat > .section-new { align-self: flex-start; }
+.new-chat .chat-lines { max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }

@@ -210,6 +210,16 @@ async def test_send_without_connection_changes_nothing(client, ctx, fake_llm):
     assert await messages(client, chat["id"]) == []
 
 
+async def test_chat_list_tells_length_and_how_it_ends(client, setup):
+    """Chats named after one character are told apart in the lists by the message count and the last text."""
+    empty = (await client.post("/api/chats", json={})).json()["chat"]
+    listed = {c["id"]: c for c in (await client.get("/api/chats")).json()["chats"]}
+    greeted = listed[setup["chat"]["id"]]
+    assert greeted["messages"] == 1
+    assert greeted["last"] == {"role": "assistant", "name": "Ann", "text": "Hi User!"}
+    assert listed[empty["id"]]["messages"] == 0 and listed[empty["id"]]["last"] is None
+
+
 async def test_empty_message_rejected(client, setup):
     response = await client.post(f"/api/chats/{setup['chat']['id']}/send", json={"text": "   "})
     assert response.status_code == 400

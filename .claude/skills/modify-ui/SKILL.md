@@ -40,6 +40,7 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 | `web/core/theme.js` | `applyTheme` (stylesheet, base, effects script with error containment), `emit` events for theme scripts, `SAFE_MODE` (`/?safe`) |
 | `web/components/roles.js` | the three roles (user/assistant/system) with icon and label, shared by Composer and Message |
 | `web/components/VirtualList.js` | windowed list with variable heights, stick-to-bottom, scroll anchoring; items are keyed by `vkey || id`; `stickTo={vkey}` scrolls to the bottom for a just-sent message; `jumpTo={id}` holds that item at the top while the heights above it are measured (a search find, after `chat.reveal(message)` loaded its branch and pages) |
+| `web/components/NewChat.js` | one way to start (owner, 2026-11-22): `NewButton` («+ Новый …» on all three lists), `NewChatPicker` («Новый чат с…»), `CharacterChats` (chat menu «Все чаты: имя»), `RecentChats` (home), `ChatLine` (date · messages · last text from `GET /chats`: `messages`, `last`) |
 | `web/components/Message.js`, `Composer.js`, `Sidebar.js`, `Settings.js` | views; Settings has tabs. Composer: 📎 / paste adds library pictures to the message (`send(text, role, images)`); Message shows `swipe_meta.reasoning` folded (💭) and `swipe_meta.images` |
 | `web/components/Profiles.js` | profiles block and "Несколько запросов сразу" (Settings → Подключения); `PickVariants` opens when a run ends with `done.pick` (state `chat.pick`, `GET /messages/{id}/swipes`); `variants_failed` events become an error toast; `ProfileSwitch` in the top bar (remounted when Settings closes), `FallbackSteps` in the connection editor; Message shows `swipe_meta.via` |
 | `web/components/Skills.js` | Settings tab «Инструкции»: skills grouped built-in / own / plugins / programmer, switch each, built-in ones read-only with «Сделать копию» (a copy of a built-in replaces it for the assistant), own ones edited (name, title, when to use, audience, English text with ## Plan / ## Write / ## Check). The assistant's «📖» line opens it on that skill through localStorage `tavern.skill` and `onOpenSkills` |
@@ -67,7 +68,7 @@ description: How the Tavern browser UI is built and how to change it safely - Pr
 
 `POST /api/chats/{id}/send` (and `/continue`, `/impersonate`, `/regenerate`) returns `{run_id}`.
 `send` takes `reply_role` and `continue` takes `role`: who the generated message is saved as
-(the composer's "Ответ от" menu, remembered per chat; `user` means the model writes for you).
+(the buttons under the chat: «Рассказчик» = system, «За меня» = user, the model writes for you; one-shot, nothing remembered).
 Regenerate works on the last assistant or system message. Then
 `followRun` then receives
 `start` (message, user_message) -> `delta` (text) and `reasoning` (the model's thinking) -> `done | stopped | error`, plus `trace`
@@ -115,7 +116,7 @@ python -m tavern --sandbox --port 8770 --no-browser
 Open `http://127.0.0.1:8770/`, add a connection with base URL `http://127.0.0.1:5001/v1`, import
 or create a character, then check at least: send, streaming with Stop, regenerate, swipes, edit,
 delete, continue, branch list (⑂), switching and «Новая ветка отсюда», search with jump to a result (also one not loaded yet or on another branch), renaming a chat,
-the composer "Ответ от" menu (system: the reply arrives as ⚙; user: the model writes for you), the role icon
+the buttons under the chat «Рассказчик» (the reply arrives as a system message) and «За меня» (the model writes for you), the role icon
 menu on a message, bulk role change (checkboxes, numbers like `1-5, 8`, "Всем"),
 reload during a reply, a long chat (scroll to the top loads older pages without jumping),
 narrow window (<720px), dark theme, members panel (add, depth, importance, "это я", the
@@ -126,7 +127,7 @@ Use `--data-dir` with an empty temp folder (or switch the active connection to t
 after `--sandbox`): manual checks must never call the owner's real model.
 
 If a system HTTP proxy is configured, bypass it for 127.0.0.1 (it answers an empty 503).
-Browser state: `localStorage["tavern.chat"]` (last opened chat), `tavern.replyRole.<chat>`, `tavern.showHiddenNotes` (show all hidden notes), `tavern.treeView`, `tavern.treeNest` (drop on a bubble nests it) and
+Browser state: `localStorage["tavern.chat"]` (last opened chat), `tavern.showHiddenNotes` (show all hidden notes), `tavern.treeView`, `tavern.treeNest` (drop on a bubble nests it) and
 `tavern.theme` (last theme's look, to avoid a flash before settings load). Everything else is
 on the server. Hard-reload (ignore cache) after editing modules; the browser caches ES modules.
 
