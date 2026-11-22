@@ -293,6 +293,7 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
           ${x.view.undo && html`<button type="button" class="composer-helper-undo"
             onClick=${() => x.view.undo.onClick()}>${x.view.undo.label}</button>`}
         </div>`)}
+      <div class="composer-field" data-slot="composer-field">
       <textarea ref=${box} rows=${rows} value=${text} placeholder="Напишите сообщение…" data-slot="composer-input"
         aria-label="Сообщение" aria-description="Enter — отправить, Shift+Enter — перенос строки (на телефоне Enter — перенос)" disabled=${disabled} onInput=${(e) => setText(e.target.value)}
         onKeyDown=${onKeyDown} onPaste=${onPaste} onClick=${onTap} onScroll=${() => sync.current()}></textarea>
@@ -300,6 +301,14 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
         hidden=${!marks.length}><div ref=${layerText} class="composer-marks-text">${marks.length > 0
           && segments(text, marks).map((s, i) => (s.mark < 0 ? s.text : html`<span key=${i} class="composer-mark"
             data-mark=${s.mark} data-kind=${marks[s.mark].kind || "spelling"}>${s.text}</span>`))}</div></div>
+      ${/* «Отправить» / «Стоп»: a see-through icon inside the field, at its right bottom corner (both modes) */ ""}
+      ${running
+        ? html`<button type="button" class="danger" data-slot="stop-button" aria-label="Остановить генерацию ответа" title="Остановить генерацию ответа" onClick=${onStop}>
+            <${Icon} name="square" /> Стоп</button>`
+        : html`<button type="submit" class="primary" data-slot="send-button" aria-label="Отправить сообщение" title="Отправить сообщение (Enter)"
+            disabled=${disabled || uploading || (!text.trim() && !images.length)}>
+            <${Icon} name="send-horizontal" /> Отправить</button>`}
+      </div>
       ${shownMark && html`<${MarkMenu} key=${shownMark.owner + ":" + shownMark.start} mark=${shownMark}
         layer=${layer.current} onClose=${() => setOpenMark(null)} />`}
       <div class="composer-tools">
@@ -321,13 +330,6 @@ export function Composer({ running, disabled, role, onRole, onSend, onStop, onEr
             ${ROLES.map((r) => html`<option key=${r.id} value=${r.id}>${r.label}</option>`)}
           </${Select}>
         </label>
-        <span class="spacer"></span>
-        ${running
-          ? html`<button type="button" class="danger" data-slot="stop-button" aria-label="Остановить генерацию ответа" title="Остановить генерацию ответа" onClick=${onStop}>
-              <${Icon} name="square" /> Стоп</button>`
-          : html`<button type="submit" class="primary" data-slot="send-button" aria-label="Отправить сообщение" title="Отправить сообщение (Enter)"
-              disabled=${disabled || uploading || (!text.trim() && !images.length)}>
-              <${Icon} name="send-horizontal" /> Отправить</button>`}
       </div>
     </form>
   `;

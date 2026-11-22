@@ -85,9 +85,17 @@ function App() {
     exitTimer.current = setTimeout(() => setExitHint(false), ms);
   };
   const setReadingMode = (on) => {
-    setReading(on);
-    setWriteOpen(false);
-    if (on) { store.set("tavern.reading", "1"); flashExit(4000); } else { store.del("tavern.reading"); setExitHint(false); }
+    const apply = () => {
+      setReading(on);
+      setWriteOpen(false);
+      if (on) { store.set("tavern.reading", "1"); flashExit(4000); } else { store.del("tavern.reading"); setExitHint(false); }
+    };
+    // The two looks blend into each other (the browser's view transition) instead of jumping; where the browser has
+    // none, or motion is reduced, the switch is immediate.
+    const calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (document.startViewTransition && !calm) {
+      document.startViewTransition(() => { apply(); return new Promise((done) => setTimeout(done, 0)); });
+    } else apply();
   };
   // The top edge: the chat's bar follows the finger down (1:1); let go past a third of it and reading mode ends,
   // else it slides back up.
