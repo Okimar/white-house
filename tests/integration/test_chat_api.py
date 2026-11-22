@@ -149,6 +149,26 @@ async def test_regenerate_adds_a_swipe_to_the_last_reply(client, ctx, fake_llm, 
     assert all(m["content"] != "first" for m in fake_llm.requests[1]["messages"])
 
 
+async def test_delete_one_variant_keeps_the_others_and_what_the_model_saw(client, ctx, fake_llm, setup):
+    chat_id = setup["chat"]["id"]
+    fake_llm.queue("first", "second", "third")
+    await finish(ctx, await send(client, chat_id))
+    for _ in range(2):
+        await finish(ctx, (await client.post(f"/api/chats/{chat_id}/regenerate")).json()["run_id"])
+    reply = (await messages(client, chat_id))[-1]
+    third_saw = ctx.prompt_log.find(reply["id"], 2)
+
+    response = await client.delete(f"/api/messages/{reply['id']}/swipes/1")
+    assert response.status_code == 200
+    after = response.json()
+    assert (after["content"], after["swipe_count"], after["active_swipe"]) == ("third", 2, 1)
+    assert [s["content"] for s in ctx.chats.list_swipes(reply["id"])] == ["first", "third"]
+    assert ctx.prompt_log.find(reply["id"], 1) == third_saw  # «Что видела модель» moved with its version
+    await client.delete(f"/api/messages/{reply['id']}/swipes/0")
+    last_one = await client.delete(f"/api/messages/{reply['id']}/swipes/0")
+    assert last_one.status_code == 409  # the message itself is deleted with «Удалить сообщение»
+
+
 async def test_provider_error_keeps_user_message_and_drops_empty_reply(client, ctx, fake_llm, setup):
     chat_id = setup["chat"]["id"]
     fake_llm.fail_next(500, "model exploded")

@@ -15,7 +15,8 @@ let show = null;
 // Settings > Основное turns it back on. The choice is the server setting `skip_confirms` (key -> true).
 // Never for whole characters, chats, lorebooks, connections and backups: those stay asked.
 export const SKIP_ASKS = [
-  ["message", "Удаление сообщения (и всего после него)"],
+  ["message", "Удаление сообщения (следующие остаются)"],
+  ["swipe", "Удаление одного варианта ответа"],
   ["note", "Удаление заметки автора"],
   ["member", "Убрать персонажа из чата"],
   ["rule", "Удаление правила замены текста"],

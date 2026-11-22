@@ -146,7 +146,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onPi
       </section>
 
       <section class="side-section" data-name="lorebooks">
-        <${LorebookShelf} settings=${settings} onError=${onError} onAskAssistant=${onAskAssistant} />
+        <${LorebookShelf} settings=${settings} onError=${onError} onAskAssistant=${onAskAssistant} chatId=${chatId} />
       </section>
     </aside>
   `;

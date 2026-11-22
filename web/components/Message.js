@@ -82,7 +82,7 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
   streamText, streamThinking, busy, isLast, found, selecting, selected, onSelect, onRole, onEdit, onSwipe, onRemove, onRegenerate, onContinueMessage,
   onBranches, onPrompt, onExclude, onNotesOpen, onOpenNotes, spend, thinkingDisplay = "folded",
   actionsMode = "menu", pinned = DEFAULT_PINNED, shown = null, shownThinking = null, textColors = null, reading = false,
-  onExitReading = null, onRegexUndo }) {
+  onExitReading = null, onRegexUndo, onRemoveSwipe }) {
   const plugins = usePluginUi(); // buttons and lines added by plugins (core/plugins.js)
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [editing, setEditing] = useState(null); // draft text while editing
@@ -159,15 +159,27 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
       onClick: () => onExclude(message.id, !excluded),
     },
     notes: { label: notes.length ? `Заметки: ${notes.length}` : "Написать заметку", pressed: anyShown, count: notes.length, onClick: more },
-    delete: {
+    // Two deletes when there are versions (owner, 2026-11-22): one version, or the message with all of them.
+    delete_swipe: {
       disabled: busy, danger: true,
       onClick: async () => {
-        if (await ask("Удалить это сообщение безвозвратно? Последующие реплики останутся в диалоге.", { ok: "Удалить", danger: true, skip: "message" })) onRemove(message.id);
+        if (await ask(`Удалить вариант ${message.active_swipe + 1} из ${message.swipe_count}?`, { ok: "Удалить вариант",
+          danger: true, skip: "swipe", hint: "Остальные варианты и само сообщение останутся. Будет показан предыдущий вариант." })) {
+          onRemoveSwipe(message.id, message.active_swipe);
+        }
+      },
+    },
+    delete: {
+      disabled: busy, danger: true, label: message.swipe_count > 1 ? "Удалить сообщение" : "Удалить",
+      onClick: async () => {
+        const all = message.swipe_count > 1 ? ` вместе со всеми вариантами (${message.swipe_count})` : "";
+        if (await ask(`Удалить это сообщение${all} безвозвратно? Следующие реплики останутся в диалоге.`, { ok: "Удалить", danger: true, skip: "message" })) onRemove(message.id);
       },
     },
   };
   const available = MESSAGE_ACTIONS.map((a) => a.id).filter((id) => (id !== "regenerate" || canRegenerate)
-    && (id !== "continue_message" || (canRegenerate && Boolean(message.content))));
+    && (id !== "continue_message" || (canRegenerate && Boolean(message.content)))
+    && (id !== "delete_swipe" || (message.swipe_count > 1 && Boolean(onRemoveSwipe))));
   const status = [excluded && "exclude", notes.length > 0 && "notes"].filter(Boolean);
   const { bar, menu } = splitActions(available, { mode: actionsMode, pinned, status });
   const describe = (id) => ({ ...MESSAGE_ACTIONS.find((a) => a.id === id), ...actions[id] });
@@ -204,7 +216,8 @@ export function Message({ message, notes = [], showHidden, notesOpen, notesDispl
           label=${"Роль для модели: " + role.label + ". Нажмите, чтобы сменить"}
           onClick=${(e) => pickRole(e.currentTarget)} />
         <strong class="msg-name" data-slot="message-name" title=${message.name || fallbackName}>${message.name || fallbackName}</strong>
-        ${message.swipe_count > 1 && html`
+        ${/* the last reply always has ‹ n/m ›: → on its last version asks for a new one (owner, 2026-11-22) */ ""}
+        ${(message.swipe_count > 1 || (isLast && !pending && message.role === "assistant")) && html`
           <span class="swipes" data-slot="message-swipes" role="group"
             tabindex="0" aria-label=${`Варианты ответа: вариант ${message.active_swipe + 1} из ${message.swipe_count}`}
             title="Листайте варианты стрелками ← и → на клавиатуре"

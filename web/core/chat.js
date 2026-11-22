@@ -240,5 +240,8 @@ export function useChat(chatId, onError) {
       }
     })()),
     remove: (id) => guard(api.del(`/messages/${id}`).then(reload)),
+    // «Удалить этот вариант»: the message stays, the version before the removed one is shown.
+    removeSwipe: (id, index) => guard(api.del(`/messages/${id}/swipes/${index}`).then((m) =>
+      setState((s) => ({ ...s, messages: upsert(s.messages, m) })))),
   };
 }

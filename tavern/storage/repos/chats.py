@@ -346,6 +346,35 @@ class ChatRepo:
                 (last - 1, message_id, last),
             )
 
+    def delete_swipe(self, message_id: str, idx: int) -> dict[str, Any]:
+        """Remove one version of a message; the later ones move down by one and the one before it is shown.
+        "What the model saw" moves with its version: records of the removed one are hidden (negative index; their
+        texts stay, later records may be stored as deltas on them). A message keeps at least one version."""
+        message = self.get_message(message_id)
+        count = message["swipe_count"]
+        if not 0 <= idx < count:
+            raise Conflict(f"Swipe {idx} out of range (0..{count - 1})")
+        if count < 2:
+            raise Conflict("A message must keep at least one swipe")
+        active = message["active_swipe"]
+        shown = idx - 1 if active == idx and idx > 0 else (active - 1 if active > idx else active)
+        with self.db.transaction() as conn:
+            conn.execute("DELETE FROM swipes WHERE message_id = ? AND idx = ?", (message_id, idx))
+            # two steps: a unique (message_id, idx) must not clash while the rows move down
+            conn.execute("UPDATE swipes SET idx = -idx WHERE message_id = ? AND idx > ?", (message_id, idx))
+            conn.execute("UPDATE swipes SET idx = -idx - 1 WHERE message_id = ? AND idx < 0", (message_id,))
+            conn.execute(
+                "UPDATE prompt_records SET swipe_idx = -1 - swipe_idx WHERE message_id = ? AND swipe_idx = ?",
+                (message_id, idx),
+            )
+            conn.execute(
+                "UPDATE prompt_records SET swipe_idx = swipe_idx - 1 WHERE message_id = ? AND swipe_idx > ?",
+                (message_id, idx),
+            )
+            conn.execute("UPDATE messages SET active_swipe = ? WHERE id = ?", (shown, message_id))
+            conn.execute("UPDATE chats SET updated_at = ? WHERE id = ?", (now_iso(), message["chat_id"]))
+        return self.get_message(message_id)
+
     def set_active_swipe(self, message_id: str, idx: int) -> dict[str, Any]:
         message = self.get_message(message_id)
         if not 0 <= idx < message["swipe_count"]:

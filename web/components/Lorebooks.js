@@ -91,7 +91,52 @@ export function LoreOrder({ chatId, onError }) {
   </details>`;
 }
 
-export function LorebookEditor({ bookId, settings, connected = "", onClose, onChanged, onError }) {
+// «Подключён: …» opened (owner, 2026-11-22, UI_MAP §9а-7): every place this book works, in one spot — everywhere,
+// the open chat, other chats it is on, characters. A tick changes that place's list of books (`/lorebook-uses`).
+function BookPlaces({ bookId, chatId, onChanged, onError }) {
+  const { data, error, reload } = useLoad(() => Promise.all([api.get(`/lorebooks/${bookId}`), api.get("/characters"),
+    api.get("/chats")]), [bookId]);
+  const [busy, setBusy] = useState("");
+  const [query, setQuery] = useState("");
+  if (!data) return html`<${Pending} error=${error} onRetry=${reload} />`;
+  const [book, chars, chatList] = data;
+  const places = book.places || [];
+  const isOn = (scope, target) => places.some((p) => p.scope === scope
+    && (scope === "global" || (scope === "chat" ? p.chat_id === target : p.character_id === target)));
+  const set = async (scope, target, wanted) => {
+    const key = scope + (target || "");
+    setBusy(key);
+    try {
+      const q = `/lorebook-uses?scope=${scope}` + (target ? `&target=${encodeURIComponent(target)}` : "");
+      const ids = (await api.get(q)).lorebook_ids;
+      const next = wanted ? [...ids.filter((x) => x !== bookId), bookId] : ids.filter((x) => x !== bookId);
+      await api.put("/lorebook-uses", { scope, target, lorebook_ids: next });
+      await reload();
+      onChanged();
+    } catch (e) { onError(e.message); } finally { setBusy(""); }
+  };
+  const chats = (chatList.chats || []).filter((c) => c.id === chatId || isOn("chat", c.id));
+  const characters = chars.characters || chars;
+  const q = query.trim().toLowerCase();
+  const shownChars = characters.filter((c) => !q || (c.name || "").toLowerCase().includes(q))
+    .sort((a, b) => Number(isOn("character", b.id)) - Number(isOn("character", a.id)));
+  const box = (scope, target, label, sub) => html`<label class="book-place" key=${scope + (target || "")}>
+    <input type="checkbox" checked=${isOn(scope, target)} disabled=${busy !== ""}
+      onChange=${(e) => set(scope, target, e.target.checked)} />
+    <span class="book-place-name">${label}${sub && html` <span class="muted">${sub}</span>`}</span></label>`;
+  return html`<div class="book-places" data-slot="book-places">
+    ${box("global", null, "Везде", "во всех чатах")}
+    ${chats.length > 0 && html`<span class="book-places-head">Чаты</span>`}
+    ${chats.map((c) => box("chat", c.id, (c.title || "").trim() || "Без названия", c.id === chatId ? "открытый сейчас" : ""))}
+    ${characters.length > 0 && html`<span class="book-places-head">Персонажи <span class="muted">— во всех их чатах</span></span>`}
+    ${characters.length > 8 && html`<input type="search" class="group-picker-search" placeholder="Поиск по имени"
+      aria-label="Поиск персонажа" value=${query} onInput=${(e) => setQuery(e.target.value)} />`}
+    <div class="book-places-list">${shownChars.map((c) => box("character", c.id, c.name, ""))}</div>
+  </div>`;
+}
+
+export function LorebookEditor({ bookId, settings, chatId = null, connected = "", onClose, onChanged, onError }) {
+  const [placesOpen, setPlacesOpen] = useState(false);
   const [book, setBook] = useState(null);
   const [revision, setRevision] = useState(0); // bumps after undo / restore: everything reloads
   const [showHistory, setShowHistory] = useState(false);
@@ -166,10 +211,15 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
               <input key=${"d" + revision} value=${book.description} onBlur=${(e) => saveField("description", e.target.value)} /></label>
           </div>
           <div class="row book-head-sub">
-            ${connected ? html`<div class="book-connected-pill" role="status"><${Icon} name="link" size=${13} /> <span>Подключён: <strong>${connected}</strong></span></div>` : null}
+            <button type="button" class="book-connected-pill" data-slot="book-connected" aria-expanded=${placesOpen}
+              title="Где работает эта книга: везде, в чатах, у персонажей" onClick=${() => setPlacesOpen(!placesOpen)}>
+              <${Icon} name="link" size=${13} /> <span>${connected && connected !== "не подключён"
+                ? html`Подключён: <strong>${connected}</strong>` : html`<strong>Не подключён</strong> — подключить`}</span>
+              <${Icon} name="chevron-down" size=${14} class="book-connected-chevron" /></button>
             <span class="spacer"></span>
             <span class="save-state-pill saved book-auto-save-pill"><${Icon} name="check" size=${13} /> <span>Сохраняется при выходе из поля</span></span>
           </div>
+          ${placesOpen && html`<${BookPlaces} bookId=${bookId} chatId=${chatId} onChanged=${onChanged} onError=${onError} />`}
         </div>`}
         ${book && html`<${CharacterTree} character=${{ id: bookId, name: book.name, book: true }}
           settings=${settings} revision=${revision} onError=${onError} />`}
@@ -177,7 +227,7 @@ export function LorebookEditor({ bookId, settings, connected = "", onClose, onCh
     </div>`;
 }
 
-export function LorebookShelf({ settings, onError, onAskAssistant, showHeading = true }) {
+export function LorebookShelf({ settings, onError, onAskAssistant, chatId = null, showHeading = true }) {
   const { data, error, reload } = useLoad(() => api.get("/lorebooks"), []);
   const [editing, setEditing] = useState(null);
   const fileInput = useRef(null);
@@ -250,7 +300,7 @@ export function LorebookShelf({ settings, onError, onAskAssistant, showHeading =
           <span class="muted book-where">${whereOf(b)}</span></button>
         <${MenuButton} label=${"Действия с лорбуком " + b.name} items=${() => bookActions(b, tools)} />
       </li>`} />`}
-    ${editing && html`<${LorebookEditor} bookId=${editing} settings=${settings} onChanged=${reload}
+    ${editing && html`<${LorebookEditor} bookId=${editing} settings=${settings} chatId=${chatId} onChanged=${reload}
       connected=${editingBook ? whereOf(editingBook) : ""}
       onClose=${() => { setEditing(null); reload(); }} onError=${onError} />`}
   </section>`;

@@ -8,6 +8,7 @@ export const MESSAGE_ACTIONS = [
   { id: "prompt", label: "Что видела модель", icon: "eye" },
   { id: "exclude", label: "Скрыть от модели", icon: "eye-off" },
   { id: "notes", label: "Заметки", icon: "notebook-pen" },
+  { id: "delete_swipe", label: "Удалить этот вариант", icon: "circle-x" }, // only when there are 2+ versions
   { id: "delete", label: "Удалить", icon: "trash-2" },
 ];
 

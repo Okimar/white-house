@@ -187,7 +187,8 @@ function Panel({ anchor, rows, value, onPick, onClose }) {
   </div>`;
 }
 
-export function Select({ value, onChange, disabled, children, class: cls, className, ...rest }) {
+// prefix: a quiet word before the chosen value on the button («Профиль: Работа»), not repeated in the list.
+export function Select({ value, onChange, disabled, children, class: cls, className, prefix, ...rest }) {
   const button = useRef(null);
   const [open, setOpen] = useState(false);
   const current = value === undefined || value === null ? "" : String(value);
@@ -225,6 +226,7 @@ export function Select({ value, onChange, disabled, children, class: cls, classN
     aria-haspopup="listbox" aria-expanded=${open ? "true" : "false"} disabled=${disabled} ...${rest}
     onKeyDown=${(e) => { if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !open) { e.preventDefault(); setOpen(true); } }}
     onClick=${() => setOpen(!open)}>
+    ${prefix && html`<span class="select-prefix" data-slot="select-prefix">${prefix}</span>`}
     <span class="select-value">${chosen ? chosen.label : (current ? current : (options.length ? "—" : ""))}</span>
     <${Icon} name="chevron-down" />
   </button>`;

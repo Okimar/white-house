@@ -358,6 +358,20 @@ async def select_swipe(request: Request) -> JSONResponse:
     return JSONResponse(await message_service.select_swipe(ctx, message_id, field(body, "index", int)))
 
 
+async def delete_swipe(request: Request) -> JSONResponse:
+    """«Удалить этот вариант»: one version goes, the message and its other versions stay."""
+    ctx = ctx_of(request)
+    message_id = request.path_params["id"]
+    message = ctx.chats.get_message(message_id)
+    if ctx.runs.active(message["chat_id"]) is not None:
+        raise BadRequest("Wait for the generation to finish before deleting", code="busy")
+    try:
+        index = int(request.path_params["index"])
+    except ValueError as e:
+        raise BadRequest("Variant number must be a whole number", code="bad_index") from e
+    return JSONResponse(await message_service.delete_swipe(ctx, message_id, index))
+
+
 async def delete_message(request: Request) -> JSONResponse:
     ctx = ctx_of(request)
     message_id = request.path_params["id"]
@@ -394,4 +408,5 @@ routes = [
     Route("/messages/{id}", delete_message, methods=["DELETE"]),
     Route("/messages/{id}/swipe", select_swipe, methods=["PUT"]),
     Route("/messages/{id}/swipes", list_swipes, methods=["GET"]),
+    Route("/messages/{id}/swipes/{index}", delete_swipe, methods=["DELETE"]),
 ]

@@ -40,11 +40,15 @@ export function useProfiles(onError, refreshKey = "") {
   return { ...state, reload, apply };
 }
 
-export function ProfileSwitch({ onChanged, onError, refreshKey = "" }) {
+// In the chat bar, signed «Профиль:» (owner, 2026-11-22). Hidden when there is nothing to switch to (one profile,
+// already on) and in a chat with its own connection: a profile changes the general one, not that chat's.
+export function ProfileSwitch({ chat, onChanged, onError, refreshKey = "" }) {
   const { profiles, active, apply } = useProfiles(onError, refreshKey);
   if (!profiles.length) return null;
-  return html`<${Select} class="profile-switch" data-slot="profile-switch" value=${active || ""}
-    aria-label="Профиль подключения" title="Профиль подключения: переключает всё сразу"
+  if (profiles.length === 1 && active === profiles[0].id) return null;
+  if (chat && chat.meta && chat.meta.connection_id) return null;
+  return html`<${Select} class="profile-switch" data-slot="profile-switch" value=${active || ""} prefix="Профиль:"
+    aria-label="Профиль подключения" title="Профиль подключения: переключает подключение, модель и пресет для всех чатов"
     onChange=${async (e) => { if (e.target.value && await apply(e.target.value)) onChanged(); }}>
     ${!active && html`<option value="">Выберите профиль</option>`}
     ${profiles.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}

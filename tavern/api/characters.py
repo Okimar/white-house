@@ -178,7 +178,8 @@ SETTING_CHOICES = {
     "chat_view": ("bubbles", "document"),
     "chat_density": ("compact", "roomy"),
 }
-MESSAGE_BUTTONS = frozenset({"edit", "copy", "regenerate", "branches", "prompt", "exclude", "notes", "delete"})
+MESSAGE_BUTTONS = frozenset({"edit", "copy", "regenerate", "branches", "prompt", "exclude", "notes", "delete_swipe",
+                             "delete"})
 
 
 async def get_settings(request: Request) -> JSONResponse:

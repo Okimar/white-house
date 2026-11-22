@@ -673,7 +673,7 @@ function App() {
     onRegexUndo=${(id) => api.post(`/regex/messages/${id}/original`).then(() => chat.reload()).catch((e) => onError(e.message))}
     busy=${chat.running} isLast=${m.id === lastId} found=${jumpTo && jumpTo.id === m.id}
     selecting=${selecting} selected=${selected.has(m.id)} onSelect=${toggleSelected} onRole=${chat.setRoles}
-    onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRegenerate=${(m) => (m.role === "user" ? chat.continue("assistant") : chat.regenerate())} onContinueMessage=${chat.continueMessage}
+    onEdit=${chat.edit} onSwipe=${chat.swipe} onRemove=${chat.remove} onRemoveSwipe=${chat.removeSwipe} onRegenerate=${(m) => (m.role === "user" ? chat.continue("assistant") : chat.regenerate())} onContinueMessage=${chat.continueMessage}
     onBranches=${openBranches} onPrompt=${setPromptOf}
     onExclude=${(id, on) => api.put(`/messages/${id}`, { exclude_from_prompt: on }).then(() => chat.reload())
       .catch((e) => onError(e.message))} />`;
@@ -808,7 +808,7 @@ function App() {
             data-slot="assistant-mark" title="Открыть помощника" onClick=${openAssistantMark}>
             <${Icon} name="wand" /> ${assistantState.waiting.length ? "Ждёт вас" : "Работает"}</button>`}
           ${shown && html`<${SpendingBar} summary=${spend} />`}
-          ${shown && html`<${ProfileSwitch} refreshKey=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
+          ${shown && html`<${ProfileSwitch} chat=${chat.chat} refreshKey=${String(showSettings)} onChanged=${refresh} onError=${onError} />`}
           ${shown && html`<${ModelChip} chat=${chat.chat} settings=${settings} onChanged=${chat.refreshInfo} onError=${onError} />`}
           ${shown && regexShown.waiting > 0 && html`<button type="button" class="plugin-chip error" data-slot="regex-waiting"
             title=${`Регекс-правила этого чата пришли с карточкой или пресетом и не работают, пока вы их не разрешите (${regexShown.waiting}). Открыть «Регекс»`}

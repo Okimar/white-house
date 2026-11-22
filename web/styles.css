@@ -978,7 +978,7 @@ input.num { width: 4.5em; }
 .profile-parts { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding-top: 6px; border-top: 1px dashed var(--line); font-size: var(--text-sm); }
 .profile-parts-label { font-size: var(--text-xs); color: var(--muted); flex: none; }
 .profile-new-form { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; margin-top: 8px; }
-.profile-switch { max-width: 160px; min-height: var(--tap); }
+.profile-switch { max-width: 210px; min-height: var(--tap); } /* room for «Профиль:» before the name */
 .fallback-steps { padding-left: 1.4em; margin: 4px 0; }
 .fallback-step { border-bottom: 1px dashed var(--line); padding: 8px 0; }
 .fallback-step input:not([type=checkbox]) { min-width: 0; flex: 1 1 140px; }
@@ -3141,3 +3141,19 @@ summary:focus-visible,
 .new-chat .list { max-height: min(60vh, 520px); }
 .new-chat > .section-new { align-self: flex-start; }
 .new-chat .chat-lines { max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
+
+/* «Профиль: имя» on the profile switch in the chat bar (Select `prefix`) */
+.select-prefix { color: var(--muted); margin-right: 4px; white-space: nowrap; }
+/* «Подключён: …» in the book window is a button: it opens every place the book works (owner, 2026-11-22). */
+button.book-connected-pill { cursor: pointer; min-height: 32px; font-size: var(--text-sm); }
+@media (pointer: coarse) { button.book-connected-pill { min-height: var(--tap); } }
+.book-connected-chevron { transition: transform 150ms ease-out; }
+.book-connected-pill[aria-expanded="true"] .book-connected-chevron { transform: rotate(180deg); }
+.book-places { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
+.book-places-head { font-size: var(--text-sm); font-weight: 600; color: var(--text2); margin-top: 8px; }
+.book-places-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto;
+  overscroll-behavior: contain; }
+.book-place { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: var(--text-sm); cursor: pointer; }
+@media (pointer: coarse) { .book-place { min-height: var(--tap); } }
+.book-place-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -67,6 +67,14 @@ async def delete(ctx: AppContext, message_id: str) -> dict[str, Any]:
     return ctx.chats.get_chat(message["chat_id"])
 
 
+async def delete_swipe(ctx: AppContext, message_id: str, index: int) -> dict[str, Any]:
+    """Remove one version of a message (the message stays); the one before it is shown. Returns the message."""
+    before = ctx.chats.get_message(message_id)["active_swipe"]
+    message = ctx.chats.delete_swipe(message_id, index)
+    await ctx.events.emit("message.swipe_selected", message=message, chat_id=message["chat_id"], before_idx=before)
+    return message
+
+
 async def select_swipe(ctx: AppContext, message_id: str, index: int) -> dict[str, Any]:
     before = ctx.chats.get_message(message_id)["active_swipe"]
     message = ctx.chats.set_active_swipe(message_id, index)
