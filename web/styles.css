@@ -2257,8 +2257,12 @@ a.button.icon-btn:hover { color: var(--fg); }
    (Message.js). A tap or a swipe up on the bottom zone slides out the message strip; a tap on the text, a swipe down
    on the strip or sending puts it away (main.js). */
 .reading-dock { display: contents; }
-.main[data-reading="true"] .menubar, .main[data-reading="true"] .topbar,
-.main[data-reading="true"] .chat-actions { display: none; }
+.main[data-reading="true"] .menubar, .main[data-reading="true"] .chat-actions { display: none; }
+/* the chat's bar waits above the screen: a swipe down from the top edge pulls it down after the finger (main.js) */
+.app .main[data-reading="true"] .topbar { position: absolute; top: 0; left: 0; right: 0; z-index: 9;
+  background: var(--bg); box-shadow: 0 6px 18px color-mix(in srgb, #000 18%, transparent);
+  transform: translateY(-105%); visibility: hidden;
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 /* The strip lies over the bottom of the text and slides (transform only: the chat never re-lays out, so no jerk). */
 .main[data-reading="true"] { position: relative; }
 .main[data-reading="true"] .reading-dock { display: block; position: absolute; left: 0; right: 0; bottom: 0; z-index: 6;
@@ -2291,9 +2295,24 @@ a.button.icon-btn:hover { color: var(--fg); }
 .reading-pull { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; min-height: 0; padding: 0; margin: 0;
   border: 0; border-radius: 0; background: transparent; box-shadow: none; touch-action: none; cursor: pointer;
   display: flex; align-items: flex-end; justify-content: center; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+/* no scroll bar in reading mode (it drew a strip down the right edge on the owner's tablet) */
+.main[data-reading="true"] .vlist { scrollbar-width: none; }
+.main[data-reading="true"] .vlist::-webkit-scrollbar { display: none; }
+/* the way out: a small pill at the top for a few seconds (on entering and after a tap on the text) */
+.reading-exit { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%; z-index: 8;
+  display: flex; align-items: center; gap: 8px; padding: 0 4px 0 14px; border-radius: var(--radius-full);
+  background: var(--dialog-bg); border: 1px solid var(--line); box-shadow: var(--menu-shadow);
+  font-size: var(--text-sm); color: var(--text2); white-space: nowrap;
+  opacity: 0; transform: translate(-50%, -12px); pointer-events: none;
+  transition: opacity 180ms ease-out, transform 180ms ease-out; }
+.reading-exit.shown { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.reading-exit button { min-height: var(--tap-min); border: 0; background: transparent; color: var(--accent);
+  font-weight: 600; padding: 0 12px; }
+@media (prefers-reduced-motion: reduce) { .reading-exit { transition: none; } }
 /* the top edge: a swipe down from it brings the bars back (leaves reading mode); nothing shows */
-.main[data-reading="true"] .reading-top { position: fixed; top: 0; left: 0; right: 0; height: 24px; z-index: 7;
-  touch-action: none; pointer-events: auto; }
+.main[data-reading="true"] .reading-top { position: fixed; top: 0; left: 0; right: 0; height: 28px; z-index: 7;
+  touch-action: none; pointer-events: auto; display: flex; justify-content: center; align-items: flex-start;
+  padding-top: max(6px, env(safe-area-inset-top)); }
 .reading-handle { width: 40px; height: 4px; border-radius: var(--radius-full); background: var(--muted); opacity: 0.35; }
 .main[data-reading="true"] .vlist { padding-bottom: 28px; } /* the last line clears the handle */
 .main[data-reading="true"] .vitem:first-child { padding-top: max(var(--msg-gap), env(safe-area-inset-top)); }

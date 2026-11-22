@@ -76,13 +76,95 @@ function App() {
   // last message keeps its «…» and pinned buttons; the message box hides under an arrow and slides out on a tap.
   const [reading, setReading] = useState(() => store.get("tavern.reading") === "1");
   const [writeOpen, setWriteOpen] = useState(false);
+  // The way out, shown like a reader's bar: for a few seconds when the mode starts and after a tap on the text.
+  const [exitHint, setExitHint] = useState(false);
+  const exitTimer = useRef(null);
+  const flashExit = (ms = 3000) => {
+    clearTimeout(exitTimer.current);
+    setExitHint(true);
+    exitTimer.current = setTimeout(() => setExitHint(false), ms);
+  };
   const setReadingMode = (on) => {
     setReading(on);
     setWriteOpen(false);
-    if (on) store.set("tavern.reading", "1"); else store.del("tavern.reading");
+    if (on) { store.set("tavern.reading", "1"); flashExit(4000); } else { store.del("tavern.reading"); setExitHint(false); }
   };
-  const pull = useRef(null); // a finger on the bottom zone: { y, done }
-  const pullTop = useRef(null); // a finger on the top edge: a swipe down leaves reading mode
+  // The top edge: the chat's bar follows the finger down (1:1); let go past a third of it and reading mode ends,
+  // else it slides back up.
+  const pullTop = useRef(null);
+  const topStart = (e) => {
+    const bar = document.querySelector(".main .topbar");
+    if (!bar) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* moves still come */ }
+    const h = bar.offsetHeight || 52;
+    pullTop.current = { y: e.clientY, h, bar, off: 0 };
+    bar.style.transition = "none";
+    bar.style.visibility = "visible";
+    bar.style.transform = `translateY(${-h}px)`;
+  };
+  const topMove = (e) => {
+    const d = pullTop.current;
+    if (!d) return;
+    d.off = Math.max(0, Math.min(d.h, e.clientY - d.y));
+    d.bar.style.transform = `translateY(${d.off - d.h}px)`;
+  };
+  const topEnd = (cancelled) => {
+    const d = pullTop.current;
+    pullTop.current = null;
+    if (!d) return;
+    const leave = !cancelled && d.off > d.h / 3;
+    d.bar.style.transition = "";
+    d.bar.style.transform = leave ? "translateY(0)" : `translateY(${-d.h}px)`;
+    setTimeout(() => {
+      d.bar.style.transform = ""; d.bar.style.visibility = ""; d.bar.style.transition = "";
+      if (leave) setReadingMode(false);
+    }, 220);
+  };
+  // The strip follows the finger from the bottom edge (1:1); let go past a third of its height and it slides the rest
+  // of the way up, else back down. A plain tap opens it too.
+  const drag = useRef(null);
+  const dragStart = (e) => {
+    const box = document.querySelector(".composer");
+    if (!box) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* no capture: moves still come */ }
+    const h = box.offsetHeight || 56;
+    drag.current = { y: e.clientY, h, box, off: 0, moved: false };
+    box.style.transition = "none";
+    box.style.visibility = "visible";
+    box.style.transform = `translateY(${h}px)`;
+  };
+  const dragMove = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    d.off = Math.max(0, Math.min(d.h, d.y - e.clientY));
+    if (Math.abs(d.y - e.clientY) > 6) d.moved = true;
+    d.box.style.transform = `translateY(${d.h - d.off}px)`;
+  };
+  const dragEnd = (cancelled) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    const open = !cancelled && (!d.moved || d.off > d.h / 3);
+    d.box.style.transition = "";
+    d.box.style.transform = open ? "translateY(0)" : `translateY(${d.h}px)`;
+    setTimeout(() => { d.box.style.transform = ""; d.box.style.visibility = ""; }, 260);
+    if (open) setWriteOpen(true);
+  };
+  useEffect(() => { if (reading) flashExit(4000); }, []); // opened in reading mode: show once how to leave it
+  // In reading mode with the strip away, a tap on the text shows the way out for a moment.
+  useEffect(() => {
+    if (!reading || writeOpen) return undefined;
+    let down = null;
+    const start = (e) => { down = { x: e.clientX, y: e.clientY }; };
+    const end = (e) => {
+      if (down && Math.abs(e.clientX - down.x) < 8 && Math.abs(e.clientY - down.y) < 8 && e.target.closest
+        && e.target.closest(".vlist") && !e.target.closest("button, a, summary, input, textarea, [role=menu]")) flashExit();
+      down = null;
+    };
+    document.addEventListener("pointerdown", start, true);
+    document.addEventListener("pointerup", end, true);
+    return () => { document.removeEventListener("pointerdown", start, true); document.removeEventListener("pointerup", end, true); };
+  }, [reading, writeOpen]);
   useEffect(() => { // the box slid out: the keyboard comes with it
     if (writeOpen) setTimeout(() => { const t = document.querySelector(".composer textarea"); if (t) t.focus(); }, 30);
   }, [writeOpen]);
@@ -804,21 +886,20 @@ function App() {
               </div>`}
             </div>
             <div class="reading-dock" data-slot="reading-dock">
+            ${reading && html`<div class=${"reading-exit" + (exitHint ? " shown" : "")} data-slot="reading-exit"
+              role="status" aria-hidden=${exitHint ? null : "true"}>
+              <${Icon} name="book-open" /><span>Режим чтения</span>
+              <button type="button" tabindex=${exitHint ? null : "-1"} onClick=${() => setReadingMode(false)}>Выйти</button>
+            </div>`}
             ${reading && html`<div class="reading-top" data-slot="reading-top" aria-hidden="true"
-              onPointerDown=${(e) => { pullTop.current = e.clientY; }}
-              onPointerMove=${(e) => {
-                if (pullTop.current !== null && e.clientY - pullTop.current > 40) { pullTop.current = null; setReadingMode(false); }
-              }}
-              onPointerUp=${() => { pullTop.current = null; }} onPointerCancel=${() => { pullTop.current = null; }}></div>`}
+              onPointerDown=${topStart} onPointerMove=${topMove}
+              onPointerUp=${() => topEnd(false)} onPointerCancel=${() => topEnd(true)}>
+              <span class="reading-handle" aria-hidden="true"></span></div>`}
             ${reading && !writeOpen && html`<button type="button" class="reading-pull" data-slot="reading-pull"
-              aria-label="Написать сообщение" title="Тап или свайп вверх — поле ввода"
-              onPointerDown=${(e) => { pull.current = { y: e.clientY, done: false }; }}
-              onPointerMove=${(e) => {
-                if (pull.current && !pull.current.done && pull.current.y - e.clientY > 24) {
-                  pull.current.done = true; setWriteOpen(true);
-                }
-              }}
-              onClick=${() => { if (!pull.current || !pull.current.done) setWriteOpen(true); pull.current = null; }}>
+              aria-label="Написать сообщение" title="Потяните вверх или нажмите — поле ввода"
+              onPointerDown=${dragStart} onPointerMove=${dragMove}
+              onPointerUp=${() => dragEnd(false)} onPointerCancel=${() => dragEnd(true)}
+              onClick=${(e) => { if (e.detail === 0) setWriteOpen(true); /* keyboard: Enter / Space */ }}>
               <span class="reading-handle" aria-hidden="true"></span></button>`}
             <${Composer} running=${chat.running} role=${role} onRole=${chooseRole}
               rows=${settings.chat_density === "roomy" ? 2 : 1}
