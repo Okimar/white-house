@@ -2303,14 +2303,15 @@ a.button.icon-btn:hover { color: var(--fg); }
 .app .main[data-reading="true"] .composer [data-slot="stop-button"] svg { width: 18px; height: 18px; }
 .app .main[data-reading="true"] .composer textarea { flex: 1 1 auto; }
 /* the bottom zone: a tap or a swipe up brings the strip; only a faint handle shows it */
-.reading-pull { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; min-height: 0; padding: 0; margin: 0;
+.reading-pull { position: absolute; left: 0; right: 0; bottom: 0; height: var(--tap-min); min-height: 0; padding: 0; margin: 0;
+  overscroll-behavior: none;
   border: 0; border-radius: 0; background: transparent; box-shadow: none; touch-action: none; cursor: pointer;
   display: flex; align-items: flex-end; justify-content: center; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 /* no scroll bar in reading mode (it drew a strip down the right edge on the owner's tablet) */
 .main[data-reading="true"] .vlist { scrollbar-width: none; }
 .main[data-reading="true"] .vlist::-webkit-scrollbar { display: none; }
 /* the way out: a small pill at the top for a few seconds (on entering and after a tap on the text) */
-.reading-exit { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%; z-index: 8;
+.reading-exit { position: fixed; top: calc(var(--tap-min) + max(4px, env(safe-area-inset-top))); left: 50%; z-index: 8;
   display: flex; align-items: center; gap: 8px; padding: 0 4px 0 14px; border-radius: var(--radius-full);
   background: var(--dialog-bg); border: 1px solid var(--line); box-shadow: var(--menu-shadow);
   font-size: var(--text-sm); color: var(--text2); white-space: nowrap;
@@ -2321,9 +2322,9 @@ a.button.icon-btn:hover { color: var(--fg); }
   font-weight: 600; padding: 0 12px; }
 @media (prefers-reduced-motion: reduce) { .reading-exit { transition: none; } }
 /* the top edge: a swipe down from it brings the bars back (leaves reading mode); nothing shows */
-.main[data-reading="true"] .reading-top { position: fixed; top: 0; left: 0; right: 0; height: 28px; z-index: 7;
-  touch-action: none; pointer-events: auto; display: flex; justify-content: center; align-items: flex-start;
-  padding-top: max(6px, env(safe-area-inset-top)); }
+.main[data-reading="true"] .reading-top { position: fixed; top: 0; left: 0; right: 0; height: var(--tap-min); z-index: 7;
+  touch-action: none; overscroll-behavior: none; pointer-events: auto; display: flex; justify-content: center;
+  align-items: flex-start; padding-top: max(8px, env(safe-area-inset-top)); }
 .reading-handle { width: 40px; height: 4px; border-radius: var(--radius-full); background: var(--muted); opacity: 0.35; }
 .main[data-reading="true"] .vlist { padding-bottom: 28px; } /* the last line clears the handle */
 .main[data-reading="true"] .vitem:first-child { padding-top: max(var(--msg-gap), env(safe-area-inset-top)); }

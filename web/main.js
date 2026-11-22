@@ -105,7 +105,7 @@ function App() {
   const topMove = (e) => {
     const d = pullTop.current;
     if (!d) return;
-    d.off = Math.max(0, Math.min(d.h, e.clientY - d.y));
+    d.off = rubber(e.clientY - d.y, d.h);
     d.bar.style.transform = `translateY(${d.off - d.h}px)`;
   };
   const topEnd = (cancelled) => {
@@ -123,6 +123,7 @@ function App() {
   // The strip follows the finger from the bottom edge (1:1); let go past a third of its height and it slides the rest
   // of the way up, else back down. A plain tap opens it too.
   const drag = useRef(null);
+  const noBrowserGesture = (e) => { if (e.cancelable) e.preventDefault(); }; // no page scroll / pull-to-refresh
   const dragStart = (e) => {
     const box = document.querySelector(".composer");
     if (!box) return;
@@ -133,10 +134,12 @@ function App() {
     box.style.visibility = "visible";
     box.style.transform = `translateY(${h}px)`;
   };
+  // Past its full height the strip still follows a little (rubber band), so the end never feels stuck.
+  const rubber = (raw, h) => (raw <= h ? Math.max(0, raw) : h + Math.min(24, (raw - h) * 0.25));
   const dragMove = (e) => {
     const d = drag.current;
     if (!d) return;
-    d.off = Math.max(0, Math.min(d.h, d.y - e.clientY));
+    d.off = rubber(d.y - e.clientY, d.h);
     if (Math.abs(d.y - e.clientY) > 6) d.moved = true;
     d.box.style.transform = `translateY(${d.h - d.off}px)`;
   };
@@ -892,12 +895,12 @@ function App() {
               <button type="button" tabindex=${exitHint ? null : "-1"} onClick=${() => setReadingMode(false)}>Выйти</button>
             </div>`}
             ${reading && html`<div class="reading-top" data-slot="reading-top" aria-hidden="true"
-              onPointerDown=${topStart} onPointerMove=${topMove}
+              onPointerDown=${topStart} onPointerMove=${topMove} onTouchMove=${noBrowserGesture}
               onPointerUp=${() => topEnd(false)} onPointerCancel=${() => topEnd(true)}>
               <span class="reading-handle" aria-hidden="true"></span></div>`}
             ${reading && !writeOpen && html`<button type="button" class="reading-pull" data-slot="reading-pull"
               aria-label="Написать сообщение" title="Потяните вверх или нажмите — поле ввода"
-              onPointerDown=${dragStart} onPointerMove=${dragMove}
+              onPointerDown=${dragStart} onPointerMove=${dragMove} onTouchMove=${noBrowserGesture}
               onPointerUp=${() => dragEnd(false)} onPointerCancel=${() => dragEnd(true)}
               onClick=${(e) => { if (e.detail === 0) setWriteOpen(true); /* keyboard: Enter / Space */ }}>
               <span class="reading-handle" aria-hidden="true"></span></button>`}
