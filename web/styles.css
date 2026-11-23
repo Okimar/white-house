@@ -3157,3 +3157,28 @@ button.book-connected-pill { cursor: pointer; min-height: 32px; font-size: var(-
 .book-place { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: var(--text-sm); cursor: pointer; }
 @media (pointer: coarse) { .book-place { min-height: var(--tap); } }
 .book-place-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The chat window (Members.js): one line per member, settings under ⌄, hints behind «?». */
+.hint-q { display: inline-block; position: relative; }
+.hint-q > summary { list-style: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 50%; border: 1px solid var(--line); color: var(--muted); font-size: var(--text-xs); font-weight: 600; cursor: pointer;
+  position: relative; flex: none; }
+.hint-q > summary::-webkit-details-marker { display: none; }
+@media (pointer: coarse) { .hint-q > summary::after { content: ""; position: absolute; inset: -11px; } }
+.hint-q[open] > summary { color: var(--accent); border-color: var(--accent); }
+.hint-q { position: static; } /* the open hint is placed by its row: the whole row wide, never off the screen */
+.member-line { position: relative; } /* the window head is sticky, so positioned already */
+.hint-q[open] > .hint { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 8px 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+.side-head .hint-q { margin-left: 6px; }
+.members-compact .member { padding: 4px 8px; }
+.member-fold { display: inline-flex; align-items: center; gap: 8px; min-width: 0; background: transparent; border-color: transparent;
+  box-shadow: none; padding: 0 4px; min-height: var(--tap); text-align: left; }
+.member-fold .member-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-facts { font-size: var(--text-sm); white-space: nowrap; }
+.member-chevron { transition: transform 150ms ease-out; flex: none; }
+.member-fold[aria-expanded="true"] .member-chevron { transform: rotate(180deg); }
+.member-body { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 8px 4px; }
+.member-line { align-items: center; gap: 8px; flex-wrap: wrap; }
+.member-line .grow { flex: 1 1 200px; min-width: 0; }
+.working-books { font-size: var(--text-sm); margin: 4px 0 8px; }
+.chat-window .tabs { margin-bottom: 8px; }

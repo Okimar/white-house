@@ -76,7 +76,7 @@ export function Sidebar({ characters, chats, chatId, onOpenChat, onNewChat, onPi
         <button class="brand brand-home" data-slot="home-button" title="На главную: чат останется в списке"
           aria-label="На главную" onClick=${onHome}>White House</button>
         <span class="spacer"></span>
-        <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="search-button" onClick=${onSearch} />
+        <${IconButton} icon="search" label="Поиск: в этом чате или во всех" data-slot="search-button" onClick=${onSearch} />
         <${IconButton} icon="wand" label="Помощник" data-slot="assistant-button" onClick=${onAssistant} />
         <${IconButton} icon="settings" label="Настройки" onClick=${onSettings} />
       </div>

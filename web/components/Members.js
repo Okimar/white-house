@@ -1,4 +1,5 @@
-// "Участники" panel of a chat: who takes part, where each card goes (depth) and who is dropped first
+// The chat window (👥, owner 2026-11-22: tabs «Участники · Кто говорит · Пресет и лорбуки», a member is one line,
+// its settings unfold with ⌄, hints sit behind «?»). "Участники" panel of a chat: who takes part, where each card goes (depth) and who is dropped first
 // when the prompt does not fit (importance), which one is "me", and the chat's preset.
 // Who speaks (any chat may have many characters, that is normal): who answers (order), what the model
 // knows about the others, and per character talkativeness, "молчит", a short description and «Пусть ответит».
@@ -7,9 +8,9 @@ import { Select } from "./Select.js";
 import { html, useState, useEffect } from "../vendor/preact-htm.mjs";
 import { api } from "../core/api.js";
 import { BookPicker, LoreOrder } from "./Lorebooks.js";
-import { IconButton } from "./Icon.js";
+import { Icon, IconButton } from "./Icon.js";
 import { ask } from "./Dialogs.js";
-import { Pending } from "./State.js";
+import { Pending, useLoad } from "./State.js";
 import { backdrop, useEscape } from "../core/keys.js";
 
 const DEPTHS = [0, 1, 2, 3, 4, 5, 6, 8, 10, 15, 20];
@@ -56,8 +57,36 @@ function CharacterPicker({ member, characters, taken, onPick, onClose }) {
     </div></div>`;
 }
 
+// A hint behind a «?» (owner, 2026-11-22: dense, as in SillyTavern): the text shows on a tap, not always.
+function Q({ children, label = "Пояснение" }) {
+  return html`<details class="hint-q" data-slot="hint-q"><summary aria-label=${label} title=${label}>?</summary>
+    <p class="hint">${children}</p></details>`;
+}
+
+// «Уже работают» on the books tab: the books on everywhere and on the members' cards, by name.
+function WorkingBooks({ members }) {
+  const ids = (members || []).map((m) => m.character_id).filter(Boolean).join(",");
+  const { data } = useLoad(() => Promise.all([api.get("/lorebooks"), api.get("/lorebook-uses?scope=global"),
+    ...(members || []).filter((m) => m.character_id).map((m) => api.get(`/lorebook-uses?scope=character&target=${m.character_id}`)
+      .then((d) => ({ name: m.name, ids: d.lorebook_ids })))]), [ids]);
+  if (!data) return null;
+  const [books, global, ...own] = data;
+  const name = (id) => (books.lorebooks.find((b) => b.id === id) || {}).name || "?";
+  const lines = [
+    global.lorebook_ids.length ? `везде: ${global.lorebook_ids.map(name).join(", ")}` : "",
+    ...own.filter((o) => o.ids.length).map((o) => `у ${o.name}: ${o.ids.map(name).join(", ")}`),
+  ].filter(Boolean);
+  return html`<p class="muted working-books" data-slot="working-books">Уже работают в этом чате: ${lines.length
+    ? lines.join("; ") : "других книг нет"}. Где работает книга, меняется и в её окне: «Подключён: …».</p>`;
+}
+
+const TABS_KEY = "tavern.chatWindowTab";
+
 export function Members({ chat, characters, settings, generators = [], onClose, onChanged, onEditCharacter, onAnswer,
   onError }) {
+  const [tab, setTab] = useState(() => { try { return localStorage.getItem(TABS_KEY) || "members"; } catch (e) { return "members"; } });
+  const chooseTab = (id) => { setTab(id); try { localStorage.setItem(TABS_KEY, id); } catch (e) { /* storage off */ } };
+  const [open, setOpen] = useState({}); // member key -> details unfolded
   const [members, setMembers] = useState(null); // null until loaded: «пока нет персонажей» must not flash
   const [loadError, setLoadError] = useState("");
   const [speaking, setSpeaking] = useState({ order: "natural", others: "none", talk_limit: 4, together: "finished",
@@ -118,32 +147,45 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
   const taken = new Set((members || []).map((m) => m.character_id).filter(Boolean));
   const globalPreset = presets.find((p) => p.id === (settings.active_preset || "default"));
 
+  const key = (m) => m.slot_id;
+  const toggleOpen = (m) => setOpen((o) => ({ ...o, [key(m)]: !o[key(m)] }));
+  const TABS = [["members", "Участники"], ["speak", "Кто говорит"], ["books", "Пресет и лорбуки"]];
+
   return html`
     <div class="overlay" ...${backdrop(onClose)}>
-      <div class="dialog" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Участники чата">
-        <div class="side-head"><strong>Участники чата</strong><span class="spacer"></span>
+      <div class="dialog chat-window" data-slot="dialog" role="dialog" aria-modal="true" aria-label="Чат: участники, кто говорит, пресет и лорбуки">
+        <div class="side-head"><strong>Чат</strong>
+          <${Q} label="Что здесь">Здесь — кто в этом чате, кто отвечает, пресет и лорбуки этого чата. Сами тексты указаний
+            модели (не писать за вас, рассказчик, кто отвечает) лежат в пресете промпта: настройки, вкладка «Промпт».<//>
+          <span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
-        <p class="hint">Здесь — кто в чате и как они говорят. Сами тексты указаний модели (не писать за вас, рассказчик,
-          кто отвечает) лежат в пресете промпта: настройки, вкладка «Промпт».</p>
+        <div class="tabs" role="tablist" aria-label="Разделы окна чата">
+          ${TABS.map(([id, label]) => html`<button key=${id} role="tab" aria-selected=${tab === id}
+            data-slot=${"chat-window-tab-" + id} onClick=${() => chooseTab(id)}>${label}</button>`)}
+        </div>
+
+        ${tab === "members" && html`
         ${!members && html`<${Pending} error=${loadError} onRetry=${loadMembers} />`}
-        <ul class="members">
+        <ul class="members members-compact">
           ${members && members.length === 0 && html`<li class="empty-note" style="padding: 16px; margin-bottom: 12px">
             <p class="empty-title">В этом чате пока нет участников</p>
             <p class="muted empty-hint">Выберите персонажа в поле ниже и нажмите «Добавить», либо создайте нового персонажа для этой истории.</p>
           </li>`}
           ${(members || []).map((m) => html`
-            <li key=${m.slot_id} class=${"member" + (m.is_me ? " me" : "") + (m.empty ? " empty" : "")} data-slot="member">
+            <li key=${key(m)} class=${"member" + (m.is_me ? " me" : "") + (m.empty ? " empty" : "") + (open[key(m)] ? " open" : "")} data-slot="member">
               <div class="row member-head">
-                <div class="member-title-group">
+                <button type="button" class="member-fold" aria-expanded=${Boolean(open[key(m)])}
+                  title=${open[key(m)] ? "Свернуть" : "Настройки участника"} onClick=${() => toggleOpen(m)}>
                   ${m.has_avatar && html`<img class="msg-avatar member-avatar" src=${`/api/characters/${m.character_id}/avatar`} alt="" />`}
                   <strong class=${"member-name" + (m.empty ? " muted" : "")}>${m.name}</strong>
                   ${m.empty && html`<span class="badge muted" data-slot="member-empty">нет карточки</span>`}
                   ${m.is_me && html`<span class="badge badge-accent">это я</span>`}
                   ${m.character_id && m.character_id === chat.character_id && html`<span class="badge">главный</span>`}
-                </div>
+                  ${!m.is_me && !m.empty && html`<span class="muted member-facts">${m.muted ? "молчит" : `${m.talkativeness}%`}</span>`}
+                  <${Icon} name="chevron-down" class="member-chevron" />
+                </button>
                 <span class="spacer"></span>
                 <div class="member-actions">
-                  <button class="member-replace-btn" data-slot="member-replace" onClick=${() => setReplacing(m)}>Заменить</button>
                   ${!m.is_me && !m.empty && html`<${IconButton} icon="message-circle-reply" label="Пусть ответит"
                     onClick=${() => onAnswer(m.character_id)} />`}
                   ${!m.empty && html`<${IconButton} icon="pencil" label="Карточка персонажа"
@@ -151,69 +193,74 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
                   <${IconButton} icon="x" label="Убрать из чата" onClick=${() => remove(m)} />
                 </div>
               </div>
-              ${m.empty && html`<p class="hint">Это пустое место: в импортированном чате участвовал персонаж «${m.name}», но карточки нет в вашей библиотеке.
-                Он не отвечает сам и не попадает в промпт, его реплики остаются под этим именем. Нажмите «Заменить» и
-                выберите своего персонажа: настройки места сохранятся, а прежние реплики станут его репликами.</p>`}
+              ${m.empty && html`<p class="hint">Пустое место: в импортированном чате был персонаж «${m.name}», но его карточки нет.
+                Нажмите «Заменить» и выберите своего — прежние реплики станут его репликами.</p>`}
 
-              ${!m.empty && html`<h3 class="member-part">Роль в чате</h3>
-              <label class="check"><input type="checkbox" checked=${m.is_me}
-                onChange=${(e) => change(m, { is_me: e.target.checked })} /> это я (мой герой)</label>
-              <p class="hint">Персонаж, за которого играете вы. Его карточка передаётся модели как описание вашего героя.</p>`}
-              ${m.is_me && html`<label class="check"><input type="checkbox" checked=${m.model_may_write}
-                  onChange=${(e) => change(m, { model_may_write: e.target.checked })} /> модель может писать за него</label>
-                <p class="hint">${m.model_may_write
-                  ? "Модель может свободно создавать реплики и действия вашего героя."
-                  : "Модель не пишет за вашего героя, пока вы не попросите об этом напрямую. Формулировка задаётся в пресете промпта (блок «Не писать за меня»)."}</p>`}
-
-              ${!m.is_me && html`
-                <h3 class="member-part">Как говорит</h3>
-                <div data-slot="member-speaking">
-                  <div class="stack" data-slot="member-talkativeness">
-                    <span>Разговорчивость, %</span>
-                    <div class="row member-talk-row">
-                      <input type="range" min="0" max="100" step="1" value=${talk[m.slot_id] ?? m.talkativeness}
-                        aria-label=${`Разговорчивость ${m.name}`} class="member-talk-slider"
-                        style="flex: 1; min-width: 120px; min-height: var(--tap)"
-                        onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
-                        onChange=${(e) => saveTalk(m, e.target.value)} />
-                      <input type="number" min="0" max="100" step="1" inputmode="numeric"
-                        value=${talk[m.slot_id] ?? m.talkativeness} aria-label=${`Разговорчивость ${m.name}, число`}
-                        class="num member-talk-num"
-                        style="width: 76px; font-size: 16px"
-                        onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
-                        onChange=${(e) => saveTalk(m, e.target.value === "" ? m.talkativeness : e.target.value)} />
-                    </div>
-                  </div>
-                  <p class="hint">Насколько охотно персонаж отвечает сам, когда в диалоге никто не был назван по имени.</p>
-                  <label class="check"><input type="checkbox" checked=${m.muted}
-                    onChange=${(e) => change(m, { muted: e.target.checked })} /> молчит</label>
-                  <p class="hint">Временно не отвечает сам и не попадает в промпт, пока вы снова не включите.</p>
+              ${(open[key(m)] || m.empty) && html`<div class="member-body" data-slot="member-body">
+                <div class="row member-line">
+                  <button class="member-replace-btn" data-slot="member-replace" onClick=${() => setReplacing(m)}>Заменить</button>
+                  <${Q}>Другой персонаж займёт это место: настройки места сохранятся, прежние реплики станут его репликами.<//>
                 </div>
-                <label class="stack" data-slot="member-blurb">Коротко о нём для остальных
-                  <input value=${blurbs[m.slot_id] ?? m.blurb} maxLength="500"
-                    placeholder="Например: старый кузнец, ворчит"
-                    onInput=${(e) => setBlurbs((b) => ({ ...b, [m.slot_id]: e.target.value }))}
-                    onChange=${(e) => change(m, { blurb: e.target.value }).then(() => setBlurbs((b) => {
-                      const { [m.slot_id]: _, ...rest } = b;
-                      return rest;
-                    }))} /></label>
-                <p class="hint">Краткая справка, которую модель видит при генерации реплик других персонажей (если выбран режим «имена и короткие описания»).</p>`}
+                ${!m.empty && html`<div class="row member-line">
+                  <label class="check"><input type="checkbox" checked=${m.is_me}
+                    onChange=${(e) => change(m, { is_me: e.target.checked })} /> это я (мой герой)</label>
+                  <${Q}>Персонаж, за которого играете вы. Его карточка передаётся модели как описание вашего героя.<//>
+                </div>`}
+                ${m.is_me && html`<div class="row member-line">
+                  <label class="check"><input type="checkbox" checked=${m.model_may_write}
+                    onChange=${(e) => change(m, { model_may_write: e.target.checked })} /> модель может писать за него</label>
+                  <${Q}>${m.model_may_write
+                    ? "Модель может свободно создавать реплики и действия вашего героя."
+                    : "Модель не пишет за вашего героя, пока вы не попросите напрямую. Формулировка — в пресете (блок «Не писать за меня»)."}<//>
+                </div>`}
 
-              <h3 class="member-part">Место карточки в промпте</h3>
-              <div class="row">
-                <label>Глубина
-                  <${Select} value=${m.depth === null ? "top" : String(m.depth)}
-                    onChange=${(e) => change(m, { depth: e.target.value === "top" ? null : Number(e.target.value) })}>
-                    <option value="top">в начале</option>
-                    ${[...new Set([...DEPTHS, ...(m.depth === null ? [] : [m.depth])])].sort((a, b) => a - b)
-                      .map((d) => html`<option key=${d} value=${String(d)}>${d}</option>`)}
-                  </${Select}></label>
-                <label>Важность
-                  <${Select} value=${String(m.importance)} onChange=${(e) => change(m, { importance: Number(e.target.value) })}>
-                    ${IMPORTANCE.map((i) => html`<option key=${i} value=${String(i)}>${i}</option>`)}
-                  </${Select}></label>
-              </div>
-              <p class="hint">Глубина: за сколько сообщений до конца чата вставлять карточку (ближе к концу — модель сильнее придерживается инструкций). Важность: 1 — самый важный; при нехватке лимита контекста первыми отсекаются карточки с большим числом.</p>
+                ${!m.is_me && !m.empty && html`
+                  <div class="row member-line" data-slot="member-talkativeness">
+                    <span>Разговорчивость</span>
+                    <input type="range" min="0" max="100" step="1" value=${talk[m.slot_id] ?? m.talkativeness}
+                      aria-label=${`Разговорчивость ${m.name}`} class="member-talk-slider"
+                      style="flex: 1; min-width: 100px; min-height: var(--tap)"
+                      onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
+                      onChange=${(e) => saveTalk(m, e.target.value)} />
+                    <input type="number" min="0" max="100" step="1" inputmode="numeric"
+                      value=${talk[m.slot_id] ?? m.talkativeness} aria-label=${`Разговорчивость ${m.name}, число`}
+                      class="num member-talk-num" style="width: 68px; font-size: 16px"
+                      onInput=${(e) => setTalk((t) => ({ ...t, [m.slot_id]: e.target.value }))}
+                      onChange=${(e) => saveTalk(m, e.target.value === "" ? m.talkativeness : e.target.value)} />
+                    <${Q}>Насколько охотно персонаж отвечает сам, когда никто не назван по имени.<//>
+                  </div>
+                  <div class="row member-line">
+                    <label class="check"><input type="checkbox" checked=${m.muted}
+                      onChange=${(e) => change(m, { muted: e.target.checked })} /> молчит</label>
+                    <${Q}>Временно не отвечает сам и не попадает в промпт, пока вы снова не включите.<//>
+                  </div>
+                  <div class="row member-line" data-slot="member-blurb">
+                    <input class="grow" value=${blurbs[m.slot_id] ?? m.blurb} maxLength="500" aria-label="Коротко о нём для остальных"
+                      placeholder="Коротко о нём для остальных: старый кузнец, ворчит"
+                      onInput=${(e) => setBlurbs((b) => ({ ...b, [m.slot_id]: e.target.value }))}
+                      onChange=${(e) => change(m, { blurb: e.target.value }).then(() => setBlurbs((b) => {
+                        const { [m.slot_id]: _, ...rest } = b;
+                        return rest;
+                      }))} />
+                    <${Q}>Справка, которую модель видит, когда пишет за других персонажей (режим «имена и короткие описания» на вкладке «Кто говорит»).<//>
+                  </div>`}
+
+                <div class="row member-line">
+                  <label>Карточка в промпте: глубина
+                    <${Select} value=${m.depth === null ? "top" : String(m.depth)}
+                      onChange=${(e) => change(m, { depth: e.target.value === "top" ? null : Number(e.target.value) })}>
+                      <option value="top">в начале</option>
+                      ${[...new Set([...DEPTHS, ...(m.depth === null ? [] : [m.depth])])].sort((a, b) => a - b)
+                        .map((d) => html`<option key=${d} value=${String(d)}>${d}</option>`)}
+                    </${Select}></label>
+                  <label>важность
+                    <${Select} value=${String(m.importance)} onChange=${(e) => change(m, { importance: Number(e.target.value) })}>
+                      ${IMPORTANCE.map((i) => html`<option key=${i} value=${String(i)}>${i}</option>`)}
+                    </${Select}></label>
+                  <${Q}>Глубина: за сколько сообщений до конца чата вставлять карточку (ближе к концу — модель сильнее её держится).
+                    Важность: 1 — самый важный; когда не хватает места, первыми отсекаются карточки с большим числом.<//>
+                </div>
+              </div>`}
             </li>`)}
         </ul>
         ${replacing && html`<${CharacterPicker} member=${replacing} characters=${characters} taken=${taken}
@@ -225,26 +272,24 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
           </${Select}>
           <button class="primary" disabled=${!adding} onClick=${add}>Добавить</button>
           <button onClick=${() => onEditCharacter(null)}>Создать персонажа</button>
-        </div>
+        </div>`}
 
-        <div class="members-section-card" data-slot="speaker-card">
-          <h2 class="members-section-title">Кто говорит</h2>
-          <p class="hint">Общие правила для всего чата. Ответить может любой участник: кнопка «Пусть ответит» в списке выше или выбор имени под чатом.</p>
-          <div class="stack" data-slot="speaker-settings">
-            <label class="stack">Кто отвечает на ваше сообщение
-              <${Select} value=${speaking.order} onChange=${(e) => changeSpeaking({ order: e.target.value })}>
-                ${ORDERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-              </${Select}></label>
-            <label class="stack">Что модель знает об остальных, когда пишет за одного
-              <${Select} value=${speaking.others} onChange=${(e) => changeSpeaking({ others: e.target.value })}>
-                ${OTHERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
-              </${Select}></label>
-            <p class="hint">Чем больше сведений, тем точнее модель учитывает других персонажей, но тем больше токенов расходуется. Фраза «за кого писать» задаётся в пресете промпта (блок «Кто отвечает сейчас»).</p>
-            <label class="stack">«Пусть поговорят»: ответов подряд
-              <input type="number" min="1" max="50" value=${speaking.talk_limit}
-                onChange=${(e) => changeSpeaking({ talk_limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })} /></label>
-            <p class="hint">Сколько реплик подряд персонажи могут написать друг другу без вашего ответа.</p>
-          </div>
+        ${tab === "speak" && html`
+        <div class="stack" data-slot="speaker-settings">
+          <p class="hint">Общие правила для всего чата. Ответить может любой участник: «Ответит: имя» под чатом.</p>
+          <label class="stack">Кто отвечает на ваше сообщение
+            <${Select} value=${speaking.order} onChange=${(e) => changeSpeaking({ order: e.target.value })}>
+              ${ORDERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+            </${Select}></label>
+          <div class="row member-line"><label class="stack grow">Что модель знает об остальных, когда пишет за одного
+            <${Select} value=${speaking.others} onChange=${(e) => changeSpeaking({ others: e.target.value })}>
+              ${OTHERS.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
+            </${Select}></label>
+            <${Q}>Чем больше сведений, тем точнее модель учитывает других, но тем больше токенов. Фраза «за кого писать» — в пресете (блок «Кто отвечает сейчас»).<//></div>
+          <div class="row member-line"><label>«Пусть поговорят»: ответов подряд
+            <input type="number" min="1" max="50" value=${speaking.talk_limit} class="num" style="width: 68px"
+              onChange=${(e) => changeSpeaking({ talk_limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) })} /></label>
+            <${Q}>Сколько реплик подряд персонажи могут написать друг другу без вашего ответа.<//></div>
         </div>
 
         ${speaking.order === "all" && html`<div class="members-section-card" data-slot="together-card">
@@ -254,12 +299,12 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
               <${Select} value=${speaking.together} onChange=${(e) => changeSpeaking({ together: e.target.value })}>
                 ${TOGETHER.map(([id, label]) => html`<option key=${id} value=${id}>${label}</option>`)}
               </${Select}></label>
-            <label class="check">
+            <div class="row member-line"><label class="check">
               <input type="checkbox" checked=${speaking.narrator.enabled}
                 onChange=${(e) => changeSpeaking({ narrator: { enabled: e.target.checked } })} />
               <span>Рассказчик сводит ход в одну сцену</span></label>
-            <p class="hint">После хода всех сразу ещё один запрос сводит их действия в одну сцену.
-              Текст указания — в пресете, блок «Рассказчик после хода «все сразу»».</p>
+              <${Q}>После хода всех сразу ещё один запрос сводит их действия в одну сцену. Текст указания — в пресете,
+                блок «Рассказчик после хода «все сразу»». Имя подписывает его сообщение; подключение и модель можно взять подешевле.<//></div>
             ${speaking.narrator.enabled && html`<div class="narrator-grid" data-slot="narrator-settings">
               <label>Имя <input value=${narratorName ?? speaking.narrator.name} maxLength="200"
                 onInput=${(e) => setNarratorName(e.target.value)}
@@ -272,35 +317,34 @@ export function Members({ chat, characters, settings, generators = [], onClose, 
               <label>Модель <input value=${narratorModel ?? speaking.narrator.model} placeholder="как у подключения"
                 onInput=${(e) => setNarratorModel(e.target.value)}
                 onChange=${(e) => changeSpeaking({ narrator: { model: e.target.value } }).then(() => setNarratorModel(null))} /></label>
-            </div>
-            <p class="hint">Имя подписывает сообщение рассказчика. Подключение и модель можно взять другие, подешевле.</p>`}
+            </div>`}
           </div>
         </div>`}
 
-        <div class="members-section-card" data-slot="chat-preset-card">
-          <h2 class="members-section-title">Пресет промпта этого чата</h2>
-          <p class="hint">Порядок и тексты всего, что уходит модели. Пустой выбор — общий пресет из настроек.</p>
-          <${Select} value=${chat.meta.preset_id || ""} onChange=${(e) => choosePreset(e.target.value)}>
-            <option value="">Общий${globalPreset ? ` (${globalPreset.name})` : ""}</option>
-            ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
-          </${Select}>
+        ${(generators.length > 1 || chat.meta.generator) && html`<div class="row member-line">
+          <label class="stack grow">Ответ пишет
+          <${Select} data-slot="generator-pick" aria-label="Ответ пишет" value=${chat.meta.generator || ""}
+            onChange=${(e) => api.put(`/chats/${chat.id}/meta`, { generator: e.target.value }).then(onChanged)
+              .catch((err) => onError(err.message))}>
+            <option value="">Обычный способ</option>
+            ${generators.filter((g) => g.id !== "default").map((g) => html`<option key=${g.id} value=${g.id}>${g.name}</option>`)}
+            ${chat.meta.generator && !generators.some((g) => g.id === chat.meta.generator) && html`<option
+              value=${chat.meta.generator}>${chat.meta.generator} (дополнение выключено — пишет обычный способ)</option>`}
+          </${Select}></label>
+          <${Q}>Дополнение может писать ответы по-своему (например, сначала «подумать» за каждого персонажа). Его запросы к модели идут по правилам вкладки «Дополнения».<//></div>`}`}
+
+        ${tab === "books" && html`
+        <div class="row member-line" data-slot="chat-preset-card">
+          <label class="stack grow">Пресет промпта этого чата
+            <${Select} value=${chat.meta.preset_id || ""} onChange=${(e) => choosePreset(e.target.value)}>
+              <option value="">Общий${globalPreset ? ` (${globalPreset.name})` : ""}</option>
+              ${presets.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
+            </${Select}></label>
+          <${Q}>Порядок и тексты всего, что уходит модели. «Общий» — пресет из настроек.<//>
         </div>
-
-        ${(generators.length > 1 || chat.meta.generator) && html`<h2>Ответ пишет</h2>
-        <p class="hint">Дополнение может писать ответы по-своему (например, сначала «подумать» за каждого персонажа).
-          Его запросы к модели идут по правилам из настроек, вкладка «Дополнения».</p>
-        <${Select} data-slot="generator-pick" aria-label="Ответ пишет" value=${chat.meta.generator || ""}
-          onChange=${(e) => api.put(`/chats/${chat.id}/meta`, { generator: e.target.value }).then(onChanged)
-            .catch((err) => onError(err.message))}>
-          <option value="">Обычный способ</option>
-          ${generators.filter((g) => g.id !== "default").map((g) => html`<option key=${g.id} value=${g.id}>${g.name}</option>`)}
-          ${chat.meta.generator && !generators.some((g) => g.id === chat.meta.generator) && html`<option
-            value=${chat.meta.generator}>${chat.meta.generator} (дополнение выключено — пишет обычный способ)</option>`}
-        </${Select}>`}
-
-        <${BookPicker} scope="chat" target=${chat.id} title="Лорбуки этого чата" onError=${onError}
-          hint="Вместе с ними работают общие лорбуки (настройки, вкладка «Лорбуки») и лорбуки участников (в их карточках)." />
-        <${LoreOrder} chatId=${chat.id} onError=${onError} />
+        <${BookPicker} scope="chat" target=${chat.id} title="Лорбуки этого чата" onError=${onError} />
+        <${WorkingBooks} members=${members} />
+        <${LoreOrder} chatId=${chat.id} onError=${onError} />`}
       </div>
     </div>
   `;

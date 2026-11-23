@@ -572,18 +572,6 @@ function App() {
     setNumbers("");
   };
 
-  const search = async (event) => {
-    event.preventDefault();
-    const query = event.currentTarget.elements.query.value.trim();
-    if (!query || !chatId) return;
-    try {
-      const result = await chat.search(query);
-      setSearchResults(result.messages);
-    } catch (e) {
-      onError(e.message);
-    }
-  };
-
   const openBranches = async (messageId) => {
     try {
       const result = await chat.branches(messageId);
@@ -694,9 +682,6 @@ function App() {
   const chatView = [chat.chat && chat.chat.meta && chat.chat.meta.chat_view, settings.chat_view].find((v) => v === "document" || v === "bubbles") || "bubbles";
   const setChatView = (view) => api.put(`/chats/${chatId}/meta`, { chat_view: view })
     .then(() => chat.refreshInfo()).catch((e) => onError(e.message));
-  const ownView = (chat.chat && chat.chat.meta && chat.chat.meta.chat_view) || "";
-  const viewItem = (view, label) => ({ icon: ownView === view ? "check" : view === "document" ? "book-open" : "message-square", label: "Вид: " + label,
-    disabled: ownView === view, onClick: () => setChatView(view) });
   const ownChats = character ? chats.filter((c) => c.character_id === character.id).length : 0;
   const chatMenu = () => [
     // As SillyTavern's «Start new chat»: a fresh chat with the same character, and the others with them.
@@ -706,13 +691,17 @@ function App() {
     ...(character && ownChats > 1 ? [{ icon: "message-square", label: `Все чаты: ${character.name} (${ownChats})`,
       onClick: () => setShowCharacterChats(true) }] : []),
     { icon: "book-open", label: "Режим чтения", onClick: () => setReadingMode(true) },
-    { icon: "search", label: "Поиск по чату", onClick: () => setSearching(true), phone: true },
-    { icon: "users", label: "Участники и пресет", onClick: () => setShowMembers(true), phone: true },
+    { icon: "users", label: "Участники, пресет, лорбуки", onClick: () => setShowMembers(true), phone: true },
     { icon: "notebook-pen", label: "Заметки автора", onClick: () => setShowNotes(true), phone: true },
     { icon: "user", label: selecting ? "Закончить смену ролей" : "Сменить роли", onClick: toggleSelecting },
-    viewItem("bubbles", "Пузыри"),
-    viewItem("document", "Документ"),
-    { icon: "undo-2", label: "Вид: как в настройках", disabled: !ownView, onClick: () => setChatView("") },
+    // One switch (owner, 2026-11-22): the other look for this chat; choosing the general one drops the chat's own.
+    (() => {
+      const next = chatView === "document" ? "bubbles" : "document";
+      const general = settings.chat_view === "document" ? "document" : "bubbles";
+      return { icon: next === "document" ? "book-open" : "message-square",
+        label: `Вид: ${chatView === "document" ? "Документ" : "Пузыри"} → ${next === "document" ? "Документ" : "Пузыри"}`,
+        onClick: () => setChatView(next === general ? "" : next) };
+    })(),
     { icon: "download", label: "Скачать чат", href: `/api/chats/${chatId}/export.jsonl` },
   ].filter((item) => !item.phone || window.matchMedia("(max-width: 720px)").matches);
   const onTitleClick = async () => {
@@ -756,7 +745,7 @@ function App() {
               onClick=${() => setSheet(sheet === id ? null : id)} />`)}
           </span>
           <span class="spacer"></span>
-          <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="menubar-search" onClick=${openSearch} />
+          <${IconButton} icon="search" label="Поиск: в этом чате или во всех" data-slot="menubar-search" onClick=${openSearch} />
           <${IconButton} icon="wand" label=${assistantBusy ? "Помощник: есть работа" : "Помощник"}
             class=${assistantBusy ? "has-mark" : ""} data-slot="menubar-assistant"
             onClick=${assistantBusy ? openAssistantMark : openAssistant} />
@@ -767,14 +756,14 @@ function App() {
             <${IconButton} icon="menu" label="Развернуть верхнюю панель" data-slot="phone-unfold" onClick=${() => setMenuFolded(false)} />
             <button class="brand brand-home icon-btn" data-slot="phone-folded-home" title="На главную: чат останется в списке"
               aria-label="На главную" onClick=${goHome}><${Icon} name="home" /></button>
-            <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="phone-folded-search" onClick=${openSearch} />
+            <${IconButton} icon="search" label="Поиск: в этом чате или во всех" data-slot="phone-folded-search" onClick=${openSearch} />
             <${IconButton} icon="settings" label="Настройки" data-slot="phone-folded-settings" onClick=${() => openSettings()} />
           </span>`}
           ${menuFolded && html`<span class="menu-folded only-wide" data-slot="menu-folded">
             <${IconButton} icon="menu" label="Развернуть меню" data-slot="unfold-menu" onClick=${() => setMenuFolded(false)} />
             <button class="brand brand-home icon-btn" data-slot="folded-home" title="На главную: чат останется в списке"
               aria-label="На главную" onClick=${goHome}><${Icon} name="home" /></button>
-            <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="folded-search" onClick=${openSearch} />
+            <${IconButton} icon="search" label="Поиск: в этом чате или во всех" data-slot="folded-search" onClick=${openSearch} />
             <${IconButton} icon="settings" label="Настройки" data-slot="folded-settings" onClick=${() => openSettings()} />
           </span>`}
           ${shown && html`<${IconButton} icon="chevron-left" label="На главную (чат останется в списке)" class="home-back"
@@ -794,16 +783,12 @@ function App() {
             ${SECTIONS.map(([id, icon, label]) => html`<${IconButton} key=${id} icon=${icon} label=${label}
               aria-pressed=${sheet === id} aria-haspopup="true" aria-expanded=${sheet === id}
               onClick=${() => setSheet(sheet === id ? null : id)} />`)}
-            <${IconButton} icon="search" label="Поиск по всем чатам" data-slot="phone-search" onClick=${openSearch} />
+            <${IconButton} icon="search" label="Поиск: в этом чате или во всех" data-slot="phone-search" onClick=${openSearch} />
             <${IconButton} icon="wand" label=${assistantBusy ? "Помощник: есть работа" : "Помощник"}
               class=${assistantBusy ? "has-mark" : ""}
               onClick=${assistantBusy ? openAssistantMark : openAssistant} />
             <${IconButton} icon="settings" label="Настройки" onClick=${() => openSettings()} />
           </nav>
-          ${shown && html`<form class=${"search" + (searching ? " open" : "")} onSubmit=${search} role="search">
-            <${Icon} name="search" />
-            <input name="query" type="search" enterkeyhint="search" placeholder="Поиск" aria-label="Поиск по чату" />
-          </form>`}
           ${assistantBusy && html`<button class=${"assistant-mark only-wide" + (assistantState.waiting.length ? " waiting" : "")}
             data-slot="assistant-mark" title="Открыть помощника" onClick=${openAssistantMark}>
             <${Icon} name="wand" /> ${assistantState.waiting.length ? "Ждёт вас" : "Работает"}</button>`}
@@ -816,7 +801,7 @@ function App() {
           ${shown && html`<${StatusChips} chips=${statusChips()} />`}
           ${shown && html`<${WindowButtons} windows=${pluginUi.windows} />`}
           ${shown && html`<${PanelButtons} panels=${pluginUi.panels} />`}
-          ${shown && html`<${IconButton} icon="users" label="Участники чата и пресет" class="only-wide"
+          ${shown && html`<${IconButton} icon="users" label="Чат: участники, кто говорит, пресет и лорбуки" class="only-wide"
             data-slot="members-button" onClick=${() => setShowMembers(true)} />`}
           ${shown && html`<${IconButton} icon="notebook-pen" label="Заметки автора" class="only-wide"
             data-slot="notes-button" onClick=${() => setShowNotes(true)} />`}
@@ -984,7 +969,7 @@ function App() {
         onEditCharacter=${setEditingCharacter} />`}
       ${editingCharacter !== undefined && html`<${CharacterEditor} characterId=${editingCharacter}
         settings=${settings} onClose=${() => setEditingCharacter(undefined)} onError=${onError}
-        onSaved=${() => { setEditingCharacter(undefined); refresh(); }} />`}
+        onSaved=${() => refresh()} />`}
       ${chat.pick && shown && html`<${PickVariants} messageId=${chat.pick} onError=${onError} onClose=${chat.closePick}
         onPick=${async (index) => { await chat.swipe(chat.pick, index); chat.closePick(); }} />`}
       ${showNotes && shown && html`<${Notes} chat=${chat.chat} showHidden=${showHidden}
@@ -1000,7 +985,8 @@ function App() {
           setNotesOpen((o) => ({ ...o, [notesFor.message.id]: on }));
         }} />`}
       ${promptOf && html`<${PromptView} message=${promptOf} onClose=${() => setPromptOf(null)} onError=${onError} />`}
-      ${showSearch && html`<${Search} characters=${characters} onOpen=${openFound} onError=${onError}
+      ${showSearch && html`<${Search} characters=${characters} chatId=${shown ? chatId : null}
+        chatTitle=${shown ? (chat.chat.title || "").trim() : ""} onOpen=${openFound} onError=${onError}
         onClose=${() => setShowSearch(false)} />`}
       ${pickingNewChat && html`<${NewChatPicker} characters=${characters} chats=${chats}
         onPick=${(id) => { setPickingNewChat(false); newChat(id); }}

@@ -174,7 +174,9 @@ function ColorEditor({ theme, onSaved, onError }) {
     </details>`;
 }
 
-export function Themes({ themes, deleted, settings, characters, onChanged, onError }) {
+// chatLook: the rest of how the chat looks (density, text size, coloured text, thinking, message buttons, notes,
+// reading mode), given by Settings.js so the whole look is on this one tab, in the order the eye meets it.
+export function Themes({ themes, deleted, settings, characters, chatLook = null, onChanged, onError }) {
   const [versions, setVersions] = useState(null); // { theme, list }
   const fileInput = useRef(null);
   const versionsBox = useRef(null);
@@ -299,18 +301,6 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
       </div>
     </div>`}
 
-    ${!SAFE_MODE && pending && !pending.error && html`<${ColorEditor} theme=${pending} onError=${onError}
-      onSaved=${async (id, same) => { if (same) { reloadThemeCss(); await onChanged(); } else await save({ theme: id }); }} />`}
-
-    <h2>Вид чата</h2>
-    <${Select} value=${settings.chat_view || "bubbles"} aria-label="Как показывать сообщения чата"
-      onChange=${(e) => save({ chat_view: e.target.value })}>
-      <option value="bubbles">Пузыри: у каждого сообщения своя рамка</option>
-      <option value="document">Документ: сплошной текст, над каждым сообщением тонкая строка с именем</option>
-    </${Select}>
-    <p class="hint">Действует во всех чатах. Для одного чата вид можно выбрать в его меню «⋯» (пункты «Вид»).
-      «Документ» даёт тексту почти всю ширину экрана.</p>
-
     <h2>Темы</h2>
     <div class="theme-grid" data-slot="theme-grid">
       ${themes.map((t) => html`<${ThemeCard} key=${t.id} theme=${t} active=${t.id === current}
@@ -344,6 +334,19 @@ export function Themes({ themes, deleted, settings, characters, onChanged, onErr
       </ul>
       <button onClick=${() => setVersions(null)}>Закрыть</button>
     </div>`}
+
+    ${!SAFE_MODE && pending && !pending.error && html`<${ColorEditor} theme=${pending} onError=${onError}
+      onSaved=${async (id, same) => { if (same) { reloadThemeCss(); await onChanged(); } else await save({ theme: id }); }} />`}
+
+    <h2>Вид чата</h2>
+    <${Select} value=${settings.chat_view || "bubbles"} aria-label="Как показывать сообщения чата"
+      onChange=${(e) => save({ chat_view: e.target.value })}>
+      <option value="bubbles">Пузыри: у каждого сообщения своя рамка</option>
+      <option value="document">Документ: сплошной текст, над каждым сообщением тонкая строка с именем</option>
+    </${Select}>
+    <p class="hint">Действует во всех чатах. Одному чату вид меняется в его меню «⋯», пункт «Вид».
+      «Документ» даёт тексту почти всю ширину экрана.</p>
+    ${chatLook}
 
     ${characters.length > 0 && html`
       <h2>Тема персонажа</h2>

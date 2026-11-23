@@ -9,7 +9,6 @@ import { notify } from "../core/notify.js";
 import { getChoice, setChoice } from "../core/choice.js";
 import { backdrop, useEscape } from "../core/keys.js";
 import { ROLES } from "./roles.js";
-import { NoteList } from "./Notes.js";
 import { RegexOwner, GlobalRulesHint } from "./Regex.js";
 import { Icon, IconButton } from "./Icon.js";
 import { ask, askText } from "./Dialogs.js";
@@ -516,8 +515,8 @@ export function Presets({ settings, onChanged, onError }) {
         ${dirty && html`<button onClick=${() => open(current.id)}>Отменить правки</button>`}
       </div>`}`}
     <${RetrievalSettings} settings=${settings} onChanged=${onChanged} onError=${onError} />
-    <h2>Общие заметки автора</h2>
-    <p class="muted">Работают во всех чатах. Заметки чата и персонажей — кнопка с блокнотом <${Icon} name="notebook-pen" /> в шапке чата.</p>
-    <${NoteList} scope="global" onError=${onError} />
+    <h2>Заметки автора</h2>
+    <p class="muted">Все заметки — и общие для всех чатов, и чата, и персонажей — в одном окне: кнопка с блокнотом
+      <${Icon} name="notebook-pen" /> в строке открытого чата (на телефоне — меню «⋯» → «Заметки автора»), вкладка «Общие».</p>
   `;
 }

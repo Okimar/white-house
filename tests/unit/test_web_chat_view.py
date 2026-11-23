@@ -48,7 +48,9 @@ def test_the_page_puts_the_view_on_the_chat_and_remeasures_the_list() -> None:
     assert "data-view=${chatView}" in MAIN
     # the list re-measures when the view changes (also reading mode, density and text size: part of the same key)
     assert re.search(r"layoutKey=\$\{`\$\{chatView\}\|", MAIN)
-    assert 'chat_view: view' in MAIN and "Вид: как в настройках" in MAIN
+    assert 'chat_view: view' in MAIN
+    # one switch in the chat menu: choosing the general look drops the chat's own (owner, 2026-11-23)
+    assert "setChatView(next === general ? \"\" : next)" in MAIN
     # the chat's own choice first, then the app setting, then bubbles
     assert re.search(r"chat\.chat\.meta\.chat_view, settings\.chat_view\]", MAIN)
     lst = (WEB / "components" / "VirtualList.js").read_text(encoding="utf-8")

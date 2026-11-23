@@ -76,8 +76,12 @@ function Hit({ hit, onPick }) {
   </button>`;
 }
 
-export function Search({ characters, onOpen, onClose, onError }) {
-  const [scope, setScope] = useState(() => (read(SCOPE_KEY, "chats") === "assistant" ? "assistant" : "chats"));
+// chatId: the open chat. Then the window starts on «Этот чат» (owner, 2026-11-22: one magnifier for both); the
+// server scope is still "chats", narrowed by `chat`.
+export function Search({ characters, chatId = null, chatTitle = "", onOpen, onClose, onError }) {
+  const [place, setPlace] = useState(() => (chatId ? "this" : (read(SCOPE_KEY, "chats") === "assistant" ? "assistant" : "chats")));
+  const scope = place === "assistant" ? "assistant" : "chats";
+  const inChat = place === "this" && Boolean(chatId);
   const [mode, setMode] = useState("plain"); // plain | ask
   const [query, setQuery] = useState("");
   const [question, setQuestion] = useState("");
@@ -122,6 +126,7 @@ export function Search({ characters, onOpen, onClose, onError }) {
   const params = (extra = {}) => {
     const p = new URLSearchParams({ scope, ...extra });
     for (const [k, v] of Object.entries(filters)) if (v && (scope === "chats" || k === "since" || k === "until")) p.set(k, v);
+    if (inChat) { p.set("chat", chatId); p.delete("character"); p.delete("group"); }
     return p;
   };
 
@@ -149,9 +154,9 @@ export function Search({ characters, onOpen, onClose, onError }) {
   useEffect(() => {
     const timer = setTimeout(() => { if (mode === "plain") run(false); }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [query, scope, filters, mode]);
+  }, [query, place, filters, mode]);
 
-  const chooseScope = (next) => { setScope(next); write(SCOPE_KEY, next); setAsked(null); };
+  const chooseScope = (next) => { setPlace(next); if (next !== "this") write(SCOPE_KEY, next); setAsked(null); };
   const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
 
   const askModel = async () => {
@@ -159,6 +164,7 @@ export function Search({ characters, onOpen, onClose, onError }) {
     setAsked({ running: true, result: null, error: "" });
     const body = { scope, question: question.trim(), token: token.current };
     for (const [k, v] of Object.entries(filters)) if (v && (scope === "chats" || k === "since" || k === "until")) body[k] = v;
+    if (inChat) { body.chat = chatId; delete body.character; delete body.group; }
     try {
       const result = await api.post("/search/ask", body);
       setAsked({ running: false, result, error: "" });
@@ -170,12 +176,12 @@ export function Search({ characters, onOpen, onClose, onError }) {
   const stopAsking = () => { if (token.current) api.post("/search/stop", { token: token.current }).catch(() => {}); };
 
   const filterBar = html`<div class="search-filters" data-slot="search-filters">
-    ${scope === "chats" && html`<label>Персонаж
+    ${scope === "chats" && !inChat && html`<label>Персонаж
       <${Select} value=${filters.character} onChange=${(e) => setFilter("character", e.target.value)}>
         <option value="">Любой</option>
         ${characters.map((c) => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
       </${Select}></label>`}
-    ${scope === "chats" && html`<label>Группа чатов
+    ${scope === "chats" && !inChat && html`<label>Группа чатов
       <${Select} value=${filters.group} onChange=${(e) => setFilter("group", e.target.value)}>
         <option value="">Любая</option>
         <option value="none">Без группы</option>
@@ -197,8 +203,11 @@ export function Search({ characters, onOpen, onClose, onError }) {
         <div class="side-head"><strong>Поиск</strong><span class="spacer"></span>
           <${IconButton} icon="x" label="Закрыть" onClick=${onClose} /></div>
         <div class="tabs" role="tablist" aria-label="Где искать">
-          <button role="tab" aria-selected=${scope === "chats"} onClick=${() => chooseScope("chats")}>Обычные чаты</button>
-          <button role="tab" aria-selected=${scope === "assistant"} onClick=${() => chooseScope("assistant")}>Разговоры с помощником</button>
+          ${chatId && html`<button role="tab" aria-selected=${place === "this"} data-slot="search-this-chat"
+            title=${chatTitle ? "Искать в чате «" + chatTitle + "»" : "Искать в открытом чате"}
+            onClick=${() => chooseScope("this")}>Этот чат</button>`}
+          <button role="tab" aria-selected=${place === "chats"} onClick=${() => chooseScope("chats")}>Все чаты</button>
+          <button role="tab" aria-selected=${place === "assistant"} onClick=${() => chooseScope("assistant")}>Помощник</button>
         </div>
         <div class="tabs search-modes" role="tablist" aria-label="Как искать">
           <button role="tab" aria-selected=${mode === "plain"} onClick=${() => setMode("plain")}>
@@ -212,7 +221,7 @@ export function Search({ characters, onOpen, onClose, onError }) {
           <form class="search-form" role="search" onSubmit=${(e) => { e.preventDefault(); run(false); }}>
             <${Icon} name=${plain.loading ? "loader-circle" : "search"} class=${plain.loading ? "state-spinner" : ""} />
             <input type="search" value=${query} autofocus enterkeyhint="search" aria-label="Что искать"
-              placeholder=${scope === "chats" ? "Слова из сообщений, «точная фраза» в кавычках" : "Слова из разговоров с помощником"}
+              placeholder=${inChat ? "Слова из этого чата, «точная фраза» в кавычках" : scope === "chats" ? "Слова из сообщений, «точная фраза» в кавычках" : "Слова из разговоров с помощником"}
               onInput=${(e) => setQuery(e.target.value)}
               onKeyDown=${(e) => {
                 if (e.key === "ArrowDown") {

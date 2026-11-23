@@ -164,21 +164,12 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
             </${Select}>
           </label>
           <p id="hint-menu-mode" class="hint">Выбор действует на этом устройстве. Меню можно свернуть кнопкой в левом верхнем углу, чтобы чату хватило места.</p>
-
-          <label class="stack">Кнопки сообщения
-            <${Select} value=${settings.message_actions || "menu"} aria-label="Как показывать кнопки сообщения"
-              aria-describedby="hint-message-actions"
-              onChange=${(e) => saveSetting({ message_actions: e.target.value })}>
-              <option value="menu">В выпадающем списке сбоку</option>
-              <option value="always">Все всегда на панели</option>
-            </${Select}>
-          </label>
-          <p id="hint-message-actions" class="hint">Отмеченные кнопки всегда на панели сообщения, остальные в списке.</p>
-          <div class="check-grid">
-            ${MESSAGE_ACTIONS.map((a) => html`<label key=${a.id}><input type="checkbox" checked=${pinned.includes(a.id)}
-              onChange=${(e) => togglePinned(a.id, e.target.checked)} /> ${a.label}</label>`)}
-          </div>
-
+          <p class="hint">Как выглядит чат (тема, плотность, размер текста, цветной текст, кнопки сообщения) — на вкладке
+            <button type="button" class="link" onClick=${() => chooseTab("look")}>«Оформление»</button>.</p>
+        </section>
+        `}
+        ${tab === "look" && html`<${Themes} themes=${themes} deleted=${deletedThemes} settings=${settings}
+          characters=${characters} onChanged=${onChanged} onError=${onError} chatLook=${html`
           <label class="stack">Плотность чата
             <${Select} value=${settings.chat_density || "compact"} aria-label="Плотность текста в чате"
               aria-describedby="hint-chat-density" onChange=${(e) => saveSetting({ chat_density: e.target.value })}>
@@ -197,15 +188,9 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           </label>
           <p id="hint-chat-font" class="hint">Только текст сообщений и размышлений. Кнопки и меню не меняются.</p>
 
-          <label class="stack">Режим чтения: прятать пустое поле ввода через, секунд
-            <input type="number" inputmode="numeric" min="0" max="120" step="1" class="num"
-              value=${settings.reading_hide_seconds ?? 4} aria-describedby="hint-reading-hide"
-              onChange=${(e) => {
-                const n = Math.round(Number(e.target.value));
-                if (Number.isFinite(n) && n >= 0 && n <= 120) saveSetting({ reading_hide_seconds: n });
-              }} />
-          </label>
-          <p id="hint-reading-hide" class="hint">Поле ввода в режиме чтения уезжает само, если в нём ничего не написано. 0 — не прятать. Тап мимо поля прячет его сразу.</p>
+          <h3 class="settings-sub">Цветной текст</h3>
+          <${TextColors} settings=${settings} saveSetting=${saveSetting} />
+          <p class="hint">Текст между метками красится в выбранный цвет во всех сообщениях. Например, кавычки " " красят прямую речь, звёздочки * * — действия. Модели уходит текст как есть.</p>
 
           <label class="stack">Размышления модели
             <${Select} value=${settings.thinking_display || "folded"} aria-label="Как показывать размышления модели"
@@ -218,9 +203,29 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
           </label>
           <p id="hint-thinking-display" class="hint">Отправлять ли прошлые размышления модели, настраивается в пресете: блок «История чата».</p>
 
-          <h3 class="settings-sub">Цветной текст</h3>
-          <${TextColors} settings=${settings} saveSetting=${saveSetting} />
-          <p class="hint">Текст между метками красится в выбранный цвет во всех сообщениях. Например, кавычки " " красят прямую речь, звёздочки * * — действия. Модели уходит текст как есть.</p>
+          <label class="stack">Кнопки сообщения
+            <${Select} value=${settings.message_actions || "menu"} aria-label="Как показывать кнопки сообщения"
+              aria-describedby="hint-message-actions"
+              onChange=${(e) => saveSetting({ message_actions: e.target.value })}>
+              <option value="menu">В выпадающем списке сбоку</option>
+              <option value="always">Все всегда на панели</option>
+            </${Select}>
+          </label>
+          <p id="hint-message-actions" class="hint">Отмеченные кнопки всегда на панели сообщения, остальные в списке.</p>
+          <div class="check-grid">
+            ${MESSAGE_ACTIONS.map((a) => html`<label key=${a.id}><input type="checkbox" checked=${pinned.includes(a.id)}
+              onChange=${(e) => togglePinned(a.id, e.target.checked)} /> ${a.label}</label>`)}
+          </div>
+
+          <label class="stack">Режим чтения: прятать пустое поле ввода через, секунд
+            <input type="number" inputmode="numeric" min="0" max="120" step="1" class="num"
+              value=${settings.reading_hide_seconds ?? 4} aria-describedby="hint-reading-hide"
+              onChange=${(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n) && n >= 0 && n <= 120) saveSetting({ reading_hide_seconds: n });
+              }} />
+          </label>
+          <p id="hint-reading-hide" class="hint">Поле ввода в режиме чтения уезжает само, если в нём ничего не написано. 0 — не прятать. Тап мимо поля прячет его сразу.</p>
 
           <label class="stack">Заметки возле сообщения
             <${Select} value=${settings.notes_display || "few"} aria-label="Сколько заметок показывать возле сообщения"
@@ -238,8 +243,9 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
                 onChange=${(e) => setNotesShown(e.target.value).then(onChanged).catch((err) => onError(err.message))} /></label>
           `}
           <p id="hint-notes-display" class="hint">Возле сообщения видны только последние заметки, под ними строка «Видны последние N из M». Число можно менять и прямо на этой строке.</p>
-        </section>
+        `} />`}
 
+        ${tab === "main" && html`
         <section class="settings-section stack" data-slot="settings-section">
           <h2>Персонажи и вы</h2>
           <label class="stack">Мой персонаж по умолчанию
@@ -298,9 +304,6 @@ export function Settings({ settings, themes, deletedThemes, characters, initialT
 
         ${tab === "prompt" && html`<${Presets} settings=${settings} onChanged=${onChanged} onError=${onError} />`}
         ${tab === "lore" && html`<${LorebookSettings} settings=${settings} onChanged=${onChanged} onError=${onError} />`}
-
-        ${tab === "look" && html`<${Themes} themes=${themes} deleted=${deletedThemes} settings=${settings}
-          characters=${characters} onChanged=${onChanged} onError=${onError} />`}
 
         ${tab === "pictures" && html`<${Gallery} settings=${settings} connections=${connections}
           onChanged=${onChanged} onError=${onError} />`}
